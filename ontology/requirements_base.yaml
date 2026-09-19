@@ -33,6 +33,7 @@ default_range: string
 
 imports:
   - linkml:types
+  - enterprise_structure
 
 # ============================================================================
 # ENUMERATIONS
@@ -179,59 +180,6 @@ enums:
       CURRENCY: { description: Monetary value. }
       BOOLEAN: { description: Binary pass/fail. }
       LEVEL_ORDINAL: { description: Ordinal scale (e.g., Low/Med/High). }
-
-  EnterpriseTopologyType:
-    description: >-
-      The organizational topology of the enterprise. Determines whether
-      a Platform construct is present or whether the enterprise uses
-      a simpler Product-System hierarchy.
-    permissible_values:
-      STANDALONE:
-        description: >-
-          Non-platform topology. Products and Systems exist independently
-          without a shared platform foundation.
-      PLATFORM_CENTRIC:
-        description: >-
-          Platform topology. A Platform construct exists as a foundation
-          that Products and Systems build on or are part of.
-      HYBRID:
-        description: >-
-          Mixed topology. Some products/systems are platform-based,
-          others are standalone.
-
-  PlatformContractType:
-    description: >-
-      The type of contract a platform exposes to extenders.
-    permissible_values:
-      API:
-        description: REST, GraphQL, or other API interface.
-      SDK:
-        description: Software Development Kit for integration.
-      EVENT_BUS:
-        description: Event/messaging interface (pub/sub).
-      EXTENSION_POINT:
-        description: Plugin or extension mechanism.
-      DATA_SCHEMA:
-        description: Shared data model or schema contract.
-      UI_COMPONENT:
-        description: Reusable UI component or widget.
-
-  LifecycleStatus:
-    description: >-
-      Lifecycle state of an enterprise construct (Product, System, etc.).
-    permissible_values:
-      CONCEPT:
-        description: Early ideation, not yet committed.
-      IN_DEVELOPMENT:
-        description: Actively being built.
-      ACTIVE:
-        description: Live and serving users/consumers.
-      DEPRECATED:
-        description: Still operational but being phased out.
-      RETIRED:
-        description: No longer operational.
-      SUNSET_PLANNED:
-        description: Active but retirement date set.
 
 # ============================================================================
 # SUBSETS (logical groupings for navigation)
@@ -382,6 +330,20 @@ classes:
           Platforms in scope for this specification. Optional — only populated
           when the enterprise uses a platform topology.
         range: Platform
+        multivalued: true
+        inlined_as_list: true
+      sub_product_scopes:
+        description: >-
+          Feature scoping of sub-products against requirements.
+          Optional — only populated when sub-products exist.
+        range: SubProductScope
+        multivalued: true
+        inlined_as_list: true
+      system_capability_bindings:
+        description: >-
+          Which systems are accountable for which business capabilities.
+          Optional — used for capability coverage auditing.
+        range: SystemCapabilityBinding
         multivalued: true
         inlined_as_list: true
     class_uri: sea-req:RequirementSpecification
@@ -1135,335 +1097,7 @@ classes:
       - Specification
 
   # --------------------------------------------------------------------------
-  # 7. ENTERPRISE STRUCTURE (Topology-Aware)
-  # --------------------------------------------------------------------------
-  # These classes model the organizational constructs of an enterprise.
-  # They are OPTIONAL — populated only when the specification covers
-  # requirements at those altitudes. The topology (standalone vs platform)
-  # determines which constructs are instantiated.
-  # --------------------------------------------------------------------------
-
-  EnterpriseConstruct:
-    description: >-
-      Abstract base class for all enterprise organizational constructs.
-      Concrete subtypes: Product, SubProduct, System, Application, Platform.
-    abstract: true
-    attributes:
-      id:
-        identifier: true
-        description: Unique identifier for this construct.
-        range: string
-        required: true
-      name:
-        description: Human-readable name.
-        range: string
-        required: true
-      description:
-        description: Narrative description of this construct's purpose and scope.
-        range: string
-      lifecycle_status:
-        description: Current lifecycle state.
-        range: LifecycleStatus
-      owner:
-        description: The stakeholder or team responsible for this construct.
-        range: Stakeholder
-      tags:
-        description: Free-form classification tags.
-        range: string
-        multivalued: true
-    class_uri: sea-req:EnterpriseConstruct
-    subsets:
-      - EnterpriseStructure
-
-  Product:
-    description: >-
-      A commercial offering to a market segment. Products have a value
-      proposition, pricing, and positioning. A Product may exist
-      independently OR build on a Platform (topology-dependent).
-    is_a: EnterpriseConstruct
-    attributes:
-      value_proposition:
-        description: What value this product delivers to its market.
-        range: string
-      market_segment:
-        description: The target market or customer segment.
-        range: string
-      pricing_model:
-        description: How the product is priced (subscription, usage-based, etc.).
-        range: string
-      extends_platform:
-        description: >-
-          If this product builds on a platform, reference it here.
-          OPTIONAL — empty for standalone products.
-        range: Platform
-      sub_products:
-        description: Sub-products or editions of this product.
-        range: SubProduct
-        multivalued: true
-        inlined_as_list: true
-      served_by_systems:
-        description: >-
-          Systems that deliver this product's capabilities.
-          Many-to-many: a product may use multiple systems,
-          and a system may serve multiple products.
-        range: System
-        multivalued: true
-      parent_product:
-        description: >-
-          For product hierarchies — the parent product this is a variant of.
-        range: Product
-    class_uri: sea-req:Product
-    subsets:
-      - EnterpriseStructure
-
-  SubProduct:
-    description: >-
-      A variant, tier, or modular slice of a Product with a distinct
-      feature set or target segment. Sub-products scope a subset of
-      the parent product's requirements — they select which requirements
-      are active for their scope.
-    is_a: EnterpriseConstruct
-    attributes:
-      parent_product:
-        description: The parent product this sub-product derives from.
-        range: Product
-        required: true
-      feature_scope:
-        description: >-
-          Which features/requirements from the parent product are
-          included in this sub-product.
-        range: Requirement
-        multivalued: true
-      excluded_features:
-        description: >-
-          Which features/requirements from the parent product are
-          explicitly excluded from this sub-product.
-        range: Requirement
-        multivalued: true
-      pricing_model:
-        description: Pricing specific to this sub-product (may differ from parent).
-        range: string
-      target_segment:
-        description: The specific segment this sub-product targets.
-        range: string
-      is_extension:
-        description: >-
-          If true, this sub-product is an extension that adds new
-          capabilities to the platform (not just a feature subset).
-        range: boolean
-    class_uri: sea-req:SubProduct
-    subsets:
-      - EnterpriseStructure
-
-  System:
-    description: >-
-      A coordinated set of components that delivers a defined set of
-      capabilities. A System has an architectural boundary and may serve
-      one or many Products. It may exist independently OR be part of a
-      Platform (topology-dependent).
-    is_a: EnterpriseConstruct
-    attributes:
-      capability_boundary:
-        description: >-
-          The set of capabilities this system is responsible for.
-          Defines the system's scope and what it owns vs. what it delegates.
-        range: BusinessCapability
-        multivalued: true
-      architectural_pattern:
-        description: >-
-          The high-level architectural style (e.g., microservices, monolith,
-          event-driven, CQRS).
-        range: string
-      is_part_of_platform:
-        description: >-
-          If this system is a platform component, reference the platform.
-          OPTIONAL — empty for standalone systems.
-        range: Platform
-      serves_products:
-        description: >-
-          Products this system serves. Many-to-many relationship.
-        range: Product
-        multivalued: true
-      comprises_applications:
-        description: >-
-          Applications that comprise this system's implementation.
-        range: Application
-        multivalued: true
-        inlined_as_list: true
-      depends_on_systems:
-        description: >-
-          Other systems this system depends on (upstream/downstream).
-        range: System
-        multivalued: true
-      technology_domain:
-        description: >-
-          The primary technology domain (e.g., "payment processing",
-          "identity management", "data analytics").
-        range: string
-    class_uri: sea-req:System
-    subsets:
-      - EnterpriseStructure
-
-  Application:
-    description: >-
-      A deployable, runnable software unit with a codebase, deployment
-      target, and runtime. Applications implement Systems and may
-      consume Platform contracts (topology-dependent).
-    is_a: EnterpriseConstruct
-    attributes:
-      implements_system:
-        description: >-
-          The system this application is part of.
-        range: System
-        required: true
-      deployment_target:
-        description: >-
-          Where this application runs (e.g., "AWS us-east-1",
-          "on-premise DC3", "Kubernetes cluster-prod").
-        range: string
-      tech_stack:
-        description: >-
-          Primary technologies used (e.g., "Go + PostgreSQL",
-          "Node.js + Redis", "Java + Kafka").
-        range: string
-        multivalued: true
-      runtime_environment:
-        description: >-
-          Runtime type (e.g., "container", "serverless function",
-          "VM", "bare-metal").
-        range: string
-      team_ownership:
-        description: >-
-          The engineering team responsible for this application.
-        range: string
-      consumes_platform_contracts:
-        description: >-
-          Platform contracts this application consumes.
-          OPTIONAL — only populated in platform topologies.
-        range: PlatformContract
-        multivalued: true
-      exposes_interfaces:
-        description: >-
-          External interfaces this application exposes (APIs, events, etc.).
-        range: string
-        multivalued: true
-      depends_on_applications:
-        description: >-
-          Other applications this application depends on.
-        range: Application
-        multivalued: true
-    class_uri: sea-req:Application
-    subsets:
-      - EnterpriseStructure
-
-  # --------------------------------------------------------------------------
-  # 8. PLATFORM MODEL (Optional — only for platform topologies)
-  # --------------------------------------------------------------------------
-  # These classes are only instantiated when the enterprise uses a
-  # platform topology. They define the platform itself and the contracts
-  # it exposes to extenders.
-  # --------------------------------------------------------------------------
-
-  Platform:
-    description: >-
-      A foundation that other Products and Systems build on or are part of.
-      A Platform is simultaneously a Product (market offering) and a System
-      (technical foundation). This class is OPTIONAL — only present in
-      platform-centric or hybrid topologies.
-    is_a: EnterpriseConstruct
-    attributes:
-      value_proposition:
-        description: >-
-          What the platform offers to extenders (e.g., "rapid app development",
-          "payment infrastructure as a service").
-        range: string
-      platform_type:
-        description: >-
-          The kind of platform (e.g., "developer platform", "marketplace",
-          "infrastructure", "integration platform").
-        range: string
-      target_extenders:
-        description: >-
-          Who builds on this platform (e.g., "third-party developers",
-          "internal product teams", "partners").
-        range: string
-        multivalued: true
-      contracts:
-        description: >-
-          The contracts (APIs, SDKs, extension points) the platform exposes.
-        range: PlatformContract
-        multivalued: true
-        inlined_as_list: true
-      hosted_systems:
-        description: >-
-          Systems that are part of this platform's internals.
-        range: System
-        multivalued: true
-      extended_by_products:
-        description: >-
-          Products that build on this platform.
-        range: Product
-        multivalued: true
-      multi_tenancy_model:
-        description: >-
-          How the platform isolates tenants (e.g., "shared infrastructure",
-          "dedicated instances", "hybrid").
-        range: string
-      backward_compatibility_policy:
-        description: >-
-          The platform's commitment to API/contract stability
-          (e.g., "24 months deprecation notice", "rolling 2 major versions").
-        range: string
-    class_uri: sea-req:Platform
-    subsets:
-      - EnterpriseStructure
-      - PlatformModel
-
-  PlatformContract:
-    description: >-
-      A stable interface exposed by a Platform for consumption by
-      Products, Systems, or Applications. Contracts define the
-      platform's extensibility surface.
-    attributes:
-      id:
-        identifier: true
-        range: string
-        required: true
-      name:
-        range: string
-        required: true
-      description:
-        range: string
-      contract_type:
-        description: The kind of contract.
-        range: PlatformContractType
-        required: true
-      version:
-        description: Contract version (semantic versioning recommended).
-        range: string
-      stability_level:
-        description: >-
-          Stability guarantee (e.g., "stable", "beta", "experimental",
-          "deprecated").
-        range: string
-      deprecation_policy:
-        description: >-
-          How consumers are notified of breaking changes
-          (e.g., "6 months notice", "immediate for security fixes").
-        range: string
-      documentation_url:
-        description: Link to contract documentation.
-        range: string
-      provided_by_platform:
-        description: The platform this contract belongs to.
-        range: Platform
-        required: true
-    class_uri: sea-req:PlatformContract
-    subsets:
-      - PlatformModel
-
-  # --------------------------------------------------------------------------
-  # 9. PLATFORM-SPECIFIC REQUIREMENT TYPES
+  # 7. PLATFORM-SPECIFIC REQUIREMENT TYPES
   # --------------------------------------------------------------------------
   # These requirement types are only applicable when a Platform construct
   # exists. They capture platform-level concerns that don't fit into
@@ -1575,3 +1209,70 @@ classes:
       - Requirements
       - PlatformModel
       - QualityAttributes
+
+  # --------------------------------------------------------------------------
+  # 8. ENTERPRISE ↔ REQUIREMENT BINDINGS
+  # --------------------------------------------------------------------------
+  # Links that span the enterprise_structure / requirements boundary.
+  # These live HERE (not in enterprise_structure.yaml) because they reference
+  # Requirement, which would create a circular import if declared in the
+  # enterprise structure ontology.
+  #
+  # Layering rule:
+  #   enterprise_structure.yaml  (no dependencies — base layer)
+  #        ↑ imported by
+  #   requirements_base.yaml     (may reference enterprise constructs)
+  #        ↑ imported by
+  #   architecture_base.yaml     (future — may reference both)
+  # --------------------------------------------------------------------------
+
+  SubProductScope:
+    description: >-
+      Defines which requirements a SubProduct includes or excludes.
+      Sub-products are feature-scoped slices of a parent Product —
+      this binding class records that scope explicitly.
+    attributes:
+      sub_product:
+        description: The sub-product whose scope is being defined.
+        range: SubProduct
+        required: true
+      included_requirements:
+        description: Requirements active in this sub-product's scope.
+        range: Requirement
+        multivalued: true
+      excluded_requirements:
+        description: Requirements explicitly out of scope for this sub-product.
+        range: Requirement
+        multivalued: true
+      scope_rationale:
+        description: Why this scope was chosen (segment, pricing, licensing).
+        range: string
+    class_uri: sea-req:SubProductScope
+    subsets:
+      - Requirements
+      - EnterpriseStructure
+
+  SystemCapabilityBinding:
+    description: >-
+      Links a System to the BusinessCapabilities it is accountable for
+      delivering. Complements the requirement-side slot
+      `Requirement.traces_to_capabilities` by making the system's
+      capability ownership explicit (useful for coverage/gap auditing).
+    attributes:
+      system:
+        description: The system that delivers the capability.
+        range: System
+        required: true
+      capability:
+        description: The business capability the system is accountable for.
+        range: BusinessCapability
+        required: true
+      coverage_level:
+        description: >-
+          How fully the system covers this capability
+          (e.g., "full", "partial", "planned", "none").
+        range: string
+    class_uri: sea-req:SystemCapabilityBinding
+    subsets:
+      - Requirements
+      - EnterpriseStructure

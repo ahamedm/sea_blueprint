@@ -245,20 +245,74 @@ Domain ontologies **inherit** from this base and add:
 
 ```
 ontology/
-├── requirements_base.yaml    # This file — the base ontology
+├── enterprise_structure.yaml  # Base layer — organizational constructs
+├── requirements_base.yaml     # Requirement layer — imports enterprise_structure
 └── README.md                  # This documentation
 ```
 
 Future extensions:
 ```
 ontology/
-├── requirements_base.yaml
+├── enterprise_structure.yaml  # Base layer (reused everywhere)
+├── requirements_base.yaml     # REQ-G ontology
+├── architecture_base.yaml     # ARC-G ontology (imports both above)
 ├── domains/
 │   ├── payment_processing.yaml
 │   ├── healthcare.yaml
 │   └── ecommerce.yaml
 └── README.md
 ```
+
+---
+
+## Layer Architecture (Import Direction)
+
+The ontology is split into layers with a **strict one-way import rule**. This
+keeps each layer reusable and prevents circular dependencies.
+
+```
+enterprise_structure.yaml          (no imports except linkml:types)
+        ▲
+        │  imports
+requirements_base.yaml             (may reference Product/System/Application/Platform)
+        ▲
+        │  imports
+architecture_base.yaml  (future)   (may reference both enterprise + requirements)
+```
+
+| Layer | Contains | May reference |
+|-------|----------|---------------|
+| `enterprise_structure.yaml` | Product, SubProduct, System, Application, Platform, PlatformContract + topology/contract/lifecycle enums | nothing external |
+| `requirements_base.yaml` | Requirements hierarchy, business context, quality model | enterprise_structure |
+| `architecture_base.yaml` (future) | Components, patterns, deployments, interfaces | enterprise_structure + requirements_base |
+
+### Why the split exists
+
+Enterprise constructs (Product / System / Application / Platform) are needed by
+**both** the Requirements Graph (REQ-G) and the Architecture Graph (ARC-G).
+Defining them once in a base layer means both graphs speak the same vocabulary —
+so the Semantic Auditor can compare them without mapping translation.
+
+### The circular-dependency boundary
+
+Some links cross the boundary in the "wrong" direction — e.g. `System` wanting
+to point at a `BusinessCapability`, or `SubProduct` wanting to point at a
+`Requirement` (both live in the requirements layer). Declaring those inside
+`enterprise_structure.yaml` would create a cycle.
+
+The rule is: **declare the link in the higher layer, never the lower one.**
+
+Those links are therefore expressed as explicit *binding classes* in
+`requirements_base.yaml`:
+
+| Binding class | Links | Purpose |
+|---------------|-------|---------|
+| `SubProductScope` | SubProduct → Requirement | Which requirements a sub-product includes/excludes |
+| `SystemCapabilityBinding` | System → BusinessCapability | Which capabilities a system is accountable for |
+
+Directional slots on `Requirement` (`binds_to_product`, `binds_to_system`,
+`binds_to_application`, `binds_to_platform`, `traces_to_capabilities`) cover the
+reverse direction, so full traceability is preserved either way.
 
 ---
 
