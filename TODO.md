@@ -67,80 +67,77 @@ Re-run extraction on `data/input/sample_requirements.md` and check:
 
 ## 2. Test and use Strands structured output with the new model
 
-**Status:** ⛔ Blocked — server-side. Implementation complete and guarded; unusable
-until llama.cpp is restarted with `--jinja`.
-**Priority:** Blocked (re-test after server change)
+**Status:** ✅ RESOLVED — working with Qwen3.5-4B on llama.cpp
+**Priority:** Closed
 **Area:** `agents/base_agent.py` (`invoke_structured`), `agents/knowledge_extraction/agent.py`
 
-### Outcome
+### Resolution
 
-Implemented structured-output-first with a guarded fallback. Tested against two
-models (`gemma-4-E4B`, `SmolLM3-3B`) and isolated to the server, not the model.
-The fallback works correctly, so extraction is unaffected — but structured output
-itself is unusable on this stack.
+Structured output now works. Succeeded on the **first turn** (`Tool #1: ExtractionResult`)
+with no retry loop:
 
-### Root cause (definitive — two separate problems)
-
-**Problem A — `.env` points at the wrong server.**
-
-Port scan of `192.168.3.176`:
-
-| Port | Server | Notes |
-|---|---|---|
-| `8888` | **`unsloth-studio`** | what `.env` currently targets; serves 5 models |
-| `8080` | `llama.cpp` | the `--jinja` instance; serves 1 model |
-
-The `--jinja` restart was real, but `.env` was still talking to Unsloth Studio.
-
-**Problem B — even on the `--jinja` instance, the model isn't tool-capable.**
-
-`--jinja` is live and the chat template *does* contain tool branches
-(`xml_tools` / `python_tools`, `<tool_call>` tags). But llama.cpp's own
-capability report for this model says otherwise:
-
-```json
-"chat_template_caps": {
-  "supports_tool_calls": false,
-  "supports_tools": false
-}
+```
+path used:     structured_output
+triples:       40    entities: 14    relationships: 9
+confidence:    95.50%    elapsed: 49.1s
 ```
 
-Build `b11011-aa39d7a3e`, model `SmolLM3-3B-128K-GGUF:BF16`.
+Two preconditions, both required:
 
-When `supports_tools` is false, llama.cpp **accepts the `tools` field and
-silently discards it** — no error, `tool_calls: None`, even with
-`tool_choice="required"`. The model just answers conversationally. That is exactly
-the behaviour observed across every test.
+1. `.env` must target the **llama.cpp** instance — not Unsloth Studio (port 8888)
+2. The served model must be tool-capable
 
-### Fix
+`USE_STRUCTURED_OUTPUT=true` is set in `.env`.
 
-1. Point `.env` at the llama.cpp instance: `OPENAI_BASEURL=http://192.168.3.176:8080/v1`
-2. **Serve a tool-capable model** on it. SmolLM3-3B is not usable for tool calling
-   regardless of flags. Qwen-family models generally are.
+### Quality vs the text-parsing path
 
-### Re-test procedure
+| | Structured | Text parsing |
+|---|---|---|
+| `ontology_class` populated | **40/40 (100%)** | partial |
+| Distinct confidence values | **3** | 1 (all 1.0) |
+| Entities / relationships | explicit | derived |
+| Clause-like objects (>40 chars) | 30% | 22% |
+| Elapsed | 49.1s | 26.3s |
+
+Structured output wins on the things that matter for a graph — every triple is
+ontology-mapped, and confidence scores actually discriminate instead of being a
+flat 1.0. It costs ~2× the latency.
+
+Object phrasing is still loose (30% clause-like), so **item 1 remains the next
+piece of work** — that threshold is now measurable against a stable baseline.
+
+### Root cause (historical — two separate blockers)
+
+Worth keeping, because the failure was silent and cost several rounds to isolate.
+
+**Blocker A — `.env` pointed at the wrong server.**
+
+| Port | Server | |
+|---|---|---|
+| `8888` | `unsloth-studio` | what `.env` targeted; serves 5 models |
+| `8080` | `llama.cpp` | the `--jinja` instance |
+
+The `--jinja` restart was real and working; `.env` was talking to the wrong process.
+
+**Blocker B — the model wasn't tool-capable.**
+
+llama.cpp reported `chat_template_caps.supports_tools: false` for SmolLM3-3B.
+With that flag false, llama.cpp **accepts the `tools` field and silently discards
+it** — no error, `tool_calls: None`, even under `tool_choice="required"`.
+`--jinja` alone is not sufficient; the model's template must qualify.
+
+Switching to Qwen3.5-4B flipped it to `supports_tools: true` and everything worked.
+
+### Pre-flight gate — run this FIRST, always
 
 ```bash
 curl -s http://192.168.3.176:8080/props | jq .chat_template_caps.supports_tools
-# must be true before anything else will work
+# must be true
 ```
 
-Then the raw call:
-
-```python
-resp = client.chat.completions.create(
-    model=model, messages=[{"role": "user", "content": "Use the tool."}],
-    tools=[...], tool_choice="required",
-)
-assert resp.choices[0].message.tool_calls   # None => still not tool-capable
-```
-
-If `tool_calls` is populated → set `USE_STRUCTURED_OUTPUT=true` and re-run extraction.
-
-### Do not
-
-Pursue schema loosening, prompt tuning, or model-flag changes. `supports_tools`
-is decided by the template + llama.cpp build; nothing in this codebase affects it.
+If `false`, nothing downstream can work. This single check would have short-circuited
+three rounds of dead-end probing (schema loosening, prompt tuning, flag changes —
+none of which can affect this flag).
 
 ### What was implemented anyway (worth keeping)
 
