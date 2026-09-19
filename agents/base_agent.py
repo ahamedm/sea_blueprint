@@ -38,6 +38,34 @@ class AgentConfig(BaseModel):
     tools: List[str] = Field(default_factory=list, description="List of tool names to enable")
     ontology_path: Optional[str] = Field(default=None, description="Path to ontology YAML")
     
+    # --- Structured output controls ---
+    use_structured_output: bool = Field(
+        default=True,
+        description=(
+            "Prefer Strands structured output (Pydantic schema) over text parsing. "
+            "Falls back to text parsing automatically when the model cannot satisfy "
+            "the schema within the turn budget."
+        ),
+    )
+    max_structured_turns: int = Field(
+        default=6,
+        ge=1,
+        description=(
+            "Hard cap on agent loop turns for a structured-output call. This is the "
+            "guard against a model looping endlessly on schema-validation retries "
+            "(the failure mode observed with small local models). When the cap trips, "
+            "the call returns stop_reason='limit_turns' and the caller falls back."
+        ),
+    )
+    max_structured_tokens: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Optional cumulative token cap for a structured-output call. Soft cap "
+            "checked at turn boundaries."
+        ),
+    )
+    
     class Config:
         arbitrary_types_allowed = True
 
@@ -221,6 +249,79 @@ class SEABaseAgent:
                 structured_output_model=structured_output_model,
             )
         return self.agent(prompt)
+    
+    def invoke_structured(self, prompt: str, model_cls):
+        """
+        Invoke the agent requesting validated structured output, with a hard
+        turn-budget guard.
+        
+        This exists specifically to make structured output SAFE to use with
+        small local models. The failure mode we are guarding against: the model
+        repeatedly produces output that fails Pydantic validation, the SDK
+        re-prompts it, and the loop never converges (previously observed as a
+        240s timeout with gemma-4-E4B).
+        
+        The `limits={"turns": N}` cap makes that loop terminate deterministically:
+        the SDK stops and returns `stop_reason="limit_turns"` instead of spinning.
+        We treat that as "model cannot satisfy this schema" and return None so the
+        caller can fall back to text parsing.
+        
+        Args:
+            prompt: The prompt to send.
+            model_cls: Pydantic model class describing the desired output.
+            
+        Returns:
+            The validated instance (`AgentResult.structured_output`), or None if
+            the model failed to satisfy the schema within budget.
+        """
+        limits = {"turns": self.config.max_structured_turns}
+        if self.config.max_structured_tokens:
+            limits["total_tokens"] = self.config.max_structured_tokens
+        
+        try:
+            result = self.agent(
+                prompt,
+                structured_output_model=model_cls,
+                limits=limits,
+            )
+        except Exception as e:
+            # Distinguish the failure modes so the message is actionable.
+            #
+            # StructuredOutputException means the model never invoked the
+            # structured-output tool, even though the SDK forced it. Observed
+            # with llama.cpp-served models: the server ignores tool_choice, so
+            # the model writes the JSON as plain text instead. Not fixable in
+            # our code — it's a server/model capability gap.
+            name = type(e).__name__
+            if "StructuredOutput" in name:
+                self.log(
+                    "Structured output unsupported: the model did not invoke the "
+                    "structured-output tool even when forced. The inference server "
+                    "probably does not honour tool_choice. Falling back to text parsing.",
+                    level="warning",
+                )
+            else:
+                self.log(f"Structured output raised {name}: {e}", level="warning")
+            return None
+        
+        stop_reason = getattr(result, "stop_reason", None)
+        if stop_reason == "limit_turns":
+            self.log(
+                f"Structured output hit turn cap ({self.config.max_structured_turns} turns) "
+                f"without satisfying the schema",
+                level="warning",
+            )
+            return None
+        
+        structured = getattr(result, "structured_output", None)
+        if structured is None:
+            self.log(
+                f"Structured output missing (stop_reason={stop_reason})",
+                level="warning",
+            )
+            return None
+        
+        return structured
     
     def run(self, input_data: Any) -> Any:
         """

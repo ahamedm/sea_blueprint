@@ -69,6 +69,13 @@ class EnvironmentConfig(BaseModel):
     # Evaluation
     deepeval_api_key: str = Field(default="", alias="DEEPEVAL_API_KEY")
     
+    # Structured output (see TODO.md item 2)
+    # Requires an inference server that honours forced tool_choice. llama.cpp
+    # (as observed) does not, so this always falls back on that setup — but the
+    # attempt costs latency before falling back. Flip to "false" to skip it.
+    use_structured_output: bool = Field(default=True, alias="USE_STRUCTURED_OUTPUT")
+    max_structured_turns: int = Field(default=3, alias="MAX_STRUCTURED_TURNS")
+    
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
@@ -85,6 +92,12 @@ def load_environment() -> EnvironmentConfig:
     load_dotenv()
     
     # Manually read from environment variables since Pydantic aliases don't auto-load
+    def _as_bool(name: str, default: bool) -> bool:
+        raw = os.getenv(name)
+        if raw is None or raw.strip() == "":
+            return default
+        return raw.strip().lower() in ("1", "true", "yes", "on")
+
     config_data = {
         "anthropic_api_key": os.getenv("ANTHROPIC_API_KEY", ""),
         "openai_api_key": os.getenv("OPENAI_API_KEY", ""),
@@ -98,6 +111,8 @@ def load_environment() -> EnvironmentConfig:
         "data_dir": os.getenv("DATA_DIR", "data"),
         "output_dir": os.getenv("OUTPUT_DIR", "data/output"),
         "deepeval_api_key": os.getenv("DEEPEVAL_API_KEY", ""),
+        "use_structured_output": _as_bool("USE_STRUCTURED_OUTPUT", True),
+        "max_structured_turns": int(os.getenv("MAX_STRUCTURED_TURNS", "3")),
     }
     
     return EnvironmentConfig(**config_data)
@@ -254,5 +269,14 @@ Provide clear, actionable feedback for resolving identified issues.""",
             "ontology_path": "ontology/requirements_base.yaml",
         },
     }
+    
+    # Structured-output settings apply uniformly to every agent.
+    # Injected once here rather than repeated in all five config blocks.
+    shared = {
+        "use_structured_output": env_config.use_structured_output,
+        "max_structured_turns": env_config.max_structured_turns,
+    }
+    for cfg in configs.values():
+        cfg.update(shared)
     
     return configs.get(agent_name, {})

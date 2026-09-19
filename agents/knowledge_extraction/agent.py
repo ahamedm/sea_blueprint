@@ -8,64 +8,110 @@ Uses Strands structured output for type-safe, validated extraction results.
 """
 
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from ..base_agent import SEABaseAgent, AgentConfig, AgentResult
 
 
 # ============================================================================
 # Structured Output Models
 # ============================================================================
+#
+# SCHEMA DESIGN NOTE — these models are deliberately PERMISSIVE.
+#
+# Every `required` field is a way for a small local model to fail validation,
+# which triggers an SDK re-prompt, which is what caused the original endless
+# retry loop. So:
+#   - nearly everything has a sensible default
+#   - confidence accepts "0.95", "95%", 95, or garbage (coerced, never rejected)
+#   - source_text / description are optional but encouraged in the prompt
+#
+# The goal is: the model's *content* is judged, not its formatting discipline.
+# Formatting variance should be normalised by validators, not rejected.
+# ============================================================================
 
 class ExtractedTriple(BaseModel):
     """A single extracted knowledge triple with ontology mapping."""
     
-    subject: str = Field(..., description="Subject entity")
-    predicate: str = Field(..., description="Relationship predicate (mapped to ontology)")
-    object: str = Field(..., description="Object entity")
-    confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence score (0.0-1.0)")
-    source_text: str = Field(..., description="Original text this triple was extracted from")
-    ontology_class: Optional[str] = Field(None, description="Mapped ontology class (e.g., BusinessRequirement, NonFunctionalRequirement)")
-    requirement_type: Optional[str] = Field(None, description="Requirement type if applicable (BUSINESS, FUNCTIONAL, NON_FUNCTIONAL, CONSTRAINT)")
+    subject: str = Field(..., description="Subject entity name (a node, not a sentence)")
+    predicate: str = Field(..., description="Relationship predicate (snake_case verb phrase)")
+    object: str = Field(..., description="Object entity name (a node, not a sentence)")
+    confidence: float = Field(
+        default=0.8, ge=0.0, le=1.0,
+        description="Confidence score between 0.0 and 1.0"
+    )
+    source_text: str = Field(
+        default="", description="Original sentence this triple was extracted from"
+    )
+    ontology_class: Optional[str] = Field(
+        None, description="Mapped ontology class, e.g. FunctionalRequirement"
+    )
+    requirement_type: Optional[str] = Field(
+        None, description="One of: BUSINESS, FUNCTIONAL, NON_FUNCTIONAL, CONSTRAINT"
+    )
+    
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _coerce_confidence(cls, v):
+        """Accept 0.95, '0.95', '95%', 95, or None — never fail on formatting.
+        
+        Percentage detection only fires above 2.0. Values in (1.0, 2.0] are
+        treated as an out-of-range score to CLAMP, not as a percentage — dividing
+        1.5 by 100 would silently turn a high-confidence triple into a near-zero
+        one, which is worse than rejecting it.
+        """
+        if v is None:
+            return 0.8
+        if isinstance(v, str):
+            v = v.strip().rstrip("%")
+            try:
+                v = float(v)
+            except (ValueError, TypeError):
+                return 0.8
+        try:
+            v = float(v)
+        except (ValueError, TypeError):
+            return 0.8
+        if v > 2.0:            # e.g. 95 or 150 -> percentage
+            v = v / 100.0
+        return max(0.0, min(1.0, v))
 
 
 class ExtractedEntity(BaseModel):
     """An extracted business entity with ontology mapping."""
     
-    name: str = Field(..., description="Entity name")
-    entity_type: str = Field(default="DomainConcept", description="Entity type (e.g., Stakeholder, System, Process)")
-    type: str = Field(default="", description="Entity type (alias)")
+    name: str = Field(..., description="Entity name (short noun phrase)")
+    entity_type: str = Field(
+        default="DomainConcept",
+        description="Entity type, e.g. Stakeholder, System, BusinessProcess, DomainConcept"
+    )
     description: str = Field(default="", description="Brief description of the entity")
-    ontology_class: Optional[str] = Field(None, description="Mapped ontology class (e.g., BusinessRequirement, BusinessCapability)")
-    requirement_type: Optional[str] = Field(None, description="Requirement type if applicable (BUSINESS, FUNCTIONAL, NON_FUNCTIONAL, CONSTRAINT)")
-    
-    def model_post_init(self, __context):
-        """Use 'type' as fallback for 'entity_type' and vice versa."""
-        if self.type and not self.entity_type:
-            self.entity_type = self.type
-        if self.entity_type and not self.type:
-            self.type = self.entity_type
+    ontology_class: Optional[str] = Field(
+        None, description="Mapped ontology class from the provided ontology"
+    )
+    requirement_type: Optional[str] = Field(
+        None, description="One of: BUSINESS, FUNCTIONAL, NON_FUNCTIONAL, CONSTRAINT"
+    )
 
 
 class ExtractedRelationship(BaseModel):
-    """An extracted relationship type."""
+    """An extracted relationship type (predicate)."""
     
-    relationship_type: str = Field(..., description="Type of relationship")
-    description: str = Field(..., description="Description of the relationship")
+    relationship_type: str = Field(..., description="Predicate name in snake_case")
+    description: str = Field(default="", description="What the relationship means")
 
 
 class ExtractionResult(BaseModel):
     """Structured output model for knowledge extraction."""
     
-    triples: List[ExtractedTriple] = Field(default_factory=list, description="Extracted knowledge triples")
-    entities: List[ExtractedEntity] = Field(default_factory=list, description="Extracted entities")
-    relationships: List[ExtractedRelationship] = Field(default_factory=list, description="Extracted relationship types")
-
-
-class Stage1Result(BaseModel):
-    """Stage 1: Extract entities and relationships only."""
-    
-    entities: List[ExtractedEntity] = Field(default_factory=list, description="Extracted entities")
-    relationships: List[ExtractedRelationship] = Field(default_factory=list, description="Extracted relationship types")
+    triples: List[ExtractedTriple] = Field(
+        default_factory=list, description="Extracted knowledge triples (the primary output)"
+    )
+    entities: List[ExtractedEntity] = Field(
+        default_factory=list, description="Extracted entities"
+    )
+    relationships: List[ExtractedRelationship] = Field(
+        default_factory=list, description="Relationship types used in the triples"
+    )
 
 
 # ============================================================================
@@ -93,16 +139,26 @@ class KnowledgeExtractionAgent(SEABaseAgent):
         
     def run(self, input_data: Dict[str, Any]) -> AgentResult:
         """
-        Extract knowledge from a document using a single-pass text-based approach.
+        Extract knowledge from a document.
         
-        This avoids structured output validation loops that cause local models to retry
-        endlessly. Instead, we extract everything in one pass and parse from text.
+        Strategy: structured-output-first with a text-parsing fallback.
+        
+          1. Ask the model for validated structured output (Pydantic schema).
+             Guarded by a hard turn cap so a model that can't satisfy the schema
+             fails fast instead of looping (see SEABaseAgent.invoke_structured).
+          2. If that returns nothing, fall back to the free-form path and parse
+             the text response. Entities are then derived from triples if the
+             model didn't emit an explicit entity list.
+        
+        Whichever path is used is recorded in `metadata["extraction_path"]` so
+        runs can be compared rather than guessed at.
         
         Args:
             input_data: Dictionary containing:
                 - document: Markdown document text
                 - document_type: Type of document (requirements, architecture, etc.)
                 - domain: Business domain (optional)
+                - force_text_parsing: bool — skip structured output for this run
                 
         Returns:
             AgentResult with extracted triples and metadata
@@ -111,6 +167,7 @@ class KnowledgeExtractionAgent(SEABaseAgent):
             document = input_data.get("document", "")
             document_type = input_data.get("document_type", "requirements")
             domain = input_data.get("domain", "generic")
+            force_text = bool(input_data.get("force_text_parsing", False))
             
             if not document:
                 return AgentResult(
@@ -121,15 +178,72 @@ class KnowledgeExtractionAgent(SEABaseAgent):
             
             self.log(f"Extracting knowledge from {document_type} document...")
             
-            # Single-pass extraction using text-based approach
             extraction_prompt = self._build_extraction_prompt(document, document_type, domain)
-            result = self.invoke(extraction_prompt)
-            response_text = str(result)
             
-            # Parse entities, relationships, and triples from text
-            entities = self._parse_entities_from_text(response_text)
-            relationships = self._parse_relationships_from_text(response_text)
-            triples = self._parse_triples_from_text(response_text)
+            use_structured = self.config.use_structured_output and not force_text
+            path = "text_parsing"
+            triples: List[ExtractedTriple] = []
+            entities: List[ExtractedEntity] = []
+            relationships: List[ExtractedRelationship] = []
+            structured_error: Optional[str] = None
+            
+            # ---- Attempt 1: structured output (guarded) ----
+            if use_structured:
+                self.log(
+                    f"Attempting structured output "
+                    f"(turn cap: {self.config.max_structured_turns})..."
+                )
+                structured = self.invoke_structured(extraction_prompt, ExtractionResult)
+                
+                if structured is not None:
+                    triples = list(structured.triples)
+                    entities = list(structured.entities)
+                    relationships = list(structured.relationships)
+                    if triples or entities:
+                        path = "structured_output"
+                        self.log(
+                            f"  Structured output accepted: {len(triples)} triples, "
+                            f"{len(entities)} entities, {len(relationships)} relationships",
+                            level="success",
+                        )
+                    else:
+                        structured_error = "structured output returned empty"
+                        self.log(
+                            "  Structured output empty — falling back to text parsing",
+                            level="warning",
+                        )
+                else:
+                    structured_error = "model did not satisfy schema within turn budget"
+                    self.log("  Falling back to text parsing", level="warning")
+            
+            # ---- Attempt 2: text parsing fallback ----
+            if path == "text_parsing":
+                text_result = self.invoke(extraction_prompt)
+                response_text = str(text_result)
+                
+                entities = self._parse_entities_from_text(response_text)
+                relationships = self._parse_relationships_from_text(response_text)
+                triples = self._parse_triples_from_text(response_text)
+            
+            # ---- Normalise ----
+            # Derive entities from triples if none were produced. Subjects and
+            # objects ARE the graph nodes, so this is always semantically valid.
+            if not entities and triples:
+                entities = self._derive_entities_from_triples(triples)
+                self.log(
+                    f"  Derived {len(entities)} entities from triples",
+                    level="info"
+                )
+            
+            # Derive relationships from triple predicates if none were produced.
+            # The predicate IS the relationship, so this keeps the two views
+            # self-consistent by construction.
+            if not relationships and triples:
+                relationships = self._derive_relationships_from_triples(triples)
+                self.log(
+                    f"  Derived {len(relationships)} relationships from triple predicates",
+                    level="info"
+                )
             
             # Separate low-confidence items
             low_confidence = [
@@ -162,6 +276,8 @@ class KnowledgeExtractionAgent(SEABaseAgent):
                 metadata={
                     "document_type": document_type,
                     "domain": domain,
+                    "extraction_path": path,
+                    "structured_output_error": structured_error,
                     "total_triples": len(triples),
                     "total_entities": len(entities),
                     "total_relationships": len(relationships),
@@ -504,6 +620,30 @@ Each triple should have: subject, predicate, object, confidence (0.0-1.0), sourc
                                     description=""
                                 ))
                     
+                    # Try 'entity_mapping' key (dict format: entity_name -> ontology_class)
+                    entity_mapping = data.get('entity_mapping', {})
+                    if isinstance(entity_mapping, dict):
+                        for entity_name, ontology_class in entity_mapping.items():
+                            if isinstance(ontology_class, str):
+                                entities.append(ExtractedEntity(
+                                    name=entity_name.strip(),
+                                    entity_type=ontology_class.strip(),
+                                    ontology_class=ontology_class.strip(),
+                                    description=""
+                                ))
+                    
+                    # Try 'identified_entities' key (dict format: entity_name -> ontology_class)
+                    identified_entities = data.get('identified_entities', {})
+                    if isinstance(identified_entities, dict):
+                        for entity_name, ontology_class in identified_entities.items():
+                            if isinstance(ontology_class, str):
+                                entities.append(ExtractedEntity(
+                                    name=entity_name.strip(),
+                                    entity_type=ontology_class.strip(),
+                                    ontology_class=ontology_class.strip(),
+                                    description=""
+                                ))
+                    
                     # Try 'summary.unique_entities_found' key (dict format)
                     summary = data.get('summary', {})
                     if isinstance(summary, dict):
@@ -552,6 +692,73 @@ Each triple should have: subject, predicate, object, confidence (0.0-1.0), sourc
                             ))
         
         return entities
+    
+    def _derive_entities_from_triples(
+        self,
+        triples: List[ExtractedTriple]
+    ) -> List[ExtractedEntity]:
+        """Derive entities from triples as a structural fallback.
+        
+        In a knowledge graph, subjects and objects ARE the entities (nodes)
+        and triples are the edges. When the model does not emit an explicit
+        entity list, we reconstruct it from the triples it did emit.
+        
+        Ontology class is inferred from context:
+        - If the entity appears as an object with an ontology_class, use it
+        - Otherwise fall back to DomainConcept
+        """
+        # Map entity name -> ontology class (first seen wins, prefer explicit)
+        entity_classes: Dict[str, Optional[str]] = {}
+        
+        for t in triples:
+            for name in (t.subject, t.object):
+                cleaned = name.strip()
+                if not cleaned:
+                    continue
+                if cleaned not in entity_classes:
+                    entity_classes[cleaned] = None
+            
+            # Prefer the object's ontology_class (it describes the target concept)
+            if t.object.strip() in entity_classes and t.ontology_class:
+                existing = entity_classes[t.object.strip()]
+                if existing is None:
+                    entity_classes[t.object.strip()] = t.ontology_class
+        
+        entities = []
+        for name, ontology_class in entity_classes.items():
+            entities.append(ExtractedEntity(
+                name=name,
+                entity_type=ontology_class or "DomainConcept",
+                ontology_class=ontology_class,
+                description="Derived from extracted triples",
+            ))
+        
+        return entities
+    
+    def _derive_relationships_from_triples(
+        self,
+        triples: List[ExtractedTriple]
+    ) -> List[ExtractedRelationship]:
+        """Derive relationship types from triple predicates.
+        
+        A triple's predicate IS its relationship type — the two views describe
+        the same edge. Deriving one from the other keeps them consistent by
+        construction, and avoids relying on the model to emit a separate,
+        differently-shaped relationship list (which it frequently doesn't).
+        
+        Deduplicated, order-preserving.
+        """
+        seen: Dict[str, ExtractedRelationship] = {}
+        for t in triples:
+            pred = t.predicate.strip()
+            if not pred or pred in seen:
+                continue
+            seen[pred] = ExtractedRelationship(
+                relationship_type=pred,
+                description=f"Derived from triple predicate (e.g. "
+                            f"{t.subject} -> {t.object})",
+            )
+        return list(seen.values())
     
     def _parse_entity_dict(self, e: dict) -> Optional[ExtractedEntity]:
         """Parse a single entity from a dictionary."""
