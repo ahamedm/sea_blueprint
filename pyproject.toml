@@ -1,0 +1,93 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sea-agents"
+version = "0.1.0"
+description = "Semantic Enterprise Architect (SEA) Platform - Agent Development Framework"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "SEA Platform Team", email = "team@sea-platform.dev"}
+]
+keywords = ["agents", "enterprise-architecture", "knowledge-graph", "linkml", "strands"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    # Core agent framework (Strands Agents SDK)
+    # Docs: https://strandsagents.com/llms.txt
+    "strands-agents>=1.0.0",
+    "strands-agents-tools>=0.2.0",
+    
+    # LLM providers
+    "anthropic>=0.34.0",
+    "openai>=1.40.0",
+    
+    # Knowledge graph and ontology
+    "linkml>=1.6.0",
+    "rdflib>=7.0.0",
+    "networkx>=3.2",
+    
+    # Evaluation framework
+    "deepeval>=0.20.0",
+    
+    # Data processing
+    "pydantic>=2.8.0",
+    "pyyaml>=6.0.1",
+    "python-dotenv>=1.0.0",
+    
+    # Utilities
+    "rich>=13.7.0",
+    "click>=8.1.0",
+    "jinja2>=3.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=5.0.0",
+    "black>=24.0.0",
+    "ruff>=0.5.0",
+    "mypy>=1.10.0",
+]
+
+[project.scripts]
+sea-agent = "agents.cli:main"
+sea-eval = "evaluation.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["agents*", "evaluation*", "config*"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-v --tb=short"
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true

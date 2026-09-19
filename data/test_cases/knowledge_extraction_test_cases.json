@@ -1,0 +1,73 @@
+[
+  {
+    "id": "ke_test_001",
+    "input": {
+      "document": "The Payment Gateway Platform shall accept and validate incoming payment requests from B2C and B2E storefronts. Each request must be mapped to a unique tenancy identifier.",
+      "document_type": "requirements",
+      "domain": "payment_processing"
+    },
+    "expected_output": "Extracted triples showing relationships between Payment Gateway Platform, storefronts, and tenancy mapping",
+    "context": [
+      "Payment Gateway Platform is a microservices-based system",
+      "B2C and B2E are types of storefronts",
+      "Tenancy identifiers enable multi-tenant processing"
+    ]
+  },
+  {
+    "id": "ke_test_002",
+    "input": {
+      "document": "The system shall utilize a configurable, rule-based engine to determine the optimal PGSP for transaction routing. Routing criteria include: Country of Transaction, Transaction Currency, and Payment Method preference.",
+      "document_type": "requirements",
+      "domain": "payment_processing"
+    },
+    "expected_output": "Extracted triples showing routing engine, criteria, and PGSP relationships",
+    "context": [
+      "PGSP stands for Payment Gateway Service Provider",
+      "Rule-based engine enables dynamic routing",
+      "Routing criteria are configurable business rules"
+    ]
+  },
+  {
+    "id": "ke_test_003",
+    "input": {
+      "document": "All Cardholder Data (CHD) must be encrypted in transit using TLS 1.2+ and at rest using AES-256. The PGP shall be the sole component that stores, processes, and transmits CHD.",
+      "document_type": "requirements",
+      "domain": "payment_processing"
+    },
+    "expected_output": "Extracted triples showing CHD encryption requirements and PGP responsibility",
+    "context": [
+      "CHD stands for Cardholder Data",
+      "PCI-DSS compliance requires CHD protection",
+      "TLS 1.2+ is for data in transit",
+      "AES-256 is for data at rest"
+    ]
+  },
+  {
+    "id": "ke_test_004",
+    "input": {
+      "document": "The platform must process 95% of payment authorization requests within 500 milliseconds under normal load. The system architecture must adhere to a microservices pattern built on Spring Boot.",
+      "document_type": "requirements",
+      "domain": "payment_processing"
+    },
+    "expected_output": "Extracted triples showing performance requirements and architectural constraints",
+    "context": [
+      "Performance requirement is a non-functional requirement",
+      "Microservices is an architectural pattern",
+      "Spring Boot is a Java framework"
+    ]
+  },
+  {
+    "id": "ke_test_005",
+    "input": {
+      "document": "The PGP shall manage the entire payment lifecycle from initial request to final settlement and reconciliation. Transaction states include: PENDING, AUTHORIZED, CAPTURED, FAILED, and SETTLED.",
+      "document_type": "requirements",
+      "domain": "payment_processing"
+    },
+    "expected_output": "Extracted triples showing payment lifecycle and state machine",
+    "context": [
+      "Payment lifecycle is a business process",
+      "Transaction states represent a state machine",
+      "Settlement and reconciliation are final stages"
+    ]
+  }
+]

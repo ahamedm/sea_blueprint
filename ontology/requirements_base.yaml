@@ -1,0 +1,1577 @@
+# ============================================================================
+# SEA Platform — Base Requirements Ontology (LinkML)
+# ============================================================================
+# A generic, domain-agnostic ontology for business requirement analysis.
+# Covers Business/Functional aspects and Non-Functional/Quality Attributes.
+# Aligned with ISO 25010 (quality), BABOK (business analysis), and TOGAF (EA).
+#
+# Domain-specific ontologies (e.g., Payment Processing) EXTEND this base.
+# ============================================================================
+
+id: https://sea.platform/ontology/requirements-base
+name: requirements-base
+title: SEA Base Requirements Ontology
+version: 0.1.0
+description: >-
+  Generic ontology for structured business requirement analysis of any
+  product or system. Covers functional requirements, business context,
+  non-functional quality attributes, constraints, and traceability links.
+
+license: MIT
+default_curi_maps:
+  - semweb_context
+
+prefixes:
+  linkml: https://w3id.org/linkml/
+  sea-req: https://sea.platform/ontology/requirements-base/
+  schema: https://schema.org/
+  dcterms: http://purl.org/dc/terms/
+  iso25010: https://iso25010.org/
+
+default_prefix: sea-req
+default_range: string
+
+imports:
+  - linkml:types
+
+# ============================================================================
+# ENUMERATIONS
+# ============================================================================
+
+enums:
+
+  RequirementType:
+    description: High-level classification of a requirement.
+    permissible_values:
+      BUSINESS:
+        description: Strategic business need or objective translation.
+      FUNCTIONAL:
+        description: Behavioral capability the system must provide.
+      NON_FUNCTIONAL:
+        description: Quality attribute or constraint on the system.
+      CONSTRAINT:
+        description: Hard limit or non-negotiable restriction.
+
+  RequirementPriority:
+    description: Priority ranking using the MoSCoW method.
+    permissible_values:
+      MUST_HAVE:
+        description: Non-negotiable for delivery.
+      SHOULD_HAVE:
+        description: Important but not critical; workaround exists.
+      COULD_HAVE:
+        description: Desirable if time and budget allow.
+      WONT_HAVE:
+        description: Explicitly excluded from this scope.
+
+  RequirementStatus:
+    description: Lifecycle state of a requirement.
+    permissible_values:
+      DRAFT:
+        description: Initial capture, not yet reviewed.
+      IN_REVIEW:
+        description: Under active review by stakeholders.
+      APPROVED:
+        description: Formally accepted and baselined.
+      DEFERRED:
+        description: Acknowledged but postponed to a future scope.
+      REJECTED:
+        description: Declined with documented rationale.
+      OBSOLETE:
+        description: Previously valid but no longer applicable.
+
+  QualityAttributeCategory:
+    description: >-
+      Quality attribute categories aligned with ISO/IEC 25010:2023
+      (Systems and software Quality Requirements and Evaluation).
+    permissible_values:
+      FUNCTIONAL_SUITABILITY:
+        description: Completeness, correctness, appropriateness of functions.
+      PERFORMANCE_EFFICIENCY:
+        description: Time behaviour, resource usage, capacity.
+      COMPATIBILITY:
+        description: Coexistence, interoperability with other systems.
+      INTERACTION_CAPABILITY:
+        description: Usability, accessibility, user experience quality.
+      RELIABILITY:
+        description: Availability, fault tolerance, recoverability.
+      SECURITY:
+        description: Confidentiality, integrity, non-repudiation, accountability.
+      MAINTAINABILITY:
+        description: Modularity, reusability, analysability, modifiability.
+      PORTABILITY:
+        description: Adaptability, installability, replaceability.
+      SAFETY:
+        description: Risk identification, mitigation, fail-safe behaviour.
+      REGULATORY_COMPLIANCE:
+        description: Adherence to legal, industry, or contractual mandates.
+
+  ConstraintType:
+    description: Category of hard constraint.
+    permissible_values:
+      REGULATORY:
+        description: Legal or compliance mandate (e.g., GDPR, PCI-DSS).
+      TECHNICAL:
+        description: Technology or infrastructure limitation.
+      BUSINESS:
+        description: Budget, timeline, or organizational constraint.
+      CONTRACTUAL:
+        description: Obligation from a third-party agreement or SLA.
+      STANDARD:
+        description: Adherence to an industry or internal standard.
+
+  StakeholderRole:
+    description: The stakeholder's relationship to the system.
+    permissible_values:
+      SPONSOR:
+        description: Funds and champions the initiative.
+      PRODUCT_OWNER:
+        description: Defines and prioritizes requirements.
+      END_USER:
+        description: Directly interacts with the system.
+      OPERATOR:
+        description: Manages day-to-day system operations.
+      DEVELOPER:
+        description: Builds or integrates the system.
+      REGULATORY_BODY:
+        description: Sets compliance requirements.
+      EXTERNAL_SYSTEM:
+        description: Interacting upstream or downstream system.
+
+  ProcessType:
+    description: Classification of a business process.
+    permissible_values:
+      CORE:
+        description: Directly delivers value to the customer.
+      SUPPORT:
+        description: Enables core processes (e.g., HR, IT).
+      MANAGEMENT:
+        description: Governance, oversight, strategic direction.
+
+  TriggerType:
+    description: What initiates a process or use case.
+    permissible_values:
+      EVENT_EXTERNAL:
+        description: Triggered by an external event or actor action.
+      EVENT_TEMPORAL:
+        description: Triggered by a schedule or time condition.
+      EVENT_INTERNAL:
+        description: Triggered by an internal system state change.
+
+  ImpactLevel:
+    description: Magnitude of impact for risk or change assessment.
+    permissible_values:
+      CRITICAL: { description: System failure or regulatory breach. }
+      HIGH: { description: Major feature or workflow disruption. }
+      MEDIUM: { description: Noticeable degradation with workaround. }
+      LOW: { description: Minor inconvenience, easily absorbed. }
+      NEGLIGIBLE: { description: No meaningful effect. }
+
+  MeasurementUnit:
+    description: Common units for quality attribute measurement.
+    permissible_values:
+      MILLISECONDS: { description: Time duration in ms. }
+      SECONDS: { description: Time duration in seconds. }
+      PERCENTAGE: { description: Percentage (0–100). }
+      COUNT: { description: Absolute number. }
+      REQUESTS_PER_SECOND: { description: Throughput rate. }
+      BYTES: { description: Data size. }
+      CURRENCY: { description: Monetary value. }
+      BOOLEAN: { description: Binary pass/fail. }
+      LEVEL_ORDINAL: { description: Ordinal scale (e.g., Low/Med/High). }
+
+  EnterpriseTopologyType:
+    description: >-
+      The organizational topology of the enterprise. Determines whether
+      a Platform construct is present or whether the enterprise uses
+      a simpler Product-System hierarchy.
+    permissible_values:
+      STANDALONE:
+        description: >-
+          Non-platform topology. Products and Systems exist independently
+          without a shared platform foundation.
+      PLATFORM_CENTRIC:
+        description: >-
+          Platform topology. A Platform construct exists as a foundation
+          that Products and Systems build on or are part of.
+      HYBRID:
+        description: >-
+          Mixed topology. Some products/systems are platform-based,
+          others are standalone.
+
+  PlatformContractType:
+    description: >-
+      The type of contract a platform exposes to extenders.
+    permissible_values:
+      API:
+        description: REST, GraphQL, or other API interface.
+      SDK:
+        description: Software Development Kit for integration.
+      EVENT_BUS:
+        description: Event/messaging interface (pub/sub).
+      EXTENSION_POINT:
+        description: Plugin or extension mechanism.
+      DATA_SCHEMA:
+        description: Shared data model or schema contract.
+      UI_COMPONENT:
+        description: Reusable UI component or widget.
+
+  LifecycleStatus:
+    description: >-
+      Lifecycle state of an enterprise construct (Product, System, etc.).
+    permissible_values:
+      CONCEPT:
+        description: Early ideation, not yet committed.
+      IN_DEVELOPMENT:
+        description: Actively being built.
+      ACTIVE:
+        description: Live and serving users/consumers.
+      DEPRECATED:
+        description: Still operational but being phased out.
+      RETIRED:
+        description: No longer operational.
+      SUNSET_PLANNED:
+        description: Active but retirement date set.
+
+# ============================================================================
+# SUBSETS (logical groupings for navigation)
+# ============================================================================
+
+subsets:
+
+  BusinessContext:
+    description: Classes describing the business environment and rationale.
+
+  Requirements:
+    description: The requirement hierarchy and direct attributes.
+
+  QualityAttributes:
+    description: Non-functional quality model.
+
+  Traceability:
+    description: Relationships that link requirements to each other and to context.
+
+  Specification:
+    description: Container and document-level constructs.
+
+  EnterpriseStructure:
+    description: Organizational constructs (Product, System, Application, Platform).
+
+  PlatformModel:
+    description: Platform-specific constructs and contracts.
+
+# ============================================================================
+# CLASSES
+# ============================================================================
+
+classes:
+
+  # --------------------------------------------------------------------------
+  # 1. SPECIFICATION CONTAINER
+  # --------------------------------------------------------------------------
+
+  RequirementSpecification:
+    description: >-
+      Top-level container for a complete set of requirements for a product,
+      system, or project scope. Acts as the document boundary.
+    tree_root: true
+    attributes:
+      id:
+        identifier: true
+        description: Unique identifier for this specification.
+        range: string
+        required: true
+      name:
+        description: Human-readable title.
+        range: string
+        required: true
+      version:
+        description: Semantic version of this specification document.
+        range: string
+      description:
+        description: Narrative scope and purpose of this specification.
+        range: string
+      created_date:
+        description: Date the specification was first authored.
+        range: date
+      last_modified_date:
+        description: Date of the most recent modification.
+        range: date
+      status:
+        description: Current lifecycle state.
+        range: RequirementStatus
+      stakeholders:
+        description: All stakeholders associated with this specification.
+        range: Stakeholder
+        multivalued: true
+        inlined_as_list: true
+      business_goals:
+        description: Strategic goals this specification serves.
+        range: BusinessGoal
+        multivalued: true
+        inlined_as_list: true
+      business_capabilities:
+        description: Business capabilities in scope.
+        range: BusinessCapability
+        multivalued: true
+        inlined_as_list: true
+      business_processes:
+        description: Business processes in scope.
+        range: BusinessProcess
+        multivalued: true
+        inlined_as_list: true
+      domain_concepts:
+        description: Key business entities and concepts.
+        range: DomainConcept
+        multivalued: true
+        inlined_as_list: true
+      business_rules:
+        description: Governing business rules.
+        range: BusinessRule
+        multivalued: true
+        inlined_as_list: true
+      requirements:
+        description: All requirements in this specification.
+        range: Requirement
+        multivalued: true
+        inlined_as_list: true
+      use_cases:
+        description: Use cases or user stories.
+        range: UseCase
+        multivalued: true
+        inlined_as_list: true
+      assumptions:
+        description: Documented assumptions underlying this specification.
+        range: Assumption
+        multivalued: true
+        inlined_as_list: true
+      glossary_terms:
+        description: Domain-specific term definitions.
+        range: GlossaryTerm
+        multivalued: true
+        inlined_as_list: true
+      # Enterprise structure references (optional — topology-aware)
+      topology_type:
+        description: >-
+          The organizational topology. Determines whether platform constructs
+          are present. Defaults to STANDALONE if not specified.
+        range: EnterpriseTopologyType
+      products:
+        description: >-
+          Products in scope for this specification. Optional — only populated
+          when the specification covers product-level requirements.
+        range: Product
+        multivalued: true
+        inlined_as_list: true
+      systems:
+        description: >-
+          Systems in scope for this specification. Optional — only populated
+          when the specification covers system-level requirements.
+        range: System
+        multivalued: true
+        inlined_as_list: true
+      applications:
+        description: >-
+          Applications in scope for this specification. Optional — only populated
+          when the specification covers application-level requirements.
+        range: Application
+        multivalued: true
+        inlined_as_list: true
+      platforms:
+        description: >-
+          Platforms in scope for this specification. Optional — only populated
+          when the enterprise uses a platform topology.
+        range: Platform
+        multivalued: true
+        inlined_as_list: true
+    class_uri: sea-req:RequirementSpecification
+    subsets:
+      - Specification
+
+  # --------------------------------------------------------------------------
+  # 2. BUSINESS CONTEXT
+  # --------------------------------------------------------------------------
+
+  Stakeholder:
+    description: >-
+      A person, group, or system with a vested interest in the product
+      or its requirements.
+    attributes:
+      id:
+        identifier: true
+        range: string
+        required: true
+      name:
+        range: string
+        required: true
+      role:
+        description: The stakeholder's relationship to the system.
+        range: StakeholderRole
+      description:
+        range: string
+      organization:
+        description: Organizational unit or company.
+        range: string
+      concerns:
+        description: Key concerns or interests this stakeholder holds.
+        range: string
+        multivalued: true
+    class_uri: sea-req:Stakeholder
+    subsets:
+      - BusinessContext
+
+  BusinessGoal:
+    description: >-
+      A strategic objective the product or system is intended to achieve.
+      Goals justify the existence of requirements.
+    attributes:
+      id:
+        identifier: true
+        range: string
+        required: true
+      name:
+        range: string
+        required: true
+      description:
+        range: string
+      strategic_driver:
+        description: >-
+          The higher-level business driver (market, competitive, regulatory)
+          that motivates this goal.
+        range: string
+      success_criteria:
+        description: >-
+          Measurable indicators that determine whether the goal is achieved.
+        range: string
+        multivalued: true
+      target_date:
+        description: Expected achievement date.
+        range: date
+      priority:
+        range: RequirementPriority
+      parent_goal:
+        description: For goal decomposition — links to a higher-level goal.
+        range: BusinessGoal
+    class_uri: sea-req:BusinessGoal
+    subsets:
+      - BusinessContext
+
+  BusinessCapability:
+    description: >-
+      A distinct ability the business possesses or needs to possess
+      (e.g., "Order Fulfillment", "Customer Onboarding").
+      Capabilities are stable; processes and systems change.
+    attributes:
+      id:
+        identifier: true
+        range: string
+        required: true
+      name:
+        range: string
+        required: true
+      description:
+        range: string
+      capability_level:
+        description: >-
+          Maturity or importance level (e.g., core, enabling, emerging).
+        range: string
+      owner:
+        description: The stakeholder or organization unit that owns this capability.
+        range: Stakeholder
+      sub_capabilities:
+        description: Decomposition into finer-grained capabilities.
+        range: BusinessCapability
+        multivalued: true
+        inlined_as_list: true
+    class_uri: sea-req:BusinessCapability
+    subsets:
+      - BusinessContext
+
+  BusinessProcess:
+    description: >-
+      A structured set of activities that produces a defined business outcome.
+      Processes realize capabilities.
+    attributes:
+      id:
+        identifier: true
+        range: string
+        required: true
+      name:
+        range: string
+        required: true
+      description:
+        range: string
+      process_type:
+        range: ProcessType
+      trigger:
+        description: What initiates this process.
+        range: TriggerType
+      trigger_description:
+        description: Narrative description of the trigger condition.
+        range: string
+      entry_criteria:
+        description: Conditions that must be true before the process can start.
+        range: string
+        multivalued: true
+      exit_criteria:
+        description: Conditions that confirm the process completed successfully.
+        range: string
+        multivalued: true
+      activities:
+        description: Ordered steps within this process.
+        range: ProcessActivity
+        multivalued: true
+        inlined_as_list: true
+      realizes_capability:
+        description: Which business capability this process realizes.
+        range: BusinessCapability
+    class_uri: sea-req:BusinessProcess
+    subsets:
+      - BusinessContext
+
+  ProcessActivity:
+    description: A single step or task within a business process.
+    attributes:
+      id:
+        identifier: true
+        range: string
+        required: true
+      name:
+        range: string
+        required: true
+      description:
+        range: string
+      sequence_order:
+        description: Position of this activity within the process.
+        range: integer
+      actor:
+        description: Who or what performs this activity.
+        range: string
+      input:
+        description: What this activity consumes.
+        range: string
+        multivalued: true
+      output:
+        description: What this activity produces.
+        range: string
+        multivalued: true
+    class_uri: sea-req:ProcessActivity
+    subsets:
+      - BusinessContext
+
+  DomainConcept:
+    description: >-
+      A business entity, object, or concept relevant to the domain
+      (e.g., "Customer", "Invoice", "Product Catalog").
+      These become the data/domain model inputs for architecture.
+    attributes:
+      id:
+        identifier: true
+        range: string
+        required: true
+      name:
+        range: string
+        required: true
+      description:
+        range: string
+      synonyms:
+        description: Alternative names or aliases used in the business.
+        range: string
+        multivalued: true
+      key_attributes:
+        description: Important properties of this concept.
+        range: ConceptAttribute
+        multivalued: true
+        inlined_as_list: true
+      relationships:
+        description: How this concept relates to other concepts.
+        range: ConceptRelationship
+        multivalued: true
+        inlined_as_list: true
+    class_uri: sea-req:DomainConcept
+    subsets:
+      - BusinessContext
+
+  ConceptAttribute:
+    description: A property or field of a domain concept.
+    attributes:
+      name:
+        range: string
+        required: true
+      description:
+        range: string
+      data_type:
+        description: Expected data type (string, number, date, etc.).
+        range: string
+      is_required:
+        description: Whether this attribute is mandatory.
+        range: boolean
+      constraints:
+        description: Validation rules or restrictions.
+        range: string
+        multivalued: true
+    class_uri: sea-req:ConceptAttribute
+    subsets:
+      - BusinessContext
+
+  ConceptRelationship:
+    description: A named relationship between two domain concepts.
+    attributes:
+      name:
+        range: string
+        required: true
+      description:
+        range: string
+      source_concept:
+        description: The concept this relationship originates from.
+        range: DomainConcept
+      target_concept:
+        description: The concept this relationship points to.
+        range: DomainConcept
+      cardinality:
+        description: >-
+          Multiplicity (e.g., "1..*", "0..1", "1..1").
+        range: string
+      relationship_type:
+        description: >-
+          Nature of the relationship (e.g., "has", "belongs_to",
+          "references", "composed_of").
+        range: string
+    class_uri: sea-req:ConceptRelationship
+    subsets:
+      - BusinessContext
+
+  BusinessRule:
+    description: >-
+      A specific, testable directive that governs some aspect of the business.
+      Rules constrain behavior and are referenced by requirements.
+    attributes:
+      id:
+        identifier: true
+        range: string
+        required: true
+      name:
+        range: string
+        required: true
+      description:
+        range: string
+        required: true
+      rule_expression:
+        description: >-
+          Formal or semi-formal expression of the rule
+          (e.g., "IF order_total > 10000 THEN requires_approval = true").
+        range: string
+      rule_type:
+        description: Category of rule.
+        range: string
+        examples:
+          - value: FACT
+          - value: CONSTRAINT
+          - value: INFERENCE
+          - value: COMPUTATION
+      severity:
+        description: Consequence of violation.
+        range: ImpactLevel
+    class_uri: sea-req:BusinessRule
+    subsets:
+      - BusinessContext
+
+  # --------------------------------------------------------------------------
+  # 3. REQUIREMENT HIERARCHY
+  # --------------------------------------------------------------------------
+
+  Requirement:
+    description: >-
+      Abstract base class for all requirements. Concrete subtypes specialize
+      by category (business, functional, non-functional, constraint).
+    abstract: true
+    attributes:
+      id:
+        identifier: true
+        description: Unique requirement identifier (e.g., REQ-001).
+        range: string
+        required: true
+      name:
+        description: Short title.
+        range: string
+        required: true
+      description:
+        description: >-
+          Clear, unambiguous statement of the requirement.
+          Should follow "The system shall..." convention for functional reqs.
+        range: string
+        required: true
+      requirement_type:
+        description: Classification of this requirement.
+        range: RequirementType
+        required: true
+      priority:
+        range: RequirementPriority
+      status:
+        range: RequirementStatus
+      rationale:
+        description: Why this requirement exists.
+        range: string
+      acceptance_criteria:
+        description: >-
+          Testable conditions that confirm the requirement is satisfied.
+        range: string
+        multivalued: true
+      source:
+        description: Origin of this requirement (document, interview, regulation).
+        range: string
+      assigned_stakeholders:
+        description: Stakeholders who requested or own this requirement.
+        range: Stakeholder
+        multivalued: true
+      traces_to_goals:
+        description: Which business goals this requirement serves.
+        range: BusinessGoal
+        multivalued: true
+      traces_to_capabilities:
+        description: Which business capabilities this requirement supports.
+        range: BusinessCapability
+        multivalued: true
+      traces_to_processes:
+        description: Which business processes this requirement enables.
+        range: BusinessProcess
+        multivalued: true
+      governed_by_rules:
+        description: Business rules that constrain this requirement.
+        range: BusinessRule
+        multivalued: true
+      depends_on:
+        description: Other requirements that must be satisfied first.
+        range: Requirement
+        multivalued: true
+      conflicts_with:
+        description: Requirements that tension or contradict this one.
+        range: Requirement
+        multivalued: true
+      refines:
+        description: Finer-grained decomposition of a parent requirement.
+        range: Requirement
+        multivalued: true
+      assumptions:
+        description: Assumptions this requirement depends on.
+        range: Assumption
+        multivalued: true
+      notes:
+        description: Free-form annotations or open questions.
+        range: string
+        multivalued: true
+      # Enterprise structure bindings (optional — topology-aware)
+      binds_to_product:
+        description: >-
+          The product this requirement is scoped to. Optional.
+          BusinessRequirements typically bind here.
+        range: Product
+        multivalued: true
+      binds_to_system:
+        description: >-
+          The system this requirement targets. Optional.
+          Functional and NonFunctionalRequirements typically bind here.
+        range: System
+        multivalued: true
+      binds_to_application:
+        description: >-
+          The application this requirement targets. Optional.
+          Implementation-level requirements bind here.
+        range: Application
+        multivalued: true
+      binds_to_platform:
+        description: >-
+          The platform this requirement targets. Optional.
+          Only populated when a platform topology is in use.
+        range: Platform
+        multivalued: true
+      derives_from:
+        description: >-
+          Cross-altitude derivation. This requirement was derived from
+          a higher-level requirement (e.g., a BusinessRequirement at the
+          Product level deriving an NFR at the System level).
+        range: Requirement
+        multivalued: true
+    class_uri: sea-req:Requirement
+    subsets:
+      - Requirements
+
+  BusinessRequirement:
+    description: >-
+      A high-level requirement expressing a business need.
+      Typically maps to a business goal or capability.
+    is_a: Requirement
+    attributes:
+      business_justification:
+        description: ROI or value statement justifying this requirement.
+        range: string
+      impact_if_not_met:
+        description: What happens if this requirement is not fulfilled.
+        range: ImpactLevel
+      target_metrics:
+        description: >-
+          Business-level metrics this requirement aims to influence
+          (e.g., "reduce churn by 15%").
+        range: string
+        multivalued: true
+    class_uri: sea-req:BusinessRequirement
+    subsets:
+      - Requirements
+
+  FunctionalRequirement:
+    description: >-
+      A behavioral requirement — what the system must do.
+      Describes functions, interactions, and data handling.
+    is_a: Requirement
+    attributes:
+      use_case:
+        description: The use case this requirement realizes.
+        range: UseCase
+      functional_area:
+        description: >-
+          Logical grouping (e.g., "Authentication", "Reporting",
+          "Data Management").
+        range: string
+      interaction_type:
+        description: Kind of system interaction.
+        range: string
+        examples:
+          - value: USER_INPUT
+          - value: SYSTEM_EVENT
+          - value: API_CALL
+          - value: BATCH_JOB
+          - value: NOTIFICATION
+      preconditions:
+        description: Conditions that must hold before this function executes.
+        range: string
+        multivalued: true
+      postconditions:
+        description: Conditions guaranteed after successful execution.
+        range: string
+        multivalued: true
+      business_objects_involved:
+        description: Domain concepts this function operates on.
+        range: DomainConcept
+        multivalued: true
+    class_uri: sea-req:FunctionalRequirement
+    subsets:
+      - Requirements
+
+  NonFunctionalRequirement:
+    description: >-
+      A requirement specifying a quality attribute the system must exhibit.
+      Aligned with ISO/IEC 25010 quality model.
+    is_a: Requirement
+    attributes:
+      quality_category:
+        description: ISO 25010 quality attribute category.
+        range: QualityAttributeCategory
+        required: true
+      quality_scenario:
+        description: The concrete quality scenario this requirement addresses.
+        range: QualityScenario
+      measurable:
+        description: Whether this NFR has quantified targets.
+        range: boolean
+        required: true
+      target_value:
+        description: The quantitative target (if measurable).
+        range: string
+      threshold_value:
+        description: The minimum acceptable value before violation.
+        range: string
+      measurement_unit:
+        description: Unit of measurement for the target.
+        range: MeasurementUnit
+      measurement_method:
+        description: How the quality attribute is measured or observed.
+        range: string
+    class_uri: sea-req:NonFunctionalRequirement
+    subsets:
+      - Requirements
+      - QualityAttributes
+
+  ConstraintRequirement:
+    description: >-
+      A non-negotiable restriction on the system's design or implementation.
+      Unlike NFRs, constraints are binary — either met or violated.
+    is_a: Requirement
+    attributes:
+      constraint_type:
+        range: ConstraintType
+        required: true
+      regulation_or_standard:
+        description: >-
+          The specific regulation, law, or standard being referenced
+          (e.g., "GDPR Article 17", "PCI-DSS v4.0 Req 3.4").
+        range: string
+      jurisdiction:
+        description: Legal or geographic jurisdiction (if applicable).
+        range: string
+      effective_date:
+        description: When this constraint takes or took effect.
+        range: date
+      penalty_if_violated:
+        description: Consequence of non-compliance.
+        range: string
+    class_uri: sea-req:ConstraintRequirement
+    subsets:
+      - Requirements
+
+  # --------------------------------------------------------------------------
+  # 4. USE CASES
+  # --------------------------------------------------------------------------
+
+  UseCase:
+    description: >-
+      A description of an interaction between an actor and the system
+      that yields a measurable business outcome.
+    attributes:
+      id:
+        identifier: true
+        range: string
+        required: true
+      name:
+        range: string
+        required: true
+      description:
+        range: string
+      actor:
+        description: Primary actor initiating this use case.
+        range: Actor
+      secondary_actors:
+        description: Other actors involved.
+        range: Actor
+        multivalued: true
+      precondition:
+        description: State required before the use case can begin.
+        range: string
+        multivalued: true
+      main_flow:
+        description: The happy-path sequence of steps.
+        range: UseCaseStep
+        multivalued: true
+        inlined_as_list: true
+      alternative_flows:
+        description: Branching or exceptional flows.
+        range: AlternativeFlow
+        multivalued: true
+        inlined_as_list: true
+      postcondition:
+        description: State guaranteed after successful completion.
+        range: string
+        multivalued: true
+      business_rules_applied:
+        description: Rules governing this use case.
+        range: BusinessRule
+        multivalued: true
+    class_uri: sea-req:UseCase
+    subsets:
+      - BusinessContext
+      - Requirements
+
+  Actor:
+    description: >-
+      An external entity (human or system) that interacts with the system.
+    attributes:
+      id:
+        identifier: true
+        range: string
+        required: true
+      name:
+        range: string
+        required: true
+      description:
+        range: string
+      actor_type:
+        description: Whether this is a human user, external system, or device.
+        range: string
+        examples:
+          - value: PRIMARY_HUMAN
+          - value: SECONDARY_HUMAN
+          - value: EXTERNAL_SYSTEM
+          - value: TIME_TRIGGER
+    class_uri: sea-req:Actor
+    subsets:
+      - BusinessContext
+
+  UseCaseStep:
+    description: A single step in a use case's main flow.
+    attributes:
+      step_number:
+        range: integer
+        required: true
+      actor_action:
+        description: What the actor does.
+        range: string
+      system_response:
+        description: How the system responds.
+        range: string
+    class_uri: sea-req:UseCaseStep
+    subsets:
+      - BusinessContext
+
+  AlternativeFlow:
+    description: A branching path from the main use case flow.
+    attributes:
+      id:
+        identifier: true
+        range: string
+        required: true
+      name:
+        range: string
+        required: true
+      trigger_condition:
+        description: What causes the branch to execute.
+        range: string
+      steps:
+        range: UseCaseStep
+        multivalued: true
+        inlined_as_list: true
+      resolution:
+        description: How the alternative flow concludes or rejoins the main flow.
+        range: string
+    class_uri: sea-req:AlternativeFlow
+    subsets:
+      - BusinessContext
+
+  # --------------------------------------------------------------------------
+  # 5. QUALITY ATTRIBUTE MODEL
+  # --------------------------------------------------------------------------
+
+  QualityScenario:
+    description: >-
+      A concrete quality scenario following the ATAM pattern:
+      stimulus-source → stimulus → environment → artifact → response → measure.
+      Used to make NFRs testable and unambiguous.
+    attributes:
+      id:
+        identifier: true
+        range: string
+        required: true
+      name:
+        range: string
+        required: true
+      description:
+        range: string
+      stimulus_source:
+        description: Who or what generates the stimulus (e.g., "end user", "attacker").
+        range: string
+        required: true
+      stimulus:
+        description: The event or condition (e.g., "submits a 10,000-row query").
+        range: string
+        required: true
+      environment:
+        description: >-
+          The operating conditions (e.g., "peak load", "network partition",
+          "normal operation").
+        range: string
+        required: true
+      artifact:
+        description: Which part of the system is affected.
+        range: string
+      response:
+        description: The desired system response.
+        range: string
+        required: true
+      response_measure:
+        description: >-
+          How the response is quantified (e.g., "latency < 200ms at p99").
+        range: string
+        required: true
+    class_uri: sea-req:QualityScenario
+    subsets:
+      - QualityAttributes
+
+  # --------------------------------------------------------------------------
+  # 6. SUPPORTING CONSTRUCTS
+  # --------------------------------------------------------------------------
+
+  Assumption:
+    description: >-
+      A factor believed to be true for the purposes of this specification,
+      but not yet verified. Risks if proven false.
+    attributes:
+      id:
+        identifier: true
+        range: string
+        required: true
+      statement:
+        description: The assumption being made.
+        range: string
+        required: true
+      confidence:
+        description: How confident we are this holds (Low / Medium / High).
+        range: string
+      risk_if_false:
+        description: Impact if this assumption is invalid.
+        range: ImpactLevel
+      validation_method:
+        description: How we can verify this assumption.
+        range: string
+    class_uri: sea-req:Assumption
+    subsets:
+      - Specification
+
+  GlossaryTerm:
+    description: A domain-specific term with a precise definition.
+    attributes:
+      term:
+        identifier: true
+        range: string
+        required: true
+      definition:
+        range: string
+        required: true
+      abbreviation:
+        range: string
+      see_also:
+        description: Related terms.
+        range: string
+        multivalued: true
+    class_uri: sea-req:GlossaryTerm
+    subsets:
+      - Specification
+
+  # --------------------------------------------------------------------------
+  # 7. ENTERPRISE STRUCTURE (Topology-Aware)
+  # --------------------------------------------------------------------------
+  # These classes model the organizational constructs of an enterprise.
+  # They are OPTIONAL — populated only when the specification covers
+  # requirements at those altitudes. The topology (standalone vs platform)
+  # determines which constructs are instantiated.
+  # --------------------------------------------------------------------------
+
+  EnterpriseConstruct:
+    description: >-
+      Abstract base class for all enterprise organizational constructs.
+      Concrete subtypes: Product, SubProduct, System, Application, Platform.
+    abstract: true
+    attributes:
+      id:
+        identifier: true
+        description: Unique identifier for this construct.
+        range: string
+        required: true
+      name:
+        description: Human-readable name.
+        range: string
+        required: true
+      description:
+        description: Narrative description of this construct's purpose and scope.
+        range: string
+      lifecycle_status:
+        description: Current lifecycle state.
+        range: LifecycleStatus
+      owner:
+        description: The stakeholder or team responsible for this construct.
+        range: Stakeholder
+      tags:
+        description: Free-form classification tags.
+        range: string
+        multivalued: true
+    class_uri: sea-req:EnterpriseConstruct
+    subsets:
+      - EnterpriseStructure
+
+  Product:
+    description: >-
+      A commercial offering to a market segment. Products have a value
+      proposition, pricing, and positioning. A Product may exist
+      independently OR build on a Platform (topology-dependent).
+    is_a: EnterpriseConstruct
+    attributes:
+      value_proposition:
+        description: What value this product delivers to its market.
+        range: string
+      market_segment:
+        description: The target market or customer segment.
+        range: string
+      pricing_model:
+        description: How the product is priced (subscription, usage-based, etc.).
+        range: string
+      extends_platform:
+        description: >-
+          If this product builds on a platform, reference it here.
+          OPTIONAL — empty for standalone products.
+        range: Platform
+      sub_products:
+        description: Sub-products or editions of this product.
+        range: SubProduct
+        multivalued: true
+        inlined_as_list: true
+      served_by_systems:
+        description: >-
+          Systems that deliver this product's capabilities.
+          Many-to-many: a product may use multiple systems,
+          and a system may serve multiple products.
+        range: System
+        multivalued: true
+      parent_product:
+        description: >-
+          For product hierarchies — the parent product this is a variant of.
+        range: Product
+    class_uri: sea-req:Product
+    subsets:
+      - EnterpriseStructure
+
+  SubProduct:
+    description: >-
+      A variant, tier, or modular slice of a Product with a distinct
+      feature set or target segment. Sub-products scope a subset of
+      the parent product's requirements — they select which requirements
+      are active for their scope.
+    is_a: EnterpriseConstruct
+    attributes:
+      parent_product:
+        description: The parent product this sub-product derives from.
+        range: Product
+        required: true
+      feature_scope:
+        description: >-
+          Which features/requirements from the parent product are
+          included in this sub-product.
+        range: Requirement
+        multivalued: true
+      excluded_features:
+        description: >-
+          Which features/requirements from the parent product are
+          explicitly excluded from this sub-product.
+        range: Requirement
+        multivalued: true
+      pricing_model:
+        description: Pricing specific to this sub-product (may differ from parent).
+        range: string
+      target_segment:
+        description: The specific segment this sub-product targets.
+        range: string
+      is_extension:
+        description: >-
+          If true, this sub-product is an extension that adds new
+          capabilities to the platform (not just a feature subset).
+        range: boolean
+    class_uri: sea-req:SubProduct
+    subsets:
+      - EnterpriseStructure
+
+  System:
+    description: >-
+      A coordinated set of components that delivers a defined set of
+      capabilities. A System has an architectural boundary and may serve
+      one or many Products. It may exist independently OR be part of a
+      Platform (topology-dependent).
+    is_a: EnterpriseConstruct
+    attributes:
+      capability_boundary:
+        description: >-
+          The set of capabilities this system is responsible for.
+          Defines the system's scope and what it owns vs. what it delegates.
+        range: BusinessCapability
+        multivalued: true
+      architectural_pattern:
+        description: >-
+          The high-level architectural style (e.g., microservices, monolith,
+          event-driven, CQRS).
+        range: string
+      is_part_of_platform:
+        description: >-
+          If this system is a platform component, reference the platform.
+          OPTIONAL — empty for standalone systems.
+        range: Platform
+      serves_products:
+        description: >-
+          Products this system serves. Many-to-many relationship.
+        range: Product
+        multivalued: true
+      comprises_applications:
+        description: >-
+          Applications that comprise this system's implementation.
+        range: Application
+        multivalued: true
+        inlined_as_list: true
+      depends_on_systems:
+        description: >-
+          Other systems this system depends on (upstream/downstream).
+        range: System
+        multivalued: true
+      technology_domain:
+        description: >-
+          The primary technology domain (e.g., "payment processing",
+          "identity management", "data analytics").
+        range: string
+    class_uri: sea-req:System
+    subsets:
+      - EnterpriseStructure
+
+  Application:
+    description: >-
+      A deployable, runnable software unit with a codebase, deployment
+      target, and runtime. Applications implement Systems and may
+      consume Platform contracts (topology-dependent).
+    is_a: EnterpriseConstruct
+    attributes:
+      implements_system:
+        description: >-
+          The system this application is part of.
+        range: System
+        required: true
+      deployment_target:
+        description: >-
+          Where this application runs (e.g., "AWS us-east-1",
+          "on-premise DC3", "Kubernetes cluster-prod").
+        range: string
+      tech_stack:
+        description: >-
+          Primary technologies used (e.g., "Go + PostgreSQL",
+          "Node.js + Redis", "Java + Kafka").
+        range: string
+        multivalued: true
+      runtime_environment:
+        description: >-
+          Runtime type (e.g., "container", "serverless function",
+          "VM", "bare-metal").
+        range: string
+      team_ownership:
+        description: >-
+          The engineering team responsible for this application.
+        range: string
+      consumes_platform_contracts:
+        description: >-
+          Platform contracts this application consumes.
+          OPTIONAL — only populated in platform topologies.
+        range: PlatformContract
+        multivalued: true
+      exposes_interfaces:
+        description: >-
+          External interfaces this application exposes (APIs, events, etc.).
+        range: string
+        multivalued: true
+      depends_on_applications:
+        description: >-
+          Other applications this application depends on.
+        range: Application
+        multivalued: true
+    class_uri: sea-req:Application
+    subsets:
+      - EnterpriseStructure
+
+  # --------------------------------------------------------------------------
+  # 8. PLATFORM MODEL (Optional — only for platform topologies)
+  # --------------------------------------------------------------------------
+  # These classes are only instantiated when the enterprise uses a
+  # platform topology. They define the platform itself and the contracts
+  # it exposes to extenders.
+  # --------------------------------------------------------------------------
+
+  Platform:
+    description: >-
+      A foundation that other Products and Systems build on or are part of.
+      A Platform is simultaneously a Product (market offering) and a System
+      (technical foundation). This class is OPTIONAL — only present in
+      platform-centric or hybrid topologies.
+    is_a: EnterpriseConstruct
+    attributes:
+      value_proposition:
+        description: >-
+          What the platform offers to extenders (e.g., "rapid app development",
+          "payment infrastructure as a service").
+        range: string
+      platform_type:
+        description: >-
+          The kind of platform (e.g., "developer platform", "marketplace",
+          "infrastructure", "integration platform").
+        range: string
+      target_extenders:
+        description: >-
+          Who builds on this platform (e.g., "third-party developers",
+          "internal product teams", "partners").
+        range: string
+        multivalued: true
+      contracts:
+        description: >-
+          The contracts (APIs, SDKs, extension points) the platform exposes.
+        range: PlatformContract
+        multivalued: true
+        inlined_as_list: true
+      hosted_systems:
+        description: >-
+          Systems that are part of this platform's internals.
+        range: System
+        multivalued: true
+      extended_by_products:
+        description: >-
+          Products that build on this platform.
+        range: Product
+        multivalued: true
+      multi_tenancy_model:
+        description: >-
+          How the platform isolates tenants (e.g., "shared infrastructure",
+          "dedicated instances", "hybrid").
+        range: string
+      backward_compatibility_policy:
+        description: >-
+          The platform's commitment to API/contract stability
+          (e.g., "24 months deprecation notice", "rolling 2 major versions").
+        range: string
+    class_uri: sea-req:Platform
+    subsets:
+      - EnterpriseStructure
+      - PlatformModel
+
+  PlatformContract:
+    description: >-
+      A stable interface exposed by a Platform for consumption by
+      Products, Systems, or Applications. Contracts define the
+      platform's extensibility surface.
+    attributes:
+      id:
+        identifier: true
+        range: string
+        required: true
+      name:
+        range: string
+        required: true
+      description:
+        range: string
+      contract_type:
+        description: The kind of contract.
+        range: PlatformContractType
+        required: true
+      version:
+        description: Contract version (semantic versioning recommended).
+        range: string
+      stability_level:
+        description: >-
+          Stability guarantee (e.g., "stable", "beta", "experimental",
+          "deprecated").
+        range: string
+      deprecation_policy:
+        description: >-
+          How consumers are notified of breaking changes
+          (e.g., "6 months notice", "immediate for security fixes").
+        range: string
+      documentation_url:
+        description: Link to contract documentation.
+        range: string
+      provided_by_platform:
+        description: The platform this contract belongs to.
+        range: Platform
+        required: true
+    class_uri: sea-req:PlatformContract
+    subsets:
+      - PlatformModel
+
+  # --------------------------------------------------------------------------
+  # 9. PLATFORM-SPECIFIC REQUIREMENT TYPES
+  # --------------------------------------------------------------------------
+  # These requirement types are only applicable when a Platform construct
+  # exists. They capture platform-level concerns that don't fit into
+  # standard business/functional/non-functional categories.
+  # --------------------------------------------------------------------------
+
+  PlatformExtensibilityRequirement:
+    description: >-
+      A requirement on the platform's extensibility — what the platform
+      must expose for Products/Applications to build on it.
+      Only applicable when a Platform construct exists.
+    is_a: NonFunctionalRequirement
+    attributes:
+      target_platform:
+        description: The platform this extensibility requirement targets.
+        range: Platform
+        required: true
+      extensibility_mechanism:
+        description: >-
+          The mechanism through which extensibility is provided
+          (e.g., "REST API", "webhook", "plugin SDK", "event bus").
+        range: PlatformContractType
+      extender_profile:
+        description: >-
+          Who the extensibility is for (e.g., "third-party developer",
+          "internal team", "partner").
+        range: string
+      integration_complexity_target:
+        description: >-
+          Target complexity for integration (e.g., "new integration
+          deployable within 4 hours", "fewer than 10 API calls to
+          complete core workflow").
+        range: string
+    class_uri: sea-req:PlatformExtensibilityRequirement
+    subsets:
+      - Requirements
+      - PlatformModel
+      - QualityAttributes
+
+  PlatformMultiTenancyRequirement:
+    description: >-
+      A requirement on tenant isolation, data segregation, and
+      resource sharing within a platform.
+      Only applicable when a Platform construct exists.
+    is_a: NonFunctionalRequirement
+    attributes:
+      target_platform:
+        description: The platform this multi-tenancy requirement targets.
+        range: Platform
+        required: true
+      isolation_level:
+        description: >-
+          Required isolation level (e.g., "logical isolation",
+          "dedicated compute", "dedicated storage", "full stack isolation").
+        range: string
+      data_segregation_model:
+        description: >-
+          How tenant data is segregated (e.g., "shared database with
+          tenant_id column", "schema-per-tenant", "database-per-tenant").
+        range: string
+      tenant_capacity:
+        description: >-
+          Expected number of tenants and scale per tenant.
+        range: string
+      cross_tenant_isolation:
+        description: >-
+          Whether any cross-tenant data access is permitted
+          (e.g., "strict isolation", "opt-in sharing").
+        range: string
+    class_uri: sea-req:PlatformMultiTenancyRequirement
+    subsets:
+      - Requirements
+      - PlatformModel
+      - QualityAttributes
+
+  PlatformCompatibilityRequirement:
+    description: >-
+      A requirement on backward compatibility and contract stability
+      of a platform's APIs and contracts.
+      Only applicable when a Platform construct exists.
+    is_a: NonFunctionalRequirement
+    attributes:
+      target_platform:
+        description: The platform this compatibility requirement targets.
+        range: Platform
+        required: true
+      target_contract:
+        description: The specific contract this requirement applies to.
+        range: PlatformContract
+      compatibility_window:
+        description: >-
+          How long backward compatibility is guaranteed
+          (e.g., "24 months", "2 major versions", "indefinite for stable APIs").
+        range: string
+      breaking_change_policy:
+        description: >-
+          Policy for introducing breaking changes
+          (e.g., "6 months deprecation notice", "versioned endpoints",
+          "feature flags for gradual rollout").
+        range: string
+      migration_support:
+        description: >-
+          What migration support the platform provides
+          (e.g., "automated migration tools", "dual-run period",
+          "manual migration guide").
+        range: string
+    class_uri: sea-req:PlatformCompatibilityRequirement
+    subsets:
+      - Requirements
+      - PlatformModel
+      - QualityAttributes

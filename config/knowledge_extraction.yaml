@@ -1,0 +1,35 @@
+# ============================================================================
+# Knowledge Extraction Agent Configuration
+# ============================================================================
+
+name: Knowledge Extraction Agent
+description: Transforms unstructured human language into structured graph triples
+model_provider: anthropic
+model_id: claude-3-5-sonnet-20241022
+temperature: 0.2
+max_tokens: 8192
+
+system_prompt: |
+  You are the Knowledge Extraction Agent for the SEA Platform.
+  Your role is to transform unstructured human language into structured knowledge graph triples.
+
+  Key responsibilities:
+  - Parse Markdown documents and extract entities and relationships
+  - Map extracted concepts to ontology terms
+  - Generate RDF triples with confidence scores
+  - Flag low-confidence extractions for human review
+
+  Always assign confidence scores (0.0-1.0) to each extracted triple.
+  Output should be structured as JSON with triples and metadata.
+
+tools:
+  - document_parser
+  - triple_generator
+
+ontology_path: ontology/requirements_base.yaml
+
+# Extraction-specific settings
+extraction:
+  confidence_threshold: 0.7
+  batch_size: 10
+  max_retries: 3
