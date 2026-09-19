@@ -79,51 +79,68 @@ models (`gemma-4-E4B`, `SmolLM3-3B`) and isolated to the server, not the model.
 The fallback works correctly, so extraction is unaffected — but structured output
 itself is unusable on this stack.
 
-### Root cause (corrected — isolated at HTTP level)
+### Root cause (definitive — two separate problems)
 
-**The llama.cpp server ignores the `tools` parameter entirely.**
+**Problem A — `.env` points at the wrong server.**
 
-Verified with the OpenAI SDK directly, no Strands involved:
+Port scan of `192.168.3.176`:
 
+| Port | Server | Notes |
+|---|---|---|
+| `8888` | **`unsloth-studio`** | what `.env` currently targets; serves 5 models |
+| `8080` | `llama.cpp` | the `--jinja` instance; serves 1 model |
+
+The `--jinja` restart was real, but `.env` was still talking to Unsloth Studio.
+
+**Problem B — even on the `--jinja` instance, the model isn't tool-capable.**
+
+`--jinja` is live and the chat template *does* contain tool branches
+(`xml_tools` / `python_tools`, `<tool_call>` tags). But llama.cpp's own
+capability report for this model says otherwise:
+
+```json
+"chat_template_caps": {
+  "supports_tool_calls": false,
+  "supports_tools": false
+}
 ```
-tool_choice='auto'      -> finish_reason: stop, tool_calls: None, conversational reply
-tool_choice='required'  -> finish_reason: stop, tool_calls: None, conversational reply
-```
 
-No error is raised — the server accepts `tools` and silently discards it. A plain
-`@tool` function is also never invoked (model answers conversationally instead).
+Build `b11011-aa39d7a3e`, model `SmolLM3-3B-128K-GGUF:BF16`.
 
-Earlier diagnosis ("does not honour forced tool_choice") was imprecise: tools are
-off for **all** paths, not just the forced ones.
+When `supports_tools` is false, llama.cpp **accepts the `tools` field and
+silently discards it** — no error, `tool_calls: None`, even with
+`tool_choice="required"`. The model just answers conversationally. That is exactly
+the behaviour observed across every test.
 
 ### Fix
 
-Restart the llama.cpp server with **`--jinja`**. That enables the model's chat
-template with tool-call support; without it llama.cpp accepts and ignores `tools`.
-
-Switching models will NOT help — several are served on this endpoint
-(SmolLM3-3B, Qwen3.5-4B, gemma-4-E4B, …) and the failure is server-side.
+1. Point `.env` at the llama.cpp instance: `OPENAI_BASEURL=http://192.168.3.176:8080/v1`
+2. **Serve a tool-capable model** on it. SmolLM3-3B is not usable for tool calling
+   regardless of flags. Qwen-family models generally are.
 
 ### Re-test procedure
 
-One raw call, no Strands:
+```bash
+curl -s http://192.168.3.176:8080/props | jq .chat_template_caps.supports_tools
+# must be true before anything else will work
+```
+
+Then the raw call:
 
 ```python
 resp = client.chat.completions.create(
-    model=model,
-    messages=[{"role": "user", "content": "Use the tool."}],
+    model=model, messages=[{"role": "user", "content": "Use the tool."}],
     tools=[...], tool_choice="required",
 )
-assert resp.choices[0].message.tool_calls   # None => tools still disabled
+assert resp.choices[0].message.tool_calls   # None => still not tool-capable
 ```
 
-If `tool_calls` is populated → re-run extraction with `USE_STRUCTURED_OUTPUT=true`
-and close this item properly.
+If `tool_calls` is populated → set `USE_STRUCTURED_OUTPUT=true` and re-run extraction.
 
 ### Do not
 
-Pursue schema loosening or prompt tuning. Neither can help — the tool call never
-reaches the model.
+Pursue schema loosening, prompt tuning, or model-flag changes. `supports_tools`
+is decided by the template + llama.cpp build; nothing in this codebase affects it.
 
 ### What was implemented anyway (worth keeping)
 
