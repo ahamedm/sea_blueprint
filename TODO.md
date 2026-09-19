@@ -67,34 +67,63 @@ Re-run extraction on `data/input/sample_requirements.md` and check:
 
 ## 2. Test and use Strands structured output with the new model
 
-**Status:** ✅ Implemented — **structured output does NOT work with local models. Fallback is the operating mode.**
-**Priority:** Closed
+**Status:** ⛔ Blocked — server-side. Implementation complete and guarded; unusable
+until llama.cpp is restarted with `--jinja`.
+**Priority:** Blocked (re-test after server change)
 **Area:** `agents/base_agent.py` (`invoke_structured`), `agents/knowledge_extraction/agent.py`
 
 ### Outcome
 
-Implemented structured-output-first with a guarded fallback. Tested against both
-`gemma-4-E4B` and `SmolLM3-3B`. **Both fail.** The fallback works correctly, so
-extraction is unaffected — but the capability itself is unusable on this stack.
+Implemented structured-output-first with a guarded fallback. Tested against two
+models (`gemma-4-E4B`, `SmolLM3-3B`) and isolated to the server, not the model.
+The fallback works correctly, so extraction is unaffected — but structured output
+itself is unusable on this stack.
 
-### Root cause (confirmed, not a guess)
+### Root cause (corrected — isolated at HTTP level)
+
+**The llama.cpp server ignores the `tools` parameter entirely.**
+
+Verified with the OpenAI SDK directly, no Strands involved:
 
 ```
-strands.types.exceptions.StructuredOutputException:
-  The model failed to invoke the structured output tool even after it was forced.
+tool_choice='auto'      -> finish_reason: stop, tool_calls: None, conversational reply
+tool_choice='required'  -> finish_reason: stop, tool_calls: None, conversational reply
 ```
 
-The model **writes the JSON as plain text** in its response instead of calling
-the structured-output tool. Diagnostic trace confirmed **zero `toolUse` blocks** —
-the tool is never invoked.
+No error is raised — the server accepts `tools` and silently discards it. A plain
+`@tool` function is also never invoked (model answers conversationally instead).
 
-The critical detail: **the JSON the model writes is correct.** It produces
-well-formed `{"subject": ..., "predicate": ..., "object": ..., "confidence": ...}`
-objects. So the model understands the *shape* — it simply ignores *forced tool
-choice* (`tool_choice`), which the llama.cpp server does not honour.
+Earlier diagnosis ("does not honour forced tool_choice") was imprecise: tools are
+off for **all** paths, not just the forced ones.
 
-**This is a server/model capability gap, not a schema or prompt problem.**
-No amount of schema loosening or prompt tuning will fix it.
+### Fix
+
+Restart the llama.cpp server with **`--jinja`**. That enables the model's chat
+template with tool-call support; without it llama.cpp accepts and ignores `tools`.
+
+Switching models will NOT help — several are served on this endpoint
+(SmolLM3-3B, Qwen3.5-4B, gemma-4-E4B, …) and the failure is server-side.
+
+### Re-test procedure
+
+One raw call, no Strands:
+
+```python
+resp = client.chat.completions.create(
+    model=model,
+    messages=[{"role": "user", "content": "Use the tool."}],
+    tools=[...], tool_choice="required",
+)
+assert resp.choices[0].message.tool_calls   # None => tools still disabled
+```
+
+If `tool_calls` is populated → re-run extraction with `USE_STRUCTURED_OUTPUT=true`
+and close this item properly.
+
+### Do not
+
+Pursue schema loosening or prompt tuning. Neither can help — the tool call never
+reaches the model.
 
 ### What was implemented anyway (worth keeping)
 
