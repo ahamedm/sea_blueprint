@@ -30,20 +30,60 @@ from ..base_agent import SEABaseAgent, AgentConfig, AgentResult
 # ============================================================================
 
 class ExtractedTriple(BaseModel):
-    """A single extracted knowledge triple with ontology mapping."""
+    """A single extracted knowledge triple with ontology mapping.
     
-    subject: str = Field(..., description="Subject entity name (a node, not a sentence)")
-    predicate: str = Field(..., description="Relationship predicate (snake_case verb phrase)")
-    object: str = Field(..., description="Object entity name (a node, not a sentence)")
+    OBJECT CONTRACT — the field descriptions below are the primary prompt for
+    structured output, so they carry the graph-shape rules directly.
+    
+    Subject and object must NAME a thing, not describe behaviour. They become
+    graph nodes; a clause becomes a dangling node that cannot link or be queried.
+    """
+    
+    subject: str = Field(
+        ...,
+        description=(
+            "NAME of the subject entity: a short noun phrase (2-5 words), "
+            "e.g. 'Payment Gateway Platform', 'Cardholder Data'. "
+            "Never a sentence, never a description of behaviour."
+        ),
+    )
+    predicate: str = Field(
+        ...,
+        description=(
+            "Relationship in snake_case, reading as a verb phrase, "
+            "e.g. 'has_functional_requirement', 'traces_to_goal', 'encrypted_using'."
+        ),
+    )
+    object: str = Field(
+        ...,
+        description=(
+            "NAME of the object entity: a short noun phrase (2-5 words), "
+            "e.g. 'Payment Request Validation', 'Cardholder Data', 'TLS 1.2+'. "
+            "NEVER a sentence, clause, or verb phrase. "
+            "WRONG: 'Accept and validate incoming payment requests'. "
+            "RIGHT: 'Payment Request Validation'. "
+            "A short qualifier in parentheses is acceptable, e.g. 'Authorization Latency (<=500ms)'. "
+            "If the source names several things, emit ONE TRIPLE PER THING rather "
+            "than joining them with commas."
+        ),
+    )
     confidence: float = Field(
         default=0.8, ge=0.0, le=1.0,
-        description="Confidence score between 0.0 and 1.0"
+        description=(
+            "Confidence between 0.0 and 1.0. Vary this — do not default everything "
+            "to 1.0. Use 0.9-1.0 for explicitly stated facts, 0.7-0.9 for clearly "
+            "implied, 0.5-0.7 for inferred, below 0.5 for speculative."
+        ),
     )
     source_text: str = Field(
         default="", description="Original sentence this triple was extracted from"
     )
     ontology_class: Optional[str] = Field(
-        None, description="Mapped ontology class, e.g. FunctionalRequirement"
+        None,
+        description=(
+            "Ontology class of the OBJECT, chosen from the listed classes, "
+            "e.g. FunctionalRequirement, BusinessGoal, DomainConcept."
+        ),
     )
     requirement_type: Optional[str] = Field(
         None, description="One of: BUSINESS, FUNCTIONAL, NON_FUNCTIONAL, CONSTRAINT"
@@ -254,6 +294,16 @@ class KnowledgeExtractionAgent(SEABaseAgent):
             # Calculate statistics
             statistics = self._calculate_statistics_from_lists(triples, entities, relationships)
             
+            # Deterministic object-contract check (independent of model behaviour).
+            # Flags for human review; never drops content.
+            contract_flags = self._flag_contract_violations(triples)
+            if contract_flags:
+                self.log(
+                    f"  {len(contract_flags)}/{len(triples)} triples violate the object "
+                    f"contract (clause-shaped or comma-listed nodes) — flagged for review",
+                    level="warning",
+                )
+            
             self.log(
                 f"Extracted {len(triples)} triples, {len(entities)} entities, "
                 f"{len(relationships)} relationships ({len(low_confidence)} low confidence)",
@@ -266,6 +316,7 @@ class KnowledgeExtractionAgent(SEABaseAgent):
                 "entities": [e.model_dump() for e in entities],
                 "relationships": [r.model_dump() for r in relationships],
                 "low_confidence_items": [t.model_dump() for t in low_confidence],
+                "contract_violations": contract_flags,
                 "statistics": statistics,
             }
             
@@ -282,6 +333,7 @@ class KnowledgeExtractionAgent(SEABaseAgent):
                     "total_entities": len(entities),
                     "total_relationships": len(relationships),
                     "low_confidence_count": len(low_confidence),
+                    "contract_violation_count": len(contract_flags),
                 },
             )
             
@@ -337,52 +389,122 @@ For each entity, map it to an ontology class:
 - DomainConcept, ConceptAttribute, ConceptRelationship
 - Product, System, Application, Platform (enterprise constructs)
 
-### 4. Relationships
-Map relationships to ontology predicates:
-- `traces_to_goals`, `traces_to_capabilities`, `traces_to_processes`
-- `depends_on`, `conflicts_with`, `refines`
-- `governed_by_rules`, `binds_to_system`, `binds_to_application`
+### 4. Relationships and traceability
 
-### 5. Triples (MOST IMPORTANT)
-Generate subject-predicate-object triples that capture EA facts.
-Each triple should have: subject, predicate, object, confidence (0.0-1.0), source_text, and ontology_class.
+Use ontology predicates. **Do not omit traceability** — it is the primary purpose
+of this graph. The Semantic Auditor finds gaps by walking these edges; an edge
+that was never recorded is a gap it cannot report.
 
-**Example triples:**
+- `traces_to_goal` — requirement → the business goal it serves
+- `traces_to_capability` — requirement → the capability it supports
+- `traces_to_process` — requirement → the process it enables
+- `binds_to_system` / `binds_to_application` / `binds_to_platform` — scope a requirement to a construct
+- `governed_by_rules` — the rule that constrains behaviour
+- `depends_on`, `conflicts_with`, `refines` — requirement-to-requirement
+
+**Where a goal, capability, or process is not stated explicitly but is clearly
+implied, still emit the traceability triple** and score confidence 0.5–0.8 to
+reflect that it was inferred. An imperfectly-confident edge is far more useful
+than a missing one.
+
+Naming a concept cleanly (section 5) and recording traceability (this section)
+are not in tension — do both. A run that produces tidy nodes but no traceability
+edges is less useful than a messy one that does.
+
+### 5. THE OBJECT CONTRACT — read this before generating any triple
+
+Every subject and object must be the **NAME of a thing**, not a description of
+what something does. They become nodes in a graph. A clause becomes a node that
+nothing can link to and nothing can query — it is effectively lost.
+
+| | |
+|---|---|
+| **DO** name things | `Payment Request Validation`, `Cardholder Data`, `TLS 1.2+`, `Settlement Process`, `Country of Transaction` |
+| **DO NOT** write clauses | ~~`Accept and validate incoming payment requests`~~, ~~`Complete within 500ms`~~, ~~`Implement fallback strategy for PGSP routing`~~ |
+
+Rules:
+
+1. **2–5 words.** If it needs more, it is a clause — name the concept instead.
+2. **No verbs leading the phrase.** `Accept and validate...` is behaviour.
+   Name it: `Payment Request Validation`.
+3. **No commas in a subject or object.** If the source names several things,
+   emit **one triple per thing** — do not join them.
+   - Source: *"criteria include Country, Currency, and Payment Method"*
+   - WRONG: one triple with object `"Country, Currency, Payment Method"`
+   - RIGHT: three triples, objects `Country of Transaction`, `Transaction Currency`,
+     `Payment Method Preference`
+4. **Ignore document structure.** Section headings (`Security Requirements`,
+   `Performance Requirements`, `Transaction Routing`) are scaffolding, not domain
+   concepts. Do not emit them as entities unless they name a real thing in the
+   system being described.
+5. **Qualifiers are allowed in parentheses** when they are part of the name:
+   `Authorization Latency (<=500ms)` is fine. `Complete within 500 milliseconds
+   under normal load` is not.
+
+### 6. Worked example
+
+Source: *"The Payment Gateway Platform shall accept and validate incoming payment
+requests from B2C and B2E storefronts. Each request must be mapped to a unique
+tenancy identifier. Routing criteria shall include Country of Transaction,
+Transaction Currency, and Payment Method preference."*
+
+WRONG — clause objects, comma-joined list, headings as entities:
 ```json
 {{
   "triples": [
-    {{
-      "subject": "Payment Gateway Platform",
-      "predicate": "traces_to_goal",
-      "object": "Centralize Payment Processing",
-      "confidence": 1.0,
-      "source_text": "Provide a single, unified entry point for all payment requests",
-      "ontology_class": "BusinessGoal"
-    }},
-    {{
-      "subject": "Payment Authorization",
-      "predicate": "has_nfr",
-      "object": "Complete within 500ms",
-      "confidence": 1.0,
-      "source_text": "95% of all payment authorization requests must complete within 500 milliseconds",
-      "ontology_class": "NonFunctionalRequirement"
-    }}
+    {{"subject": "Payment Gateway Platform", "predicate": "has_functional_requirement",
+      "object": "Accept and validate incoming payment requests", "confidence": 1.0}},
+    {{"subject": "Transaction Routing", "predicate": "has_criteria",
+      "object": "Country of Transaction, Transaction Currency, Payment Method preference",
+      "confidence": 1.0}},
+    {{"subject": "Security Requirements", "predicate": "has_nfr",
+      "object": "Complete within 500 milliseconds", "confidence": 1.0}}
   ]
 }}
 ```
 
-### Confidence Guidelines
+RIGHT — named concepts, one triple per item, no headings:
+```json
+{{
+  "triples": [
+    {{"subject": "Payment Gateway Platform", "predicate": "has_functional_requirement",
+      "object": "Payment Request Validation", "confidence": 1.0,
+      "ontology_class": "FunctionalRequirement"}},
+    {{"subject": "Payment Request", "predicate": "requires_mapping_to",
+      "object": "Tenancy Identifier", "confidence": 1.0,
+      "ontology_class": "DomainConcept"}},
+    {{"subject": "Transaction Routing", "predicate": "is_determined_by",
+      "object": "Country of Transaction", "confidence": 1.0,
+      "ontology_class": "ConceptAttribute"}},
+    {{"subject": "Transaction Routing", "predicate": "is_determined_by",
+      "object": "Transaction Currency", "confidence": 1.0,
+      "ontology_class": "ConceptAttribute"}},
+    {{"subject": "Transaction Routing", "predicate": "is_determined_by",
+      "object": "Payment Method Preference", "confidence": 1.0,
+      "ontology_class": "ConceptAttribute"}}
+  ]
+}}
+```
+
+Note the trade: the RIGHT version has **more** triples from the same source. Splitting
+lists into separate triples is not losing information — it is making each criterion
+independently queryable, which is the entire point of the graph.
+
+### 7. Confidence Guidelines
 - 0.9-1.0: Explicitly stated, unambiguous
 - 0.7-0.9: Clearly implied, high certainty
 - 0.5-0.7: Reasonably inferred, some uncertainty
 - 0.0-0.5: Speculative, requires human review
 
+**Vary your confidence scores.** A flat 1.0 across every triple carries no
+information and prevents the human-review threshold from doing its job.
+
 ## Output Requirements
-- Generate as many triples as possible (aim for 10-30+ from a typical document)
-- Map entities to ontology classes
-- List all unique entities found with their ontology mapping
-- List all relationship types identified
-- Be thorough: every meaningful EA relationship should be captured as at least one triple
+- Be thorough: every meaningful EA relationship should become at least one triple
+- Split multi-valued statements into one triple per value
+- Name concepts rather than describing behaviour
+- Map each object to an ontology class
+- List all unique entities and relationship types you used
 """
         return prompt
     
@@ -760,6 +882,63 @@ Each triple should have: subject, predicate, object, confidence (0.0-1.0), sourc
             )
         return list(seen.values())
     
+    # Words that almost always signal a clause rather than a name.
+    # Deliberately conservative — this FLAGS for human review, it never drops.
+    _CLAUSE_MARKERS = (" shall ", " must ", " will ", " should ", " and ", " or ")
+
+    def _flag_contract_violations(
+        self,
+        triples: List[ExtractedTriple],
+    ) -> List[Dict[str, Any]]:
+        """Flag triples whose subject/object break the object contract.
+
+        Deterministic post-check, independent of model behaviour. Prompts drift
+        and models vary; this catches clause-like nodes either way and routes
+        them to human review rather than silently polluting the graph.
+
+        Flags, never drops: a long object may still be legitimate, and silently
+        discarding extracted content is worse than surfacing it.
+
+        Detects:
+          - over-long subjects/objects (clause-shaped)
+          - comma-lists in a node (should be split into separate triples)
+          - clause markers (shall/must/will/should/and/or)
+        """
+        flags: List[Dict[str, Any]] = []
+
+        for t in triples:
+            reasons: List[str] = []
+
+            for field, raw in (("subject", t.subject), ("object", t.object)):
+                value = (raw or "").strip()
+                if not value:
+                    continue
+
+                if len(value) > 40:
+                    reasons.append(f"{field} is {len(value)} chars (clause-shaped)")
+                if "," in value:
+                    reasons.append(
+                        f"{field} contains a comma-list — split into one triple per item"
+                    )
+
+                padded = f" {value.lower()} "
+                for marker in self._CLAUSE_MARKERS:
+                    if marker in padded:
+                        reasons.append(
+                            f"{field} contains clause marker {marker.strip()!r}"
+                        )
+                        break
+
+            if reasons:
+                flags.append({
+                    "subject": t.subject,
+                    "predicate": t.predicate,
+                    "object": t.object,
+                    "reasons": reasons,
+                })
+
+        return flags
+
     def _parse_entity_dict(self, e: dict) -> Optional[ExtractedEntity]:
         """Parse a single entity from a dictionary."""
         try:

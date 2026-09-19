@@ -7,60 +7,80 @@ implement later without re-deriving the findings.
 
 ## 1. Tighten the extraction prompt: objects must be entities, not clauses
 
-**Status:** Not started
-**Priority:** High
-**Area:** `agents/knowledge_extraction/agent.py` → `_build_extraction_prompt()`
+**Status:** ✅ RESOLVED — node quality 35% → 6%
+**Priority:** Closed
+**Area:** `agents/knowledge_extraction/agent.py`
 
-### Problem
+### Outcome
 
-With `unsloth/SmolLM3-3B-128K-GGUF:BF16`, 8 of 36 extracted triples (22%) have
-**clause-like objects instead of entity names**. A triple's object should be a
-graph node — a short noun phrase — but the model emits whole sentences:
+| | Baseline | After |
+|---|---|---|
+| Clause-like / contract violations | **35%** (14/40) | **6%** (2/34) |
+| Triples | 40 | 34 |
+| Entities | 14 | 23 |
+| Distinct subjects | 5 | 10 |
+| `ontology_class` populated | 40/40 | 34/34 |
+| Distinct confidence values | 3 | 3 (0.8/0.9/1.0) |
+
+Node quality now reads as actual graph nodes:
 
 ```
-Transaction Routing --has_rule_based_engine--> "Configurable, rule-based engine to determine optimal PGSP for transaction routing"
-Transaction Routing --has_routing_criteria-->  "Country of Transaction, Transaction Currency, Payment Method preference (Card Holder preference)"
-Security Requirements --has_rbac-->            "RBAC enforced across all administrative and backend interfaces"
-Performance Requirements --has_performance_constraint--> "95% of transactions within 500ms, 1000 TPS"
+Payment Gateway Platform --has_functional_requirement--> Payment Request Mapping
+Cardholder Data --encrypted_using--> TLS 1.2+
+Transaction Routing --is_determined_by--> Country of Transaction
+Role-Based Access Control Enforcement  (as a node, not a clause)
 ```
 
-These triples extract fine but **cannot link or be queried** — which defeats the
-purpose of building a knowledge graph. They also inflate the entity count with
-non-entities (see derived-entity fallback below).
+The two remaining flags are **false positives** of the heuristic — both are
+legitimate compound names sitting 1–2 chars over the 40-char threshold
+(`Payment Gateway Service Provider Selection`). Conservative over-flagging is the
+right default; they cost a human one glance.
 
-### Second problem in the same area
+### Root cause — the prompt was teaching the bug
 
-The model treats **document section headings as entities**:
+The few-shot example in the prompt contained the exact failure:
 
-- `"Security Requirements"` and `"Performance Requirements"` came through as entities
-- The document uses these as markdown headings (`### Security Requirements`), not as domain concepts
+```json
+"object": "Complete within 500ms"    ← a clause, presented as correct
+```
 
-### Proposed fix
+The model was faithfully imitating the example. **Check examples before tuning
+instructions** — a wrong example outweighs any amount of correct prose.
 
-Constrain the prompt:
+### What was changed
 
-1. **State the object contract explicitly** — objects must be entity names
-   (short noun phrases, ≤ ~40 chars), never sentences or clauses.
-2. **Rule for multi-value objects** — if a statement lists several things
-   ("Country, Currency, Payment Method"), emit **one triple per item**, not one
-   triple with a comma-joined list. This is the correct graph shape anyway and
-   lets the auditor query each criterion independently.
-3. **Tell it to ignore document structure** — section headings, table headers,
-   and heading text are not entities unless they name a real domain concept.
-4. **Add a few negative examples** — the prompt currently only shows good
-   examples. One or two "do not do this" pairs will help a 3B model.
+1. **Schema field descriptions tightened.** With structured output these *are*
+   the prompt — they ship to the model as the tool schema. `object` now carries
+   the rule, an explicit WRONG/RIGHT pair, and the one-triple-per-item rule.
+2. **Prompt rewritten** with an OBJECT CONTRACT section, a worked WRONG→RIGHT
+   example from the real document, and the document-structure rule (section
+   headings are scaffolding, not concepts).
+3. **Confidence guidance** now explicitly asks for variation, since a flat 1.0
+   makes the human-review threshold useless.
+4. **`_flag_contract_violations()`** — deterministic post-check, independent of
+   model behaviour. Flags clause-shaped nodes, comma-lists, and clause markers.
+   **Flags, never drops** — silently discarding extracted content is worse than
+   surfacing it.
 
-Optional: add a **post-extraction validator** that flags triples whose object
-exceeds a length threshold or contains comma-lists, surfacing them as
-low-confidence for human review. Cheap safety net independent of model quality.
+### Regression caught and fixed mid-work
+
+The first pass fixed node quality (35% → 9%) but **silently dropped the
+ontology's traceability predicates** — `traces_to_goal`, `traces_to_capability`,
+`traces_to_process`, `binds_to_system` all vanished. Those edges are how the
+Semantic Auditor finds gaps, so losing them is worse than clause-shaped nodes.
+
+Cause: the contract emphasis crowded out inference of *implicit* traceability.
+Fixed by adding explicit guidance that inferred traceability edges should still
+be emitted, scored 0.5–0.8. Result: 5 traceability edges restored with honest
+confidence scores (0.8–0.9), and violations improved further to 6%.
+
+**Lesson: when tightening one dimension, re-measure the others.** A prompt fix
+that improves the metric you're watching can quietly destroy a metric you aren't.
 
 ### Verification
 
-Re-run extraction on `data/input/sample_requirements.md` and check:
-
-- Count of triples with `len(object) > 40` should drop toward 0
-- No heading text (`Security Requirements`, `Performance Requirements`) should
-  appear as a subject or object
+Measured on `data/input/sample_requirements.md` via
+`metadata["contract_violation_count"]`. Re-run and compare if the prompt changes.
 - Multi-value statements should produce N triples, not 1 comma-joined triple
 
 ---
