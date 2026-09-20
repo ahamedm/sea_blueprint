@@ -67,5 +67,8 @@ Thumbs.db
 .orbit-local
 CLAUDE.md
 
-# Test Data
-test_data/
+# Test fixtures ARE tracked (test_data/) — deliberate.
+# They are hand-written INPUTS that the extraction harness reads, and a harness
+# that cannot run from a clean checkout is not a regression guard. These are the
+# only documents that exercise the large-document / chunking path.
+# Generated outputs stay ignored — see data/output/ above.
