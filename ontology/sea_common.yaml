@@ -1,0 +1,311 @@
+# ============================================================================
+# SEA Platform — Common Ontology  [DRAFT]
+# ============================================================================
+# Cross-cutting constructs usable by EVERY layer above this one.
+#
+# These are concerns that are not specific to requirements or architecture, but
+# apply wherever an assertion is made or a thing is identified:
+#
+#   ExternalReference — the enterprise's own identifier for a construct, held in
+#                       a system of record (CMDB, EA repository, PPM, tech
+#                       registry). Lets our graph reconcile with the enterprise.
+#
+#   Provenance        — who or what asserted a statement, when, from what, and
+#                       whether a human has verified it. Gives every claim an
+#                       audit trail instead of an implicit one.
+#
+# LAYERING (strict one-way imports):
+#
+#   sea_common.yaml              base — no external imports
+#         ▲
+#   enterprise_structure.yaml
+#         ▲
+#   requirements_base.yaml       REQ-G
+#         ▲
+#   architecture_base.yaml       ARC-G
+#
+# Layers opt in to these concerns by MIXING IN the mixin classes below, rather
+# than by inheriting them — identity and provenance are aspects, not taxonomy.
+#
+# ============================================================================
+# STATUS: DRAFT — not committed. Review before use.
+# ============================================================================
+
+id: https://sea.platform/ontology/sea-common
+name: sea-common
+title: SEA Common Ontology
+version: 0.1.0-draft
+description: >-
+  Cross-cutting constructs shared by every SEA ontology layer: external
+  identifier references into enterprise systems of record, and provenance for
+  each assertion made in the graph.
+
+license: MIT
+default_curi_maps:
+  - semweb_context
+
+prefixes:
+  linkml: https://w3id.org/linkml/
+  sea-cmn: https://sea.platform/ontology/sea-common/
+  schema: https://schema.org/
+  dcterms: http://purl.org/dc/terms/
+
+default_prefix: sea-cmn
+default_range: string
+
+imports:
+  - linkml:types
+
+# ============================================================================
+# ENUMERATIONS
+# ============================================================================
+
+enums:
+
+  ExternalReferenceType:
+    description: >-
+      The kind of external system of record an identifier belongs to. The
+      enterprise decides which systems are authoritative; this vocabulary only
+      names the categories so references can be resolved and compared.
+    permissible_values:
+      CMDB_CI:
+        description: >-
+          Configuration Item reference in a CMDB (e.g. ServiceNow CI). The most
+          common reference for systems, applications and services.
+      EA_REPOSITORY_ID:
+        description: Identifier in an enterprise architecture repository (LeanIX, Ardoq, BizzDesign, Sparx).
+      ASSET_ID:
+        description: Asset or inventory registry identifier.
+      CLOUD_RESOURCE_ID:
+        description: Cloud provider resource identifier (ARN, resource name, subscription id).
+      PPM_ID:
+        description: Project or portfolio management identifier (ServiceNow SPM, Jira Align, Clarity).
+      REQUIREMENT_KEY:
+        description: Requirement tooling key (Jira, Azure DevOps, DOORS).
+      TECH_REGISTRY_ID:
+        description: Technology registry or radar entry identifier.
+      CATALOG_ENTRY:
+        description: Service catalog or developer portal entry.
+      OTHER:
+        description: A system of record not covered above; describe it in `system`.
+
+  ProvenanceSource:
+    description: >-
+      What produced an assertion. Distinguishing agent from human matters: agent
+      assertions are candidates for review, human assertions are the outcome of
+      it.
+    permissible_values:
+      EXTRACTION_AGENT:
+        description: Derived by an extraction agent from source material. Unreviewed unless verified.
+      ENRICHMENT:
+        description: Added by a lookup or join against another system (e.g. a CMDB join).
+      HUMAN_ARCHITECT:
+        description: Authored or corrected by an architect.
+      HUMAN_ANALYST:
+        description: Authored or corrected by a business analyst.
+      HUMAN_REVIEWER:
+        description: Confirmed during review of an agent assertion.
+      IMPORTED:
+        description: Imported wholesale from a tool export (e.g. Structurizr, CMDB extract).
+      INFERRED:
+        description: Derived by reasoning over existing graph content rather than from source text.
+
+  VerificationStatus:
+    description: >-
+      Whether an assertion has been checked. Agent output starts UNVERIFIED —
+      that is the honest default, and it is what routes items to human review.
+    permissible_values:
+      UNVERIFIED:
+        description: Asserted, not yet reviewed. The default for agent output.
+      VERIFIED:
+        description: Checked and confirmed by a human.
+      CORRECTED:
+        description: Reviewed and amended by a human; the current value is the corrected one.
+      DISPUTED:
+        description: Review found this contested or unresolved.
+      SUPERSEDED:
+        description: Replaced by a later assertion; retained for lineage.
+
+# ============================================================================
+# SUBSETS
+# ============================================================================
+
+subsets:
+
+  Identity:
+    description: Linking constructs to the enterprise's own systems of record.
+
+  Provenance:
+    description: Audit trail for each assertion in the graph.
+
+# ============================================================================
+# CLASSES
+# ============================================================================
+
+classes:
+
+  # --------------------------------------------------------------------------
+  # 1. EXTERNAL REFERENCE
+  # --------------------------------------------------------------------------
+
+  ExternalReference:
+    description: >-
+      A pointer from a construct to its authoritative identifier in an external
+      system of record.
+      
+      The enterprise owns the identifier scheme — this records the MAPPING, not
+      a format. No pattern is enforced, because we cannot know an enterprise's
+      convention and imposing one would be wrong.
+      
+      Why it matters: it makes the graph reconcilable. A CMDB team can join our
+      Systems and Applications to their CIs; we can pull authoritative
+      attributes back in. It is also the most reliable path for cross-graph
+      linkage between REQ-G and ARC-G — an exact identifier match, rather than
+      the semantic guesswork required when documents paraphrase each other.
+    attributes:
+      id:
+        identifier: true
+        range: string
+        required: true
+      system:
+        description: >-
+          The system of record, as named by the enterprise
+          (e.g. "ServiceNow CMDB", "LeanIX", "AWS").
+        range: string
+        required: true
+      reference_type:
+        range: ExternalReferenceType
+        required: true
+      identifier:
+        description: >-
+          The value as held by that system, verbatim (e.g. "CI0004872").
+          Never normalise or reformat it — it must round-trip exactly.
+        range: string
+        required: true
+      uri:
+        description: Optional resolvable link to the record.
+        range: string
+      is_authoritative:
+        description: >-
+          Whether this is THE source of truth for the construct. A construct may
+          carry several references while only one is authoritative; without this
+          flag, resolution is ambiguous.
+        range: boolean
+      attribute_scope:
+        description: >-
+          Optional narrowing: which attributes this reference is authoritative
+          for, when authority is partial (e.g. "ownership", "cost centre").
+        range: string
+        multivalued: true
+      notes:
+        range: string
+    class_uri: sea-cmn:ExternalReference
+    subsets:
+      - Identity
+
+  # --------------------------------------------------------------------------
+  # 2. PROVENANCE
+  # --------------------------------------------------------------------------
+
+  Provenance:
+    description: >-
+      The audit trail for one assertion: who or what asserted it, when, from
+      what source, and whether a human has verified it.
+      
+      Every claim in the graph is a claim made by something. Without this,
+      an agent-derived guess and a human-ratified decision look identical once
+      they are in the graph — which is exactly the confusion the review workflow
+      exists to prevent.
+    attributes:
+      id:
+        identifier: true
+        range: string
+        required: true
+      source_type:
+        range: ProvenanceSource
+        required: true
+      asserted_by:
+        description: >-
+          Name of the agent, person, or tool that made the assertion.
+        range: string
+      model_id:
+        description: >-
+          Model identifier, when the assertion came from an agent
+          (e.g. "unsloth/Qwen3.5-4B-GGUF"). Lets quality be tracked per model.
+        range: string
+      asserted_at:
+        description: When the assertion was made.
+        range: datetime
+      derived_from:
+        description: >-
+          The source the assertion was derived from — document name, URI, or
+          upstream graph node.
+        range: string
+      extraction_pass:
+        description: >-
+          Which pass produced it, when extraction is split into passes
+          (e.g. "elements", "connections", "technology_stacks", "traceability").
+          Needed to attribute quality once a single call becomes several.
+        range: string
+      confidence:
+        description: Numeric confidence in this assertion, 0.0-1.0.
+        range: float
+      verification_status:
+        description: Review state. UNVERIFIED is the correct default for agent output.
+        range: VerificationStatus
+      verified_by:
+        range: string
+      verified_at:
+        range: datetime
+      correction_note:
+        description: >-
+          What was changed and why, when a human corrected the assertion.
+        range: string
+      notes:
+        range: string
+    class_uri: sea-cmn:Provenance
+    subsets:
+      - Provenance
+
+  # --------------------------------------------------------------------------
+  # 3. MIXINS
+  # --------------------------------------------------------------------------
+  # Identity and provenance are ASPECTS, not taxonomy — a System is not a kind
+  # of ExternalReference. So layers opt in by mixing these in, rather than by
+  # inheriting. This keeps the class hierarchies in the layers above clean and
+  # stops these concerns leaking into their is_a trees.
+  # --------------------------------------------------------------------------
+
+  ExternallyReferenced:
+    description: >-
+      Mixin for anything that can be reconciled against an enterprise system of
+      record. Apply to constructs the enterprise actually registers.
+    mixin: true
+    attributes:
+      external_references:
+        description: >-
+          Identifiers this construct is known by in external systems. Optional:
+          most documents will not state them, in which case this is populated by
+          a later enrichment join rather than by extraction.
+        range: ExternalReference
+        multivalued: true
+        inlined_as_list: true
+    class_uri: sea-cmn:ExternallyReferenced
+    subsets:
+      - Identity
+
+  Provenanced:
+    description: >-
+      Mixin for anything whose assertions carry an audit trail.
+    mixin: true
+    attributes:
+      provenance:
+        description: >-
+          Audit trail for this assertion. Absent provenance should be read as
+          "unknown origin", which is weaker than UNVERIFIED agent output — not
+          as human-verified.
+        range: Provenance
+        inlined: true
+    class_uri: sea-cmn:Provenanced
+    subsets:
+      - Provenance

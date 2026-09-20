@@ -33,6 +33,7 @@ default_range: string
 
 imports:
   - linkml:types
+  - sea_common
 
 # ============================================================================
 # ENUMERATIONS
@@ -119,11 +120,25 @@ classes:
     description: >-
       Abstract base class for all enterprise organizational constructs.
       Concrete subtypes: Product, SubProduct, System, Application, Platform.
+      
+      Every enterprise construct is ExternallyReferenced: enterprises already
+      hold identifiers for these in a system of record (ServiceNow CMDB CI
+      reference, EA repository entry, asset registry), and reconciling our graph
+      against those is what connects it to the rest of the enterprise.
+      
+      Note the distinction from `id`: this is OUR key, used for graph integrity
+      and internal references. The enterprise's identifier is a separate thing,
+      recorded in `external_references`.
     abstract: true
+    mixins:
+      - ExternallyReferenced
+      - Provenanced
     attributes:
       id:
         identifier: true
-        description: Unique identifier for this construct.
+        description: >-
+          Ontology-local key. Stable within this graph; NOT the enterprise's
+          identifier for the same construct (see `external_references`).
         range: string
         required: true
       name:
@@ -329,6 +344,16 @@ classes:
       A Platform is simultaneously a Product (market offering) and a System
       (technical foundation). This class is OPTIONAL — only present in
       platform-centric or hybrid topologies.
+      
+      NAMING NOTE — this is the COMMERCIAL sense of "platform": something offered
+      to extenders, with a value proposition, published contracts, and a
+      multi-tenancy model. Shopify's platform, Stripe's platform.
+      
+      It is NOT the same as an "Enterprise Technology Platform" (OpenShift,
+      Splunk, Grafana) — shared internal infrastructure owned by a cross-cutting
+      team. That concept lives in `architecture_base.SoftwareSystem.system_class`,
+      deliberately under a different name so the two do not blur. If you are
+      looking for "is this OpenShift", you want `system_class`, not this class.
     is_a: EnterpriseConstruct
     attributes:
       value_proposition:

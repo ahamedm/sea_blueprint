@@ -34,6 +34,7 @@ default_range: string
 imports:
   - linkml:types
   - enterprise_structure
+  - sea_common
 
 # ============================================================================
 # ENUMERATIONS
@@ -180,6 +181,43 @@ enums:
       CURRENCY: { description: Monetary value. }
       BOOLEAN: { description: Binary pass/fail. }
       LEVEL_ORDINAL: { description: Ordinal scale (e.g., Low/Med/High). }
+
+  InitiativeType:
+    description: >-
+      The kind of Initiative. Distinguishes a discrete project from a
+      programme that contains several, and from continuous/BU work.
+    permissible_values:
+      PROGRAM:
+        description: >-
+          A grouping of related projects pursued under one business case.
+          May contain child Initiatives.
+      PROJECT:
+        description: >-
+          A time-boxed piece of work with its own business case and delivery.
+      WORK_ITEM:
+        description: >-
+          A smaller unit of work, typically under a Project.
+      ENHANCEMENT:
+        description: Incremental improvement to an existing capability or system.
+      COMPLIANCE:
+        description: >-
+          Work driven primarily by a regulatory or standards obligation rather
+          than a commercial opportunity.
+      TECHNICAL_DEBT:
+        description: >-
+          Work whose business case is risk/cost reduction rather than new
+          capability.
+
+  InitiativeStatus:
+    description: Lifecycle of an Initiative through business-case approval.
+    permissible_values:
+      PROPOSED: { description: Business case drafted, not yet approved. }
+      UNDER_REVIEW: { description: Business case in approval. }
+      APPROVED: { description: Business case approved, delivery not started. }
+      IN_FLIGHT: { description: Delivery underway. }
+      ON_HOLD: { description: Paused. }
+      DELIVERED: { description: Outcomes realised or handed over. }
+      CANCELLED: { description: Abandoned; retain for traceability. }
 
 # ============================================================================
 # SUBSETS (logical groupings for navigation)
@@ -346,6 +384,13 @@ classes:
         range: SystemCapabilityBinding
         multivalued: true
         inlined_as_list: true
+      initiatives:
+        description: >-
+          Business cases / work items that authorise the requirements in this
+          specification. Optional — populated when the source names them.
+        range: Initiative
+        multivalued: true
+        inlined_as_list: true
     class_uri: sea-req:RequirementSpecification
     subsets:
       - Specification
@@ -353,6 +398,105 @@ classes:
   # --------------------------------------------------------------------------
   # 2. BUSINESS CONTEXT
   # --------------------------------------------------------------------------
+
+  Initiative:
+    description: >-
+      A formalised business case or work item that authorises change in the
+      enterprise. The Initiative is the "why" ABOVE requirements: it states the
+      justification, the sponsor, the capabilities to be created or enhanced,
+      and the systems affected.
+      
+      It is the common root for tracing. Requirements originate from an
+      Initiative; architecture answers those requirements. So business case →
+      requirement → architecture is walkable as one chain, which is what makes
+      the cross-verification meaningful rather than a comparison of two
+      unrelated documents.
+    mixins:
+      - ExternallyReferenced
+      - Provenanced
+    attributes:
+      id:
+        identifier: true
+        description: >-
+          Stable identifier for the initiative, e.g. "INIT-2026-014". This is
+          the key that requirements and architecture reference.
+        range: string
+        required: true
+      name:
+        range: string
+        required: true
+      description:
+        range: string
+      initiative_type:
+        range: InitiativeType
+      status:
+        range: InitiativeStatus
+      business_case:
+        description: >-
+          The justification: the problem or opportunity, expected benefit, and
+          why now. The narrative that a sponsor approves.
+        range: string
+      sponsor:
+        description: Executive or stakeholder accountable for the business case.
+        range: Stakeholder
+      owner:
+        description: Delivery owner, if different from the sponsor.
+        range: string
+      cost_estimate:
+        description: Indicative cost, as stated (keep the source's units).
+        range: string
+      approved_date:
+        range: date
+      target_date:
+        range: date
+      # --- what it pursues and delivers ---
+      pursues_goals:
+        description: Business goals this Initiative exists to advance.
+        range: BusinessGoal
+        multivalued: true
+      delivers_capabilities:
+        description: >-
+          Capabilities this Initiative creates or enhances. The counterpart to
+          BusinessCapability — capabilities exist independently of the work
+          that builds them.
+        range: BusinessCapability
+        multivalued: true
+      affects_systems:
+        description: >-
+          Enterprise systems this Initiative changes. Gives the link from a
+          business case down to the systems it touches.
+        range: System
+        multivalued: true
+      # --- what it originates ---
+      originates_requirements:
+        description: >-
+          Requirements this Initiative authorises. Reverse edge:
+          BusinessRequirement.originates_from.
+        range: BusinessRequirement
+        multivalued: true
+      # --- measurable outcomes ---
+      expected_outcomes:
+        description: >-
+          Measurable benefits expected on delivery (e.g. "reduce authorisation
+          latency to <200ms at p99"). Distinct from business_case narrative —
+          these are the things success is judged against.
+        range: string
+        multivalued: true
+      # --- structure ---
+      parent_initiative:
+        description: Containing Initiative, for work items under a project or projects under a programme.
+        range: Initiative
+      depends_on_initiatives:
+        description: Other Initiatives that must land first.
+        range: Initiative
+        multivalued: true
+      constraints:
+        description: Constraints the Initiative operates under (budget, regulatory, timeline).
+        range: ConstraintRequirement
+        multivalued: true
+    class_uri: sea-req:Initiative
+    subsets:
+      - BusinessContext
 
   Stakeholder:
     description: >-
@@ -646,7 +790,15 @@ classes:
     description: >-
       Abstract base class for all requirements. Concrete subtypes specialize
       by category (business, functional, non-functional, constraint).
+      
+      ExternallyReferenced because requirements almost always live in tooling
+      too (Jira, Azure DevOps, DOORS) and that key is what the enterprise
+      actually cites. Provenanced because an extracted requirement and a
+      human-ratified one must not look alike in the graph.
     abstract: true
+    mixins:
+      - ExternallyReferenced
+      - Provenanced
     attributes:
       id:
         identifier: true
@@ -775,6 +927,13 @@ classes:
           Business-level metrics this requirement aims to influence
           (e.g., "reduce churn by 15%").
         range: string
+        multivalued: true
+      originates_from:
+        description: >-
+          The Initiative (business case / work item) that authorises this
+          requirement. This is the upward edge to the business case — the top of
+          the business case → requirement → architecture chain.
+        range: Initiative
         multivalued: true
     class_uri: sea-req:BusinessRequirement
     subsets:

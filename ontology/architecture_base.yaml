@@ -1,0 +1,1448 @@
+# ============================================================================
+# SEA Platform — Architecture Ontology (ARC-G)  [DRAFT]
+# ============================================================================
+# Models the SOLUTION ARCHITECTURE for a requirement set: what gets built,
+# how it is structured, where it runs, and how the pieces talk.
+#
+# Aligned with the C4 model (Context / Container / Component / Code).
+#
+# LAYERING (strict one-way imports):
+#   enterprise_structure.yaml     base — no external imports
+#         ▲
+#   requirements_base.yaml        REQ-G
+#         ▲
+#   architecture_base.yaml        ARC-G  ← this file
+#
+# This layer may reference BOTH lower layers, which is what makes the
+# REQ-G ⇄ ARC-G cross-verification possible: an architecturally-realised
+# requirement can be walked from either direction.
+#
+# ============================================================================
+# STATUS: DRAFT — not committed. Review before use.
+# ============================================================================
+
+id: https://sea.platform/ontology/architecture-base
+name: architecture-base
+title: SEA Base Architecture Ontology
+version: 0.1.0-draft
+description: >-
+  C4-aligned ontology for solution architecture. Reuses enterprise structure
+  (Product/System/Application/Platform) as the organisational anchor and the
+  requirements ontology for traceability, so architecture and requirements
+  graphs share a vocabulary and can be cross-verified.
+
+license: MIT
+default_curi_maps:
+  - semweb_context
+
+prefixes:
+  linkml: https://w3id.org/linkml/
+  sea-arc: https://sea.platform/ontology/architecture-base/
+  schema: https://schema.org/
+  dcterms: http://purl.org/dc/terms/
+  c4: https://c4model.com/
+
+default_prefix: sea-arc
+default_range: string
+
+imports:
+  - linkml:types
+  - sea_common
+  - enterprise_structure
+  - requirements_base
+
+# ============================================================================
+# ENUMERATIONS
+# ============================================================================
+
+enums:
+
+  C4Level:
+    description: >-
+      The C4 model abstraction level. Ordered from coarsest (CONTEXT) to
+      finest (CODE). Each level zooms into the one above.
+    permissible_values:
+      CONTEXT:
+        description: >-
+          Level 1 — the system as a whole, plus the people and external
+          systems it interacts with. Answers "what is this and who uses it".
+      CONTAINER:
+        description: >-
+          Level 2 — separately deployable/runnable units inside the system
+          (services, web apps, datastores, queues). Answers "what runs".
+      COMPONENT:
+        description: >-
+          Level 3 — logical building blocks inside a container. Answers
+          "what are the moving parts inside this deployable".
+      CODE:
+        description: >-
+          Level 4 — classes, modules, functions. Usually optional; generated
+          or deliberately skipped.
+
+  ContainerType:
+    description: >-
+      C4 container kinds. A container is anything that must be running for
+      the system to work.
+    permissible_values:
+      WEB_APPLICATION:
+        description: Server-rendered or SPA web front end.
+      API_SERVICE:
+        description: Synchronous API surface (REST/GraphQL/gRPC).
+      WORKER:
+        description: Background/async processor consuming from a queue or topic.
+      BATCH_JOB:
+        description: Scheduled or triggered batch process.
+      DATABASE:
+        description: Persistent relational/document/graph datastore.
+      CACHE:
+        description: In-memory or edge cache.
+      MESSAGE_BROKER:
+        description: Queue or topic broker (Kafka, RabbitMQ, SQS, ...).
+      GATEWAY:
+        description: API gateway, ingress, or proxy.
+      UI_COMPONENT:
+        description: Embedded/reusable front-end widget delivered into another page.
+      FILE_STORE:
+        description: Object or file storage.
+      SCHEDULER:
+        description: Cron/scheduler component.
+
+  DataStoreType:
+    description: Physical category of a data store container.
+    permissible_values:
+      RELATIONAL: { description: SQL relational database. }
+      DOCUMENT: { description: Document store. }
+      KEY_VALUE: { description: Key-value store. }
+      GRAPH: { description: Graph database. }
+      TIME_SERIES: { description: Time-series database. }
+      OBJECT_STORE: { description: Blob/object storage. }
+      SEARCH_INDEX: { description: Full-text search index. }
+      EVENT_LOG: { description: Append-only event log. }
+
+  ArchitectureViewType:
+    description: >-
+      Which architecture view an artefact belongs to. C4 defines three
+      core diagram types plus deployment and dynamic.
+    permissible_values:
+      SYSTEM_CONTEXT:
+        description: Level 1 view.
+      CONTAINER:
+        description: Level 2 view.
+      COMPONENT:
+        description: Level 3 view.
+      CODE:
+        description: Level 4 view.
+      DEPLOYMENT:
+        description: Mapping of containers to infrastructure.
+      DYNAMIC:
+        description: Runtime interaction/collaboration view for a scenario.
+
+  IntegrationStyle:
+    description: How two architecture elements interact.
+    permissible_values:
+      SYNCHRONOUS_REQUEST_RESPONSE:
+        description: Caller blocks for a response.
+      ASYNCHRONOUS_EVENT:
+        description: Fire-and-forget event or message.
+      ASYNCHRONOUS_REQUEST_REPLY:
+        description: Non-blocking request with a later reply.
+      BATCH_TRANSFER:
+        description: Bulk/scheduled data movement.
+      SHARED_DATABASE:
+        description: Integration by shared data store (an anti-pattern to flag).
+      PUBLISH_SUBSCRIBE:
+        description: Topic-based broadcast.
+
+  IntegrationProtocol:
+    description: Wire protocol or technology used by a connection.
+    permissible_values:
+      REST: { description: HTTP/JSON REST. }
+      GRAPHQL: { description: GraphQL. }
+      GRPC: { description: gRPC / protobuf. }
+      SOAP: { description: SOAP/XML web services. }
+      AMQP: { description: AMQP message broker. }
+      KAFKA: { description: Kafka topic. }
+      JMS: { description: JMS queue/topic. }
+      JDBC: { description: Direct database connection. }
+      SFTP: { description: Secure file transfer. }
+      SFTP_FILE: { description: Scheduled file exchange. }
+      WEBHOOK: { description: Outbound HTTP callback. }
+      WEBSOCKET: { description: Bidirectional socket. }
+
+  DeploymentEnvironment:
+    description: Environment a deployment node serves.
+    permissible_values:
+      DEVELOPMENT: { description: Developer environment. }
+      TEST: { description: Automated test environment. }
+      STAGING: { description: Pre-production mirror. }
+      PRODUCTION: { description: Live environment. }
+      DISASTER_RECOVERY: { description: Failover environment. }
+
+  InfrastructureType:
+    description: Kind of deployment/infrastructure node.
+    permissible_values:
+      CONTAINER_PLATFORM: { description: Kubernetes/ECS/OpenShift cluster. }
+      VM: { description: Virtual machine. }
+      BARE_METAL: { description: Physical host. }
+      SERVERLESS: { description: FaaS/managed runtime. }
+      MANAGED_SERVICE: { description: Cloud-managed service. }
+      ON_PREMISE_DC: { description: On-premise data centre. }
+      EDGE_CDN: { description: Edge/CDN node. }
+
+  PatternCategory:
+    description: Category of an architectural pattern in use.
+    permissible_values:
+      STRUCTURAL: { description: Layering, microservices, monolith, modular monolith. }
+      INTEGRATION: { description: API gateway, BFF, saga, choreography, orchestration. }
+      DATA: { description: CQRS, event sourcing, sharding, replica reads. }
+      RESILIENCE: { description: Circuit breaker, retry, bulkhead, fallback, DLQ. }
+      SECURITY: { description: Zero trust, secrets management, tokenization. }
+      DEPLOYMENT: { description: Blue/green, canary, sidecar, service mesh. }
+      OBSERVABILITY: { description: Distributed tracing, structured logging, metrics. }
+
+  ArchitectureDecisionStatus:
+    description: ADR lifecycle state.
+    permissible_values:
+      PROPOSED: { description: Raised, not yet agreed. }
+      ACCEPTED: { description: Agreed and in force. }
+      REJECTED: { description: Considered and declined. }
+      DEPRECATED: { description: Still in force but discouraged. }
+      SUPERSEDED: { description: Replaced by a later decision. }
+
+  Criticality:
+    description: How critical an element is to the service.
+    permissible_values:
+      CRITICAL: { description: Failure halts the core business function. }
+      HIGH: { description: Failure degrades a major function. }
+      MEDIUM: { description: Failure causes noticeable impact. }
+      LOW: { description: Failure is tolerable. }
+
+  TechnologyCategory:
+    description: >-
+      Category of a technology in a stack. Optional for now — a TechnologyStack
+      may be captured as a single undifferentiated concept. These categories are
+      the axis along which it can later be decomposed, loosely aligned with the
+      Thoughtworks Technology Radar quadrants (Tools, Platforms, Languages &
+      Frameworks) plus the data and infrastructure concerns that radar does not
+      separate out.
+    permissible_values:
+      LANGUAGE:
+        description: Programming or query language (Java, Python, SQL).
+      FRAMEWORK:
+        description: Application framework or library set (Spring Boot, React).
+      LIBRARY:
+        description: A specific library rather than a framework.
+      TOOL:
+        description: Build, CI, test or developer tooling (Maven, Jenkins).
+      PLATFORM:
+        description: Runtime or hosting platform (OpenShift, Kubernetes, AWS).
+      DATA_STORE:
+        description: Database, cache, index or object store (PostgreSQL, Valkey).
+      MESSAGING:
+        description: Broker, queue or event backbone (Kafka, RabbitMQ).
+      PROTOCOL:
+        description: Wire protocol or standard (REST, gRPC, TLS 1.2+).
+      INFRASTRUCTURE:
+        description: Containerisation, networking or provisioning (Docker, Terraform).
+      OBSERVABILITY:
+        description: Monitoring, logging and tracing (Prometheus, ELK, Grafana).
+
+  TechnologyRing:
+    description: >-
+      Adoption ring, following the Thoughtworks Technology Radar convention.
+      Optional and only meaningful where an organisation actually governs its
+      technology choices; captures whether a technology is sanctioned, being
+      trialled, under assessment, or being retired.
+    permissible_values:
+      ADOPT:
+        description: Proven; use by default for new work.
+      TRIAL:
+        description: Worth using on work that can absorb the risk.
+      ASSESS:
+        description: Worth investigating, not yet for delivery.
+      HOLD:
+        description: Do not start new work with it; plan to migrate away.
+
+  ArchitectureStyleCategory:
+    description: >-
+      Family an architectural style belongs to. Taxonomies follow Richards &
+      Ford's "Fundamentals of Software Architecture".
+    permissible_values:
+      MONOLITHIC:
+        description: Single deployment unit — monolith, modular monolith.
+      DISTRIBUTED:
+        description: Multiple deployment units — microservices, service-based, SOA, serverless.
+      STRUCTURAL:
+        description: Internal organisation — layered, hexagonal, microkernel.
+      DATA_FLOW:
+        description: Data movement shapes the design — pipelines, event-driven.
+      EVENT_DRIVEN:
+        description: Asynchronous event propagation is the primary integration mode.
+
+  ArchitectureStyleName:
+    description: >-
+      The recognised architectural styles. Controlled vocabulary, following the
+      Richards & Ford taxonomy, so a style is a comparable value rather than free
+      text. Sources often name these directly ("Stateless Modular Microservices").
+    permissible_values:
+      MONOLITH: { description: Single deployable unit, no enforced modularity. }
+      MODULAR_MONOLITH: { description: Single deployable unit with enforced module boundaries. }
+      MICROSERVICES: { description: Independently deployable services, own data, network calls. }
+      SERVICE_BASED: { description: Coarse-grained services, often a shared database. }
+      SERVICE_ORIENTED: { description: Enterprise service bus / SOA integration. }
+      SERVERLESS: { description: Managed functions and event triggers, no server management. }
+      EVENT_DRIVEN: { description: Events are the primary integration mechanism. }
+      LAYERED: { description: Technical layers (presentation, business, persistence). }
+      HEXAGONAL: { description: Ports and adapters; domain isolated from delivery. }
+      MICROKERNEL: { description: Core system with pluggable extensions. }
+      PIPELINE: { description: Filters and pipes; data transformation flow. }
+      SPACE_BASED: { description: In-memory data grid with processing units. }
+
+  ResponsibilityType:
+    description: >-
+      What KIND of thing an element is accountable for. The type determines
+      which link it makes into the business and requirements layers, so it is
+      the field that turns a responsibility statement into a graph edge.
+    permissible_values:
+      BUSINESS_CAPABILITY:
+        description: Owns or delivers a business capability. Links to BusinessCapability.
+      PROCESS:
+        description: Performs a business process or activity. Links to BusinessProcess.
+      DATA_OWNERSHIP:
+        description: >-
+          Is the accountable owner of a domain concept — the system of record
+          for that data. Links to DomainConcept. The highest-value type for
+          scoping questions such as "which component is accountable for
+          Cardholder Data?".
+      INTEGRATION:
+        description: Owns an external or internal integration surface.
+      GOVERNANCE:
+        description: Enforces a rule, policy or control (RBAC, audit, retention).
+      CROSS_CUTTING:
+        description: Provides a cross-cutting concern (observability, configuration, identity).
+      OPERATIONAL:
+        description: Operational accountability (deployment, scaling, on-call) rather than functional.
+
+  SoftwareSystemClass:
+    description: >-
+      What KIND of software system this is, by management scope.
+      
+      Deliberately NOT called "platform" to avoid colliding with
+      `enterprise_structure.Platform`, which is a different concept: a
+      commercial/marketplace offering that products build on (value
+      proposition, extenders, contracts). This enum is about organisation —
+      who owns the system and how widely it is shared.
+    permissible_values:
+      ENTERPRISE_TECHNOLOGY_PLATFORM:
+        description: >-
+          Shared technology infrastructure or tooling operated by a cross-cutting
+          team for the whole enterprise — OpenShift, Grafana, Splunk, ELK,
+          service mesh, API gateway, identity provider.
+          
+          Not domain-aligned: it does not exist to serve one business capability.
+          It supports everything. Auditor note: EXCLUDE these from business
+          capability-coverage questions, since they will otherwise appear as
+          unclaimed capacity and produce false gaps.
+      BUSINESS_TECHNOLOGY_PLATFORM:
+        description: >-
+          A platform that exists to serve a specific business domain, usually
+          owned by a product or domain team — the Payment Gateway, an order
+          management platform, a core banking platform.
+          
+          Unlike an enterprise technology platform, it DOES answer business
+          capabilities and belongs in coverage auditing.
+      BUSINESS_APPLICATION:
+        description: >-
+          An application delivering business function without being a platform
+          others build on.
+      SHARED_TECHNICAL_SERVICE:
+        description: >-
+          A narrower cross-cutting service than a full platform (configuration,
+          secrets, notification dispatch).
+      INTEGRATION_PLATFORM:
+        description: >-
+          A platform whose primary purpose is connecting other systems — ESB,
+          event backbone, API management, iPaaS.
+
+  SoftwareOrigin:
+    description: >-
+      How the software came to exist in the enterprise — the supply chain, as
+      distinct from the management scope above. The two axes are independent:
+      a vendor-built cross-cutting platform and an in-house business platform
+      are both perfectly ordinary.
+      
+      Scope note: this axis is about SOFTWARE PROVENANCE only. How the software
+      is DELIVERED or operated (self-hosted, vendor-managed, SaaS) is a separate
+      concern — see `SoftwareDeploymentModel`. Conflating the two is what put
+      SaaS on this axis originally, where it did not belong.
+    permissible_values:
+      BUILT_IN_HOUSE:
+        description: Designed and engineered by the enterprise. The team can change its architecture.
+      VENDOR_COMMERCIAL:
+        description: >-
+          Bought, implemented and licensed. Version and roadmap are the vendor's;
+          the enterprise configures and integrates rather than re-architects.
+      OPEN_SOURCE:
+        description: >-
+          Adopted open-source software, self-hosted or self-supported. Architecture
+          is changeable in principle, at the cost of maintaining a fork.
+      HYBRID:
+        description: >-
+          Vendor base extended with in-house code or heavy configuration. The
+          common enterprise reality; note which parts are yours.
+      
+      # Absence of a value means origin is not established. That is a finding at
+      # portfolio level, but it is an absence rather than a class, so it is not
+      # modelled as a permissible value.
+
+  SoftwareDeploymentModel:
+    description: >-
+      How a system is delivered and operated — who runs it and on whose
+      infrastructure. Separate from `origin` (where the software came from):
+      a vendor-built product can be self-hosted by the enterprise, and an
+      open-source product can be consumed as SaaS.
+      
+      PROVISIONAL: captured here so SaaS has a home that is not the origin axis.
+      A fuller Deployment construct is likely warranted later, once deployment
+      topology and operational responsibility need modelling properly.
+    permissible_values:
+      SELF_HOSTED:
+        description: >-
+          The enterprise operates the software in its own environments. Whether
+          that is on-premise or in the enterprise's own cloud is a further
+          distinction not drawn yet.
+      VENDOR_MANAGED_DEDICATED:
+        description: >-
+          The vendor operates a dedicated instance for the enterprise. The
+          enterprise configures; the vendor runs.
+      SAAS:
+        description: >-
+          Consumed as a shared multi-tenant vendor service. Nothing is operated
+          by the enterprise beyond configuration — which is also why a purely
+          SaaS dependency often belongs in ExternalSystem rather than
+          SoftwareSystem. It is listed here so the distinction is explicit
+          rather than lost.
+      HYBRID:
+        description: Mixed delivery — part self-hosted, part vendor-operated.
+
+# ============================================================================
+# SUBSETS
+# ============================================================================
+
+subsets:
+
+  C4Model:
+    description: C4 model elements (Context, Container, Component, Code).
+
+  ArchitectureStructure:
+    description: How elements connect and where they deploy.
+
+  ArchitectureRationale:
+    description: Patterns and decisions explaining why the design is this way.
+
+  ArchitectureTraceability:
+    description: Links from architecture to requirements and business context.
+
+  Specification:
+    description: Document-level container constructs.
+
+# ============================================================================
+# CLASSES
+# ============================================================================
+
+classes:
+
+  # --------------------------------------------------------------------------
+  # 1. SPECIFICATION CONTAINER
+  # --------------------------------------------------------------------------
+
+  ArchitectureSpecification:
+    description: >-
+      Top-level container for an architecture description. The document
+      boundary for one architecture under consideration.
+    tree_root: true
+    attributes:
+      id:
+        identifier: true
+        range: string
+        required: true
+      name:
+        range: string
+        required: true
+      version:
+        range: string
+      description:
+        range: string
+      created_date:
+        range: date
+      status:
+        range: RequirementStatus
+      # Anchors into the lower layers
+      architecture_of_system:
+        description: The enterprise System this architecture describes.
+        range: System
+      architecture_of_application:
+        description: >-
+          If this architecture is scoped to a single Application rather than
+          a whole System, reference it here.
+        range: Application
+      requirements_specification:
+        description: >-
+          The requirement specification this architecture answers. This is the
+          link the Semantic Auditor walks to compare REQ-G against ARC-G.
+        range: RequirementSpecification
+      delivers_initiatives:
+        description: >-
+          Business cases / work items this architecture delivers against.
+          Completes the chain: Initiative → Requirements → Architecture.
+        range: Initiative
+        multivalued: true
+      # Elements
+      views:
+        range: ArchitectureView
+        multivalued: true
+        inlined_as_list: true
+      software_systems:
+        range: SoftwareSystem
+        multivalued: true
+        inlined_as_list: true
+      external_systems:
+        range: ExternalSystem
+        multivalued: true
+        inlined_as_list: true
+      persons:
+        range: Person
+        multivalued: true
+        inlined_as_list: true
+      containers:
+        range: Container
+        multivalued: true
+        inlined_as_list: true
+      components:
+        range: Component
+        multivalued: true
+        inlined_as_list: true
+      code_elements:
+        range: CodeElement
+        multivalued: true
+        inlined_as_list: true
+      interfaces:
+        range: Interface
+        multivalued: true
+        inlined_as_list: true
+      connections:
+        range: Connection
+        multivalued: true
+        inlined_as_list: true
+      deployment_nodes:
+        range: DeploymentNode
+        multivalued: true
+        inlined_as_list: true
+      patterns:
+        range: ArchitecturePattern
+        multivalued: true
+        inlined_as_list: true
+      technology_stacks:
+        description: >-
+          All technology stacks referenced by elements in this architecture.
+        range: TechnologyStack
+        multivalued: true
+        inlined_as_list: true
+      architecture_styles:
+        description: >-
+          All architectural styles in use in this architecture.
+        range: ArchitectureStyle
+        multivalued: true
+        inlined_as_list: true
+      responsibilities:
+        description: >-
+          All responsibilities assigned across the elements of this
+          architecture. The architecture side's own record of who is
+          accountable for what.
+        range: Responsibility
+        multivalued: true
+        inlined_as_list: true
+      decisions:
+        range: ArchitectureDecision
+        multivalued: true
+        inlined_as_list: true
+      realizations:
+        description: >-
+          Explicit architecture→requirement realisation links. The auditor uses
+          these to find requirements with no architectural answer.
+        range: RequirementRealization
+        multivalued: true
+        inlined_as_list: true
+    class_uri: sea-arc:ArchitectureSpecification
+    subsets:
+      - Specification
+
+  # --------------------------------------------------------------------------
+  # 2. C4 BASE ELEMENT
+  # --------------------------------------------------------------------------
+
+  ArchitectureElement:
+    description: >-
+      Abstract base for every architecture element. Carries the C4 level,
+      ownership, and the traceability slots that let the auditor walk from
+      architecture back to the requirement it answers.
+      
+      ExternallyReferenced because architecture elements are registered things:
+      a container or service is a CI in the CMDB, and that reference is the most
+      reliable path to reconciling this graph with the enterprise.
+    abstract: true
+    mixins:
+      - ExternallyReferenced
+      - Provenanced
+    attributes:
+      id:
+        identifier: true
+        range: string
+        required: true
+      name:
+        range: string
+        required: true
+      description:
+        range: string
+      c4_level:
+        description: Which C4 abstraction level this element sits at.
+        range: C4Level
+      owner:
+        description: Owning team or role.
+        range: string
+      criticality:
+        range: Criticality
+      lifecycle_status:
+        range: LifecycleStatus
+      tags:
+        range: string
+        multivalued: true
+      # --- what it is built from / how it is shaped ---
+      technology_stacks:
+        description: >-
+          Technologies this element is built from. Attach here — do NOT model a
+          technology as an architecture element. A technology is used, not run;
+          it has no C4 level and no parent.
+        range: TechnologyStack
+        multivalued: true
+      architecture_styles:
+        description: >-
+          Architectural styles this element follows (microservices, modular
+          monolith, layered, …).
+        range: ArchitectureStyle
+        multivalued: true
+      # --- what it is accountable for ---
+      responsibilities:
+        description: >-
+          What this element is accountable for. This is the semantic content of
+          the graph — without it an element has structure but no meaning, and no
+          business intent can be matched to it. Assigned by architects and
+          engineers.
+        range: Responsibility
+        multivalued: true
+        inlined_as_list: true
+      # --- cross-layer traceability ---
+      requirement_refs:
+        description: >-
+          Identifiers of the requirements this element answers, AS CITED IN THE
+          SOURCE (e.g. "FR-PM-001", "NFR-SC-002").
+          
+          This is the extraction-time linkage: the source may cite requirement
+          IDs, or reference requirements by paraphrased name, and either way the
+          reference is captured here verbatim. Reconciliation later resolves
+          these refs to actual Requirement objects and reports the ones it could
+          not resolve. Capturing the reference is the extraction phase's job;
+          resolving it is not.
+        range: string
+        multivalued: true
+      implements_requirements:
+        description: >-
+          Resolved requirement objects this element answers. Populated during
+          reconciliation, when requirement_refs have been matched against the
+          requirements graph. Prefer requirement_refs at extraction time, since
+          the Requirement objects may not be resolvable yet.
+        range: Requirement
+        multivalued: true
+      initiative_ref:
+        description: >-
+          Identifier of the Initiative (business case) this architecture
+          delivers, when the source names one.
+        range: string
+        multivalued: true
+      satisfies_quality_attributes:
+        description: NFRs this element is specifically responsible for.
+        range: NonFunctionalRequirement
+        multivalued: true
+      addresses_goals:
+        description: Business goals this element contributes to.
+        range: BusinessGoal
+        multivalued: true
+      supports_capabilities:
+        description: Business capabilities this element supports.
+        range: BusinessCapability
+        multivalued: true
+    class_uri: sea-arc:ArchitectureElement
+    subsets:
+      - C4Model
+      - ArchitectureTraceability
+
+  # --------------------------------------------------------------------------
+  # 3. C4 LEVEL 1 — SYSTEM CONTEXT
+  # --------------------------------------------------------------------------
+
+  SoftwareSystem:
+    description: >-
+      C4 Level 1. The system being architected, seen as a single box. Maps to
+      the enterprise `System` construct — that linkage is what keeps ARC-G and
+      REQ-G talking about the same thing.
+      
+      An architecture may legitimately contain SEVERAL software systems: the one
+      being designed, plus the enterprise technology platforms it depends on
+      (see `system_class`). Do not assume a single SoftwareSystem per graph.
+    is_a: ArchitectureElement
+    attributes:
+      # --- what kind of system this is ---
+      system_class:
+        description: >-
+          Management scope: enterprise-wide cross-cutting platform vs
+          domain-owned business platform vs business application.
+          
+          Drives audit behaviour: ENTERPRISE_TECHNOLOGY_PLATFORM systems must be
+          excluded from business capability-coverage questions, or they appear
+          as unclaimed capacity and generate false gaps.
+        range: SoftwareSystemClass
+      origin:
+        description: >-
+          How this software came to exist: built in-house, bought from a vendor,
+          adopted open source, or hybrid. Shapes what findings are actionable —
+          you configure vendor software, you re-architect your own.
+          Empty means origin not established.
+        range: SoftwareOrigin
+      deployment_model:
+        description: >-
+          How the system is delivered and operated — self-hosted, vendor-managed,
+          or consumed as SaaS. Separate from `origin`: a vendor product can be
+          self-hosted, and an open-source product can be SaaS.
+        range: SoftwareDeploymentModel
+      vendor:
+        description: >-
+          Supplying vendor, when origin is VENDOR_COMMERCIAL. Makes single-vendor
+          portfolio dependency queryable.
+        range: string
+      shared_across_enterprise:
+        description: >-
+          Whether the system is shared enterprise-wide rather than serving one
+          domain. Usually implied by system_class, but stated explicitly because
+          an in-house shared service blurs the two.
+        range: boolean
+      managed_by:
+        description: >-
+          Team or organisational unit operating the system. Free text for now —
+          a structured Team construct is parked (see TODO), at which point this
+          becomes a reference and cross-cutting vs domain ownership becomes
+          derived rather than asserted.
+        range: string
+      # --- relationships ---
+      is_enterprise_system:
+        description: >-
+          The enterprise `System` construct this architecture element realises.
+        range: System
+      external_dependencies:
+        description: External systems this one depends on.
+        range: ExternalSystem
+        multivalued: true
+      served_products:
+        description: Products this system delivers for.
+        range: Product
+        multivalued: true
+      is_part_of_platform:
+        description: >-
+          The commercial Platform this system is part of, when platform-centric.
+          NOTE: `enterprise_structure.Platform` is a COMMERCIAL offering that
+          products build on (value proposition, extenders, contracts), NOT a
+          technology platform. For "is this OpenShift / Splunk / Grafana", use
+          `system_class`, not this slot.
+        range: Platform
+    class_uri: sea-arc:SoftwareSystem
+    subsets:
+      - C4Model
+
+  ExternalSystem:
+    description: >-
+      C4 Level 1. A system outside our boundary that we interact with but do
+      not own or build.
+    is_a: ArchitectureElement
+    attributes:
+      vendor:
+        description: Third-party vendor or owning organisation.
+        range: string
+      integration_style:
+        range: IntegrationStyle
+      interaction_purpose:
+        description: Why we talk to this system.
+        range: string
+      contractual_obligation:
+        description: >-
+          Any SLA, regulatory, or contractual constraint this dependency
+          carries.
+        range: string
+    class_uri: sea-arc:ExternalSystem
+    subsets:
+      - C4Model
+
+  Person:
+    description: >-
+      C4 Level 1. A human actor interacting with the system. Distinct from
+      enterprise Stakeholder: a Person is a runtime actor, a Stakeholder is
+      someone with an interest (they often overlap but are not the same).
+    is_a: ArchitectureElement
+    attributes:
+      is_stakeholder:
+        description: The enterprise Stakeholder this person corresponds to, if any.
+        range: Stakeholder
+      is_actor:
+        description: The requirements-layer Actor this person corresponds to.
+        range: Actor
+      interaction_summary:
+        description: What this person does with the system.
+        range: string
+    class_uri: sea-arc:Person
+    subsets:
+      - C4Model
+
+  # --------------------------------------------------------------------------
+  # 4. C4 LEVEL 2 — CONTAINER
+  # --------------------------------------------------------------------------
+
+  Container:
+    description: >-
+      C4 Level 2. Something that must be running for the system to work: a
+      service, web app, datastore, queue. Maps to the enterprise `Application`
+      construct (deployable, runnable unit) — that mapping is the core reuse
+      of the enterprise layer.
+      
+      "Container" here is the C4 sense (deployable unit), NOT a Docker
+      container (which is a deployment concern — see DeploymentNode).
+    is_a: ArchitectureElement
+    attributes:
+      container_type:
+        range: ContainerType
+        required: true
+      is_enterprise_application:
+        description: >-
+          The enterprise Application construct this container realises.
+        range: Application
+      technology:
+        description: Primary technology (e.g. "Spring Boot 3", "PostgreSQL 16").
+        range: string
+      runs_on:
+        description: Deployment node this container runs on.
+        range: DeploymentNode
+      exposes:
+        description: Interfaces this container exposes for others to consume.
+        range: Interface
+        multivalued: true
+      consumes:
+        description: Interfaces this container consumes from others.
+        range: Interface
+        multivalued: true
+      parent_system:
+        description: The software system this container belongs to.
+        range: SoftwareSystem
+      stateful:
+        description: Whether the container holds state.
+        range: boolean
+      scaling_model:
+        description: How it scales (e.g. "horizontal, stateless", "single writer").
+        range: string
+    class_uri: sea-arc:Container
+    subsets:
+      - C4Model
+
+  DataStore:
+    description: >-
+      C4 Level 2. A container whose job is persistence. Split out because data
+      stores carry their own concerns (schema ownership, backup, PCI scope)
+      that are worth auditing separately.
+    is_a: Container
+    attributes:
+      data_store_type:
+        range: DataStoreType
+      holds_sensitive_data:
+        description: >-
+          Whether this store holds regulated/sensitive data (e.g. CHD). Drives
+          PCI-DSS scope decisions.
+        range: boolean
+      data_classification:
+        description: 'e.g. "Public", "Internal", "Confidential", "Restricted/CHD".'
+        range: string
+      retention_policy:
+        range: string
+      encryption_at_rest:
+        description: Encryption standard applied at rest (e.g. "AES-256").
+        range: string
+      backup_strategy:
+        range: string
+      schema_owner:
+        description: >-
+          Which container owns the schema, when others read it directly.
+          Non-empty here is a coupling signal worth flagging.
+        range: Container
+    class_uri: sea-arc:DataStore
+    subsets:
+      - C4Model
+
+  # --------------------------------------------------------------------------
+  # 5. C4 LEVEL 3 — COMPONENT
+  # --------------------------------------------------------------------------
+
+  Component:
+    description: >-
+      C4 Level 3. A logical building block inside a container — a grouping of
+      related behaviour, not a deployable unit. Has no enterprise-structure
+      equivalent; it is where architecture gets specific.
+    is_a: ArchitectureElement
+    attributes:
+      belongs_to_container:
+        range: Container
+        required: true
+      technology:
+        description: >-
+          Realising technology (e.g. "Spring @Service", "Kafka listener"). For
+          the stack proper, prefer `technology_stacks` on ArchitectureElement.
+        range: string
+      implements_interfaces:
+        range: Interface
+        multivalued: true
+      depends_on_components:
+        range: Component
+        multivalued: true
+    class_uri: sea-arc:Component
+    subsets:
+      - C4Model
+
+  # --------------------------------------------------------------------------
+  # 6. C4 LEVEL 4 — CODE
+  # --------------------------------------------------------------------------
+
+  CodeElement:
+    description: >-
+      C4 Level 4. Class, module, or function. Deliberately optional — most
+      architecture work stops at Level 3, and Level 4 is often generated or
+      left to the codebase itself.
+    is_a: ArchitectureElement
+    attributes:
+      belongs_to_component:
+        range: Component
+      element_kind:
+        description: 'e.g. "class", "interface", "module", "function".'
+        range: string
+      signature:
+        description: Public signature, when relevant.
+        range: string
+    class_uri: sea-arc:CodeElement
+    subsets:
+      - C4Model
+
+  # --------------------------------------------------------------------------
+  # 7. INTERFACES AND CONNECTIONS
+  # --------------------------------------------------------------------------
+
+  Interface:
+    description: >-
+      A contract an element exposes or consumes. Distinct from a Connection:
+      an Interface is the what (the contract), a Connection is the how (a
+      specific call path using it).
+    attributes:
+      id:
+        identifier: true
+        range: string
+        required: true
+      name:
+        range: string
+        required: true
+      description:
+        range: string
+      protocol:
+        range: IntegrationProtocol
+      style:
+        range: IntegrationStyle
+      direction:
+        description: '"inbound", "outbound", or "bidirectional".'
+        range: string
+      payload_contract:
+        description: >-
+          Data contract exchanged (schema name, DTO, event name).
+        range: string
+      is_public:
+        description: Whether this interface is exposed outside the system boundary.
+        range: boolean
+      versioning_scheme:
+        range: string
+      is_platform_contract:
+        description: >-
+          If this interface is a published Platform contract rather than an
+          internal one. Links architecture to the enterprise platform model.
+        range: PlatformContract
+      authentication:
+        description: How callers authenticate (e.g. "OAuth2 client credentials").
+        range: string
+    class_uri: sea-arc:Interface
+    subsets:
+      - ArchitectureStructure
+
+  Connection:
+    description: >-
+      A runtime call path from one element to another, with the technology
+      used. This is the "arrow" in a C4 diagram — and the edge the auditor
+      walks to find coupling and single points of failure.
+    attributes:
+      id:
+        identifier: true
+        range: string
+        required: true
+      name:
+        range: string
+        required: true
+      source:
+        description: Originating element.
+        range: ArchitectureElement
+        required: true
+      target:
+        description: Destination element.
+        range: ArchitectureElement
+        required: true
+      via_interface:
+        description: The interface used, when the call goes through one.
+        range: Interface
+      style:
+        range: IntegrationStyle
+      protocol:
+        range: IntegrationProtocol
+      is_synchronous:
+        description: >-
+          Synchronous connections create temporal coupling — relevant when
+          auditing resilience.
+        range: boolean
+      carries_sensitive_data:
+        description: Whether regulated data crosses this connection.
+        range: boolean
+      failure_handling:
+        description: >-
+          What happens when this call fails (e.g. "retry x3 then DLQ",
+          "circuit breaker", "no handling").
+        range: string
+      description_text:
+        description: Human description of what flows across this connection.
+        range: string
+    class_uri: sea-arc:Connection
+    subsets:
+      - ArchitectureStructure
+
+  # --------------------------------------------------------------------------
+  # 8. DEPLOYMENT
+  # --------------------------------------------------------------------------
+
+  DeploymentNode:
+    description: >-
+      Where containers run. Corresponds to the C4 deployment view. Not the same
+      as a Container — a Container is what runs, a DeploymentNode is where.
+    attributes:
+      id:
+        identifier: true
+        range: string
+        required: true
+      name:
+        range: string
+        required: true
+      description:
+        range: string
+      infrastructure_type:
+        range: InfrastructureType
+      environment:
+        range: DeploymentEnvironment
+      region:
+        description: Geographic region or site.
+        range: string
+      hosted_on:
+        description: Parent node, for nesting (e.g. namespace inside a cluster).
+        range: DeploymentNode
+      runs_containers:
+        range: Container
+        multivalued: true
+      parent_system:
+        range: SoftwareSystem
+      network_zone:
+        description: >-
+          Network segmentation zone (e.g. "DMZ", "CDE", "internal") — relevant
+          to PCI-DSS scoping.
+        range: string
+    class_uri: sea-arc:DeploymentNode
+    subsets:
+      - ArchitectureStructure
+
+  # --------------------------------------------------------------------------
+  # 9. RESPONSIBILITY
+  # --------------------------------------------------------------------------
+  # The semantic content of the architecture graph.
+  #
+  # Without this, a container has a name, a C4 level, a parent and some
+  # connections — but nothing in the graph says what it DOES. It is a wiring
+  # diagram with the meaning stripped out.
+  #
+  # Responsibility is also a SECOND route for linking architecture to business
+  # intent, independent of whether either document states an explicit trace.
+  # Explicit traceability fails when a document paraphrases; responsibility
+  # works by matching "what this is accountable for" against "what the
+  # requirement asks for", which is a far more stable substrate.
+  #
+  # Division of labour with SystemCapabilityBinding (requirements_base):
+  #   SystemCapabilityBinding — REQUIREMENTS side, higher level, system→capability,
+  #                             used for capability coverage auditing.
+  #   Responsibility          — ARCHITECTURE side, container/component level,
+  #                             designed and assigned by architects and engineers.
+  # They are complementary views, not duplicates: one says what the business
+  # expects of a system; the other says what a team has taken on inside it.
+  # --------------------------------------------------------------------------
+
+  Responsibility:
+    description: >-
+      What a container, component or system is ACCOUNTABLE for.
+      
+      Designed and assigned by architects and engineers rather than derived from
+      requirements. It is the architecture side's own statement of ownership,
+      and the bridge that lets business intent be matched to technical structure
+      without depending on either document naming the other.
+    mixins:
+      - Provenanced
+    attributes:
+      id:
+        identifier: true
+        range: string
+        required: true
+      held_by:
+        description: >-
+          The element accountable for this responsibility. Typically a Container
+          or Component; may also be a SoftwareSystem.
+        range: ArchitectureElement
+        required: true
+      statement:
+        description: >-
+          What it is accountable for, stated as an accountability rather than a
+          description of behaviour. "Acceptance and validation of payment
+          requests", not "Accepts and validates payment requests".
+        range: string
+        required: true
+      responsibility_type:
+        description: >-
+          Determines which business/requirements link this responsibility makes.
+        range: ResponsibilityType
+      # --- links up into business and requirements intent ---
+      serves_capabilities:
+        description: Business capabilities this responsibility delivers.
+        range: BusinessCapability
+        multivalued: true
+      performs_processes:
+        description: Business processes or activities this responsibility performs.
+        range: BusinessProcess
+        multivalued: true
+      owns_concepts:
+        description: >-
+          Domain concepts this element is the accountable owner of — its system
+          of record. The highest-value link for scoping questions ("who owns
+          Cardholder Data?"), and a second cross-graph edge that does not depend
+          on a stated requirement trace.
+        range: DomainConcept
+        multivalued: true
+      satisfies_requirements:
+        description: >-
+          Requirements this responsibility answers. In practice populated during
+          reconciliation by matching the statement against requirement intent,
+          rather than asserted at extraction time.
+        range: Requirement
+        multivalued: true
+      # --- ownership semantics ---
+      is_exclusive:
+        description: >-
+          Whether only ONE element may hold this responsibility. True for
+          system-of-record ownership, which must not be shared. Lets the auditor
+          detect overlapping ownership — a common and expensive EA defect.
+        range: boolean
+      delegated_to:
+        description: >-
+          Team or role operationally accountable, where that differs from the
+          element owner.
+        range: string
+      notes:
+        range: string
+    class_uri: sea-arc:Responsibility
+    subsets:
+      - ArchitectureStructure
+      - ArchitectureTraceability
+
+  # --------------------------------------------------------------------------
+  # 10. TECHNOLOGY STACK AND ARCHITECTURE STYLE
+  # --------------------------------------------------------------------------
+  # Two constructs that describe WHAT an element is built from and HOW it is
+  # shaped. Both are first-class rather than free-text attributes, for two
+  # reasons:
+  #
+  #   1. A free-text field gives the extraction nothing to put them INTO, so
+  #      models leak technologies into the element list instead. Giving them a
+  #      home is more reliable than instructing "do not emit these".
+  #   2. As constructs they can be governed — compared across systems, audited
+  #      for sanctioned versions, and decomposed later without a schema break.
+  # --------------------------------------------------------------------------
+
+  TechnologyStack:
+    description: >-
+      The technology stack of an architecture element: languages, frameworks,
+      tools, platforms and data technologies it is built from.
+      
+      Captured for now as a SINGLE concept — one TechnologyStack per distinct
+      stack, referenced by the elements that use it. The `category` field is
+      available for decomposition (Language / Framework / Tool / Platform /
+      DataStore / …) along Thoughtworks Technology Radar lines, and `ring` for
+      adoption governance, but neither is required to capture a stack.
+    attributes:
+      id:
+        identifier: true
+        range: string
+        required: true
+      name:
+        description: >-
+          The stack as the source states it, e.g. "Spring Boot / Java 21",
+          "PostgreSQL 16", "AlpineJS", "Docker".
+        range: string
+        required: true
+      description:
+        range: string
+      category:
+        description: >-
+          Optional decomposition axis. Leave empty while capturing a stack as a
+          single concept; populate when splitting into Radar-style quadrants.
+        range: TechnologyCategory
+      ring:
+        description: Optional adoption ring, where the organisation governs technology choice.
+        range: TechnologyRing
+      version:
+        description: Version as stated in the source, e.g. "Java 21", "16".
+        range: string
+      vendor:
+        description: Supplying vendor or project, where relevant.
+        range: string
+      constraint_note:
+        description: >-
+          Any mandate or restriction attached to this technology, e.g. "Spring
+          Boot framework is mandated for core backend services".
+        range: string
+    class_uri: sea-arc:TechnologyStack
+    subsets:
+      - ArchitectureStructure
+
+  ArchitectureStyle:
+    description: >-
+      The overall architectural style an element or system follows — the coarse
+      shape of the design. Distinct from `ArchitecturePattern`: style is the
+      shape (microservices, modular monolith), a pattern is a technique used
+      within it (circuit breaker, saga, CQRS).
+      
+      Modelled separately because style is a top-level, comparable characteristic
+      worth querying directly ("is this system microservices or monolith?") and
+      because requirements often MANDATE a style, which the auditor needs to
+      check against what the architecture actually describes.
+    attributes:
+      id:
+        identifier: true
+        range: string
+        required: true
+      name:
+        description: The style as stated, e.g. "Stateless Modular Microservices".
+        range: string
+        required: true
+      style:
+        description: Normalised style from the controlled vocabulary.
+        range: ArchitectureStyleName
+      style_category:
+        range: ArchitectureStyleCategory
+      description:
+        range: string
+      adopted_by:
+        description: Elements that follow this style.
+        range: ArchitectureElement
+        multivalued: true
+      rationale:
+        description: Why this style was chosen.
+        range: string
+      trade_offs:
+        description: Known costs accepted with this style (e.g. "distributed debugging", "operational overhead").
+        range: string
+        multivalued: true
+      mandated_by:
+        description: >-
+          The requirement that mandates this style, when one does. Lets the
+          auditor verify a mandated style is actually present.
+        range: Requirement
+        multivalued: true
+    class_uri: sea-arc:ArchitectureStyle
+    subsets:
+      - ArchitectureStructure
+      - ArchitectureRationale
+
+  # --------------------------------------------------------------------------
+  # 10. RATIONALE — PATTERNS AND DECISIONS
+  # --------------------------------------------------------------------------
+
+  ArchitecturePattern:
+    description: >-
+      A pattern the architecture adopts. Recorded explicitly because
+      requirements documents often *mandate* a pattern (e.g. "must be
+      microservices"), and the auditor needs to check that the architecture
+      actually follows it.
+    attributes:
+      id:
+        identifier: true
+        range: string
+        required: true
+      name:
+        range: string
+        required: true
+      description:
+        range: string
+      category:
+        range: PatternCategory
+      applies_to:
+        description: Elements this pattern governs.
+        range: ArchitectureElement
+        multivalued: true
+      rationale:
+        description: Why this pattern was chosen.
+        range: string
+      trade_offs:
+        description: Known costs or limitations accepted with this pattern.
+        range: string
+        multivalued: true
+      mandated_by:
+        description: >-
+          The requirement that mandates this pattern, when one does. Lets the
+          auditor verify a mandated pattern is actually present.
+        range: Requirement
+        multivalued: true
+    class_uri: sea-arc:ArchitecturePattern
+    subsets:
+      - ArchitectureRationale
+
+  ArchitectureDecision:
+    description: >-
+      An Architecture Decision Record (ADR). Captures the *why*, which is the
+      thing architecture documentation most often loses and most often needs
+      when revisiting a choice.
+    attributes:
+      id:
+        identifier: true
+        range: string
+        required: true
+      title:
+        range: string
+        required: true
+      status:
+        range: ArchitectureDecisionStatus
+      context:
+        description: The forces at play when the decision was made.
+        range: string
+      decision:
+        description: What was decided.
+        range: string
+      consequences:
+        description: What follows from the decision, good and bad.
+        range: string
+        multivalued: true
+      alternatives_considered:
+        range: string
+        multivalued: true
+      decided_date:
+        range: date
+      supersedes:
+        description: An earlier decision this replaces.
+        range: ArchitectureDecision
+      affects_elements:
+        range: ArchitectureElement
+        multivalued: true
+    class_uri: sea-arc:ArchitectureDecision
+    subsets:
+      - ArchitectureRationale
+
+  ArchitectureView:
+    description: >-
+      A named grouping of elements for a given audience/purpose — the C4
+      "diagram". Useful for tracking which views exist and which are missing.
+    attributes:
+      id:
+        identifier: true
+        range: string
+        required: true
+      name:
+        range: string
+        required: true
+      view_type:
+        range: ArchitectureViewType
+        required: true
+      description:
+        range: string
+      audience:
+        description: Who this view is for.
+        range: string
+      shows_elements:
+        range: ArchitectureElement
+        multivalued: true
+      scoped_to_system:
+        range: SoftwareSystem
+      scenario:
+        description: For DYNAMIC views, the scenario being described.
+        range: string
+    class_uri: sea-arc:ArchitectureView
+    subsets:
+      - ArchitectureStructure
+
+  # --------------------------------------------------------------------------
+  # 10. TRACEABILITY BINDING
+  # --------------------------------------------------------------------------
+
+  RequirementRealization:
+    description: >-
+      An explicit claim that a specific piece of architecture answers a
+      specific requirement. Exists as its own class (rather than only as a
+      slot) so the auditor can carry a verdict, evidence, and coverage rating
+      on each link — which is what "cross-verification" actually means here.
+    attributes:
+      id:
+        identifier: true
+        range: string
+        required: true
+      requirement:
+        description: The requirement being answered.
+        range: Requirement
+        required: true
+      realized_by:
+        description: The architecture element(s) that answer it.
+        range: ArchitectureElement
+        multivalued: true
+      coverage:
+        description: >-
+          How completely the requirement is addressed:
+          "full", "partial", "planned", "not_addressed".
+        range: string
+      evidence:
+        description: >-
+          Why this link is asserted — the mechanism in the architecture that
+          satisfies the requirement.
+        range: string
+      confidence:
+        description: Extraction/assertion confidence, 0.0-1.0.
+        range: float
+      verified_by:
+        description: Who or what confirmed this realization.
+        range: string
+    class_uri: sea-arc:RequirementRealization
+    subsets:
+      - ArchitectureTraceability
