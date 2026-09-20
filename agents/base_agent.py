@@ -9,6 +9,7 @@ Strands SDK Reference: https://strandsagents.com/llms.txt
 
 from typing import Any, Dict, List, Optional
 from pathlib import Path
+import threading
 import yaml
 from pydantic import BaseModel, Field
 from rich.console import Console
@@ -63,6 +64,28 @@ class AgentConfig(BaseModel):
         description=(
             "Optional cumulative token cap for a structured-output call. Soft cap "
             "checked at turn boundaries."
+        ),
+    )
+    structured_timeout_seconds: int = Field(
+        default=180,
+        ge=10,
+        description=(
+            "Wall-clock budget for a structured-output call, enforced via "
+            "cancel_signal. NOTE: cancellation is checked BETWEEN TURNS, not "
+            "during a model call — a single long generation is uninterruptible "
+            "from Python. So this catches retry loops, not one slow call. For "
+            "that, `request_timeout_seconds` aborts at the transport layer."
+        ),
+    )
+    request_timeout_seconds: int = Field(
+        default=300,
+        ge=10,
+        description=(
+            "Per-request HTTP timeout applied to the model client. This is the "
+            "only reliable way to bound a single long generation: the OpenAI "
+            "client aborts the in-flight request, which cancel_signal cannot do. "
+            "Raise it if legitimate generations exceed it; lower it to fail "
+            "faster on an oversized ask."
         ),
     )
     
@@ -143,6 +166,9 @@ class SEABaseAgent:
                 client_args={
                     "base_url": self.config.base_url,
                     "api_key": self.config.api_key or "dummy",
+                    # Transport-level timeout: the only way to bound a single
+                    # long generation. cancel_signal only fires between turns.
+                    "timeout": self.config.request_timeout_seconds,
                 },
                 model_id=self.config.model_id,
             )
@@ -219,18 +245,66 @@ class SEABaseAgent:
         return base_prompt
     
     def _format_ontology_context(self) -> str:
-        """Format ontology for inclusion in system prompt."""
+        """Format ontology for inclusion in system prompt.
+        
+        Resolves local `imports:` so the model sees inherited classes too. This
+        matters for layered ontologies: architecture_base imports
+        enterprise_structure and requirements_base, and the architecture agent
+        needs to know that Requirement / System / Application / BusinessGoal
+        exist in order to emit traceability edges.
+        """
         if not self.ontology:
             return ""
         
-        # Extract key information from ontology
-        classes = list(self.ontology.get('classes', {}).keys())
-        enums = list(self.ontology.get('enums', {}).keys())
+        classes, enums = self._collect_ontology_names()
         
-        context = f"Available classes: {', '.join(classes[:20])}\n"
-        context += f"Available enums: {', '.join(enums[:10])}\n"
+        context = f"Available classes: {', '.join(classes)}\n"
+        context += f"Available enums: {', '.join(enums)}\n"
         
         return context
+    
+    def _collect_ontology_names(self) -> tuple:
+        """Collect class and enum names from this ontology plus local imports.
+        
+        Only local (same-directory) imports are resolved; linkml:* is skipped.
+        Cycles are guarded against by tracking visited files.
+        """
+        classes: List[str] = []
+        enums: List[str] = []
+        visited = set()
+        
+        def absorb(schema: Dict[str, Any], base_dir: Path) -> None:
+            for name in (schema.get("classes") or {}):
+                if name not in classes:
+                    classes.append(name)
+            for name in (schema.get("enums") or {}):
+                if name not in enums:
+                    enums.append(name)
+            
+            for imp in (schema.get("imports") or []):
+                if isinstance(imp, str) and imp.startswith("linkml:"):
+                    continue
+                candidate = base_dir / f"{imp}.yaml"
+                if not candidate.exists():
+                    continue
+                key = candidate.resolve()
+                if key in visited:
+                    continue
+                visited.add(key)
+                try:
+                    with open(candidate, "r") as fh:
+                        absorb(yaml.safe_load(fh) or {}, candidate.parent)
+                except Exception:
+                    continue
+        
+        # Seed `visited` with the root ontology so a cycle back to it is ignored.
+        root = self.config.ontology_path
+        if root and Path(root).exists():
+            visited.add(Path(root).resolve())
+        base_dir = Path(root).parent if root else Path(".")
+        absorb(self.ontology, base_dir)
+        
+        return classes, enums
     
     def invoke(self, prompt: str, structured_output_model=None) -> Any:
         """
@@ -278,11 +352,22 @@ class SEABaseAgent:
         if self.config.max_structured_tokens:
             limits["total_tokens"] = self.config.max_structured_tokens
         
+        # Wall-clock guard. The turn cap cannot catch a single slow generation —
+        # it never advances a turn — so a large schema on a slow local model can
+        # hang indefinitely. cancel_signal lets us abort and fall back instead.
+        cancel_signal = threading.Event()
+        timer = threading.Timer(
+            self.config.structured_timeout_seconds, cancel_signal.set
+        )
+        timer.daemon = True
+        timer.start()
+        
         try:
             result = self.agent(
                 prompt,
                 structured_output_model=model_cls,
                 limits=limits,
+                cancel_signal=cancel_signal,
             )
         except Exception as e:
             # Distinguish the failure modes so the message is actionable.
@@ -303,8 +388,19 @@ class SEABaseAgent:
             else:
                 self.log(f"Structured output raised {name}: {e}", level="warning")
             return None
+        finally:
+            timer.cancel()
         
         stop_reason = getattr(result, "stop_reason", None)
+        
+        if stop_reason == "cancelled":
+            self.log(
+                f"Structured output exceeded the {self.config.structured_timeout_seconds}s "
+                f"wall-clock budget — cancelled. Falling back to text parsing.",
+                level="warning",
+            )
+            return None
+        
         if stop_reason == "limit_turns":
             self.log(
                 f"Structured output hit turn cap ({self.config.max_structured_turns} turns) "

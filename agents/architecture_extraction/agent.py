@@ -1,0 +1,266 @@
+"""
+Architecture Extraction Agent  [DRAFT]
+
+Extracts a solution-architecture knowledge graph (ARC-G) from a document, using
+the C4-aligned architecture ontology.
+
+DESIGN — why this is not a single call
+--------------------------------------
+This agent previously made one call asking for every collection at once. That hit
+a hard ceiling: as the schema grew, the model silently dropped whole categories —
+traceability predicates, technologies, responsibilities, monitoring platforms.
+Each drop looked like a prompt bug; the cause was asking for too much at once.
+
+It now runs four FOCUSED PASSES (see `passes.py`) over CHUNKS of the document
+(see `extraction/chunking.py`). Two consequences worth stating:
+
+  - Cost scales with document size. Real requirement and architecture documents
+    are large and verbose; the samples in `test_data/` shape the ontology but do
+    not represent the volume this meets in production.
+  - More calls, each small and reliable, instead of one call that is fast when it
+    works and silently lossy when it does not.
+
+Results are merged across chunks and passes without losing content, then checked
+by deterministic validators whose vocabularies come from the ontology.
+"""
+
+from typing import Any, Dict, List, Optional
+
+from ..base_agent import AgentResult
+from ..knowledge_extraction.agent import KnowledgeExtractionAgent
+from ..extraction import (
+    chunk_document,
+    completeness,
+    connection_key,
+    element_key,
+    merge_records,
+    merge_triples,
+    named_key,
+    summarise_chunks,
+    check_containment,
+    check_deployment_levels,
+    check_element_types,
+    check_enum_membership,
+    check_object_contract,
+)
+from ..extraction.passes import collect, run_passes, summarise
+from .passes import (
+    ARCHITECTURE_PASSES,
+    ElementRecord,
+    ConnectionRecord,
+    TechnologyStackRecord,
+    ArchitectureStyleRecord,
+    ReferenceRecord,
+)
+
+
+def _reference_key(record: Dict[str, Any]) -> tuple:
+    return (
+        str(record.get("element") or "").strip().lower(),
+        str(record.get("relationship") or "").strip().lower(),
+        str(record.get("reference") or "").strip().lower(),
+    )
+
+
+class ArchitectureExtractionAgent(KnowledgeExtractionAgent):
+    """Extracts architecture knowledge against the C4-aligned ARC-G ontology."""
+
+    def _output_keys(self):
+        return {"nodes": "elements", "edges": "connections"}
+
+    # ------------------------------------------------------------------
+    # Typed text-fallback parsing
+    # ------------------------------------------------------------------
+    # The base parsers produce generic ExtractedEntity/Relationship objects. On
+    # the fallback path that loses C4 typing (element_type, parent, c4_level),
+    # so containment and classification invariants become unverifiable. These
+    # overrides parse the real record types so both paths agree on shape.
+
+    _VALID_ELEMENT_TYPES = {
+        "SoftwareSystem", "ExternalSystem", "Person", "Container",
+        "DataStore", "Component", "CodeElement", "DeploymentNode",
+    }
+
+    def _parse_entities_from_text(self, text):
+        raw = self._extract_named_list(text, "elements")
+        if raw:
+            parsed = []
+            for d in raw:
+                if not isinstance(d, dict):
+                    continue
+                name = str(d.get("name") or "").strip()
+                if not name:
+                    continue
+                etype = str(d.get("element_type") or "").strip()
+                if etype not in self._VALID_ELEMENT_TYPES:
+                    # A guess with a flag beats losing the element; the
+                    # validator will catch an implausible classification.
+                    etype = "Container"
+                parsed.append(ElementRecord(
+                    name=name,
+                    element_type=etype,
+                    c4_level=str(d.get("c4_level") or "").strip(),
+                    parent=str(d.get("parent") or "").strip(),
+                    system_class=str(d.get("system_class") or "").strip(),
+                    origin=str(d.get("origin") or "").strip(),
+                    deployment_model=str(d.get("deployment_model") or "").strip(),
+                    responsibilities=list(d.get("responsibilities") or []),
+                    description=str(d.get("description") or ""),
+                ))
+            if parsed:
+                return parsed
+        return super()._parse_entities_from_text(text)
+
+    def _parse_relationships_from_text(self, text):
+        raw = self._extract_named_list(text, "connections", "relationships")
+        if raw:
+            parsed = []
+            for d in raw:
+                if not isinstance(d, dict):
+                    continue
+                src = str(d.get("source") or "").strip()
+                tgt = str(d.get("target") or "").strip()
+                if not (src and tgt):
+                    continue
+                parsed.append(ConnectionRecord(
+                    source=src, target=tgt,
+                    description=str(d.get("description") or ""),
+                    protocol=str(d.get("protocol") or ""),
+                    style=str(d.get("style") or ""),
+                ))
+            if parsed:
+                return parsed
+        return super()._parse_relationships_from_text(text)
+
+    # ------------------------------------------------------------------
+
+    def run(self, input_data: Dict[str, Any]) -> AgentResult:
+        try:
+            document = input_data.get("document", "")
+            document_type = input_data.get("document_type", "architecture")
+            domain = input_data.get("domain", "generic")
+
+            if not document:
+                return AgentResult(success=False, output=None,
+                                   errors=["No document provided"])
+
+            # ---- 1. chunk ----
+            max_chars = int(input_data.get("chunk_max_chars", 7000))
+            chunks = chunk_document(document, max_chars=max_chars)
+            self.log(f"Document: {len(document):,} chars — {summarise_chunks(chunks)}")
+
+            # ---- 2. run passes over chunks ----
+            shared = self._format_ontology_context()
+            outcomes = run_passes(self, ARCHITECTURE_PASSES, chunks, shared,
+                                  log=self.log)
+            summary = summarise(outcomes, len(chunks), len(ARCHITECTURE_PASSES))
+            self.log(summary.describe(len(chunks), len(ARCHITECTURE_PASSES)),
+                     level="success" if summary.failed == 0 else "warning")
+
+            # ---- 3. merge across chunks and passes ----
+            # NOTE: `collect` returns one group per chunk. For triples we want a
+            # flat list of those groups (from every pass), NOT a list of lists of
+            # groups — the extra nesting would hand `merge_triples` a list where
+            # it expects a triple.
+            triple_groups: List[List[Any]] = []
+            for spec in ARCHITECTURE_PASSES:
+                triple_groups.extend(collect(outcomes, spec.name, "triples"))
+            triples = merge_triples(triple_groups)
+            elements = merge_records(
+                collect(outcomes, "structure", "elements"), element_key, completeness)
+            connections = merge_records(
+                collect(outcomes, "connections", "connections"), connection_key, completeness)
+            technology = merge_records(
+                collect(outcomes, "technology", "technology_stacks"), named_key, completeness)
+            styles = merge_records(
+                collect(outcomes, "technology", "architecture_styles"), named_key, completeness)
+            references = merge_records(
+                collect(outcomes, "traceability", "references"), _reference_key, completeness)
+
+            self.log(
+                f"Merged: {len(triples)} triples, {len(elements)} elements, "
+                f"{len(connections)} connections, {len(technology)} technologies, "
+                f"{len(styles)} styles, {len(references)} references"
+            )
+
+            # ---- 4. validate (Option B) ----
+            flags = []
+            flags += check_object_contract(triples)
+            flags += check_containment(elements, triples)
+            flags += check_element_types(elements)
+            flags += check_deployment_levels(elements)
+            flags += check_enum_membership(elements)
+            flag_dicts = [f.to_dict() for f in flags]
+            if flag_dicts:
+                self.log(f"  {len(flag_dicts)} findings flagged for review",
+                         level="warning")
+
+            # ---- 5. output ----
+            node_dicts = [self._as_output_dict(e) for e in elements]
+            output = {
+                "triples": triples,
+                "elements": node_dicts,
+                "connections": [self._as_output_dict(c) for c in connections],
+                "technology_stacks": [self._as_output_dict(t) for t in technology],
+                "architecture_styles": [self._as_output_dict(s) for s in styles],
+                "references": [self._as_output_dict(r) for r in references],
+                "findings": flag_dicts,
+                "statistics": {
+                    "total_triples": len(triples),
+                    "total_elements": len(elements),
+                    "total_connections": len(connections),
+                    "total_technology_stacks": len(technology),
+                    "total_architecture_styles": len(styles),
+                    "total_references": len(references),
+                    "findings": len(flag_dicts),
+                    "chunks": len(chunks),
+                    "passes": len(ARCHITECTURE_PASSES),
+                    "model_calls": summary.total_calls,
+                    "text_fallbacks": summary.text_fallbacks,
+                },
+            }
+
+            return AgentResult(
+                success=True,
+                output=output,
+                confidence=self._overall_confidence(triples),
+                metadata={
+                    "document_type": document_type,
+                    "domain": domain,
+                    "extraction_path": "passes",
+                    "document_chars": len(document),
+                    "chunks": len(chunks),
+                    "model_calls": summary.total_calls,
+                    "text_fallback_calls": summary.text_fallbacks,
+                    "failed_calls": summary.failed,
+                    "empty_calls": summary.empty,
+                    "elapsed_seconds": round(summary.elapsed, 1),
+                    "findings": len(flag_dicts),
+                },
+            )
+
+        except Exception as e:                                       # noqa: BLE001
+            self.log(f"Extraction failed: {e}", level="error")
+            return AgentResult(success=False, output=None, errors=[str(e)])
+
+    @staticmethod
+    def _as_output_dict(record: Any) -> Dict[str, Any]:
+        if isinstance(record, dict):
+            return record
+        if hasattr(record, "model_dump"):
+            return record.model_dump()
+        return dict(record)
+
+    @staticmethod
+    def _overall_confidence(triples: List[Dict[str, Any]]) -> float:
+        values = [t.get("confidence") or 0.0 for t in triples if isinstance(t, dict)]
+        return sum(values) / len(values) if values else 0.0
+
+
+def create_architecture_extraction_agent() -> ArchitectureExtractionAgent:
+    """Factory for the architecture extraction agent."""
+    from config import get_default_agent_config
+    from ..base_agent import AgentConfig
+
+    config_dict = get_default_agent_config("architecture_extraction")
+    return ArchitectureExtractionAgent(AgentConfig(**config_dict))

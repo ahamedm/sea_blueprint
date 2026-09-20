@@ -75,6 +75,8 @@ class EnvironmentConfig(BaseModel):
     # attempt costs latency before falling back. Flip to "false" to skip it.
     use_structured_output: bool = Field(default=True, alias="USE_STRUCTURED_OUTPUT")
     max_structured_turns: int = Field(default=3, alias="MAX_STRUCTURED_TURNS")
+    structured_timeout_seconds: int = Field(default=180, alias="STRUCTURED_TIMEOUT_SECONDS")
+    request_timeout_seconds: int = Field(default=300, alias="REQUEST_TIMEOUT_SECONDS")
     
     class Config:
         env_file = ".env"
@@ -113,6 +115,8 @@ def load_environment() -> EnvironmentConfig:
         "deepeval_api_key": os.getenv("DEEPEVAL_API_KEY", ""),
         "use_structured_output": _as_bool("USE_STRUCTURED_OUTPUT", True),
         "max_structured_turns": int(os.getenv("MAX_STRUCTURED_TURNS", "3")),
+        "structured_timeout_seconds": int(os.getenv("STRUCTURED_TIMEOUT_SECONDS", "180")),
+        "request_timeout_seconds": int(os.getenv("REQUEST_TIMEOUT_SECONDS", "300")),
     }
     
     return EnvironmentConfig(**config_data)
@@ -268,6 +272,40 @@ Provide clear, actionable feedback for resolving identified issues.""",
             "tools": ["graph_query", "conflict_detector"],
             "ontology_path": "ontology/requirements_base.yaml",
         },
+
+        "architecture_extraction": {
+            "name": "Architecture Extraction Agent",
+            "description": (
+                "Transforms architecture documents into a C4-aligned "
+                "solution-architecture knowledge graph (ARC-G)"
+            ),
+            "model_provider": model_provider,
+            "model_id": model_id,
+            "base_url": base_url,
+            "api_key": api_key,
+            "temperature": 0.2,
+            "max_tokens": 8192,
+            "system_prompt": """You are the Architecture Extraction Agent for the SEA Platform.
+Your role is to transform architecture documents into a structured, C4-aligned
+solution-architecture knowledge graph.
+
+Key responsibilities:
+- Identify C4 elements: systems, containers, components, datastores, external
+  systems and the people who use them
+- Record runtime connections with protocol and synchronous/asynchronous style
+- Capture architecture patterns and decisions where stated
+- Emit traceability edges back to requirements, goals, capabilities and NFRs
+
+The architecture ontology imports the enterprise-structure and requirements
+ontologies, so you can reference System, Application, Platform, Requirement,
+BusinessGoal and BusinessCapability directly. That shared vocabulary is what makes
+requirements/architecture cross-verification possible.
+
+Prefer a small accurate graph over a large speculative one. Do not invent
+architecture the document does not describe.""",
+            "tools": ["document_parser", "architecture_extractor"],
+            "ontology_path": "ontology/architecture_base.yaml",
+        },
     }
     
     # Structured-output settings apply uniformly to every agent.
@@ -275,6 +313,8 @@ Provide clear, actionable feedback for resolving identified issues.""",
     shared = {
         "use_structured_output": env_config.use_structured_output,
         "max_structured_turns": env_config.max_structured_turns,
+        "structured_timeout_seconds": env_config.structured_timeout_seconds,
+        "request_timeout_seconds": env_config.request_timeout_seconds,
     }
     for cfg in configs.values():
         cfg.update(shared)

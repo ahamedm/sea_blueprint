@@ -131,6 +131,23 @@ class ExtractedEntity(BaseModel):
     requirement_type: Optional[str] = Field(
         None, description="One of: BUSINESS, FUNCTIONAL, NON_FUNCTIONAL, CONSTRAINT"
     )
+    requirement_id: str = Field(
+        default="",
+        description=(
+            "Stable identifier for this requirement EXACTLY as the source gives "
+            "it, e.g. 'FR-PM-001' or 'NFR-SC-002'. Preserve it verbatim — it is "
+            "the join key architecture uses to trace back to this requirement. "
+            "Leave empty only if the source genuinely provides no identifier; do "
+            "not invent one."
+        ),
+    )
+    initiative_refs: List[str] = Field(
+        default_factory=list,
+        description=(
+            "Identifiers of any Initiative / business case / work item the source "
+            "associates with this entity, e.g. 'INIT-2026-014'. Verbatim."
+        ),
+    )
 
 
 class ExtractedRelationship(BaseModel):
@@ -176,7 +193,48 @@ class KnowledgeExtractionAgent(SEABaseAgent):
     def __init__(self, config: AgentConfig):
         super().__init__(config)
         self.confidence_threshold = 0.7  # Below this requires human review
+    
+    # ------------------------------------------------------------------
+    # Extraction-profile hooks (overridable by subclasses)
+    # ------------------------------------------------------------------
+    # Different graphs (REQ-G, ARC-G) differ only in: the structured schema,
+    # the prompt, and what the node/edge lists are called. Everything else —
+    # guard, fallbacks, parsing, contract validation, statistics — is shared.
+    # Subclasses override these three and reuse the rest.
+    
+    def _schema(self):
+        """Structured-output schema class for this extraction profile."""
+        return ExtractionResult
+    
+    def _unpack_structured(self, structured):
+        """Map a validated schema instance to (triples, nodes, edges)."""
+        return (
+            list(structured.triples),
+            list(structured.entities),
+            list(structured.relationships),
+        )
+    
+    def _output_keys(self):
+        """Internal node/edge names -> keys used in the output dict."""
+        return {"nodes": "entities", "edges": "relationships"}
+    
+    def _profile_flags(self, triples, nodes, edges) -> List[Dict[str, Any]]:
+        """Profile-specific structural checks, appended to contract violations.
         
+        Overridden by subclasses whose graph has structural invariants beyond the
+        object contract (e.g. ARC-G containment). Returns [] by default.
+        """
+        return []
+    
+    def _extra_collections(self, structured) -> Dict[str, Any]:
+        """Additional top-level output collections from the structured result.
+        
+        Lets a profile surface construct types that are neither nodes nor edges
+        in its primary lists — e.g. ARC-G's technology stacks and architecture
+        styles. Returns {} by default.
+        """
+        return {}
+    
     def run(self, input_data: Dict[str, Any]) -> AgentResult:
         """
         Extract knowledge from a document.
@@ -225,6 +283,7 @@ class KnowledgeExtractionAgent(SEABaseAgent):
             triples: List[ExtractedTriple] = []
             entities: List[ExtractedEntity] = []
             relationships: List[ExtractedRelationship] = []
+            structured_obj = None
             structured_error: Optional[str] = None
             
             # ---- Attempt 1: structured output (guarded) ----
@@ -233,12 +292,11 @@ class KnowledgeExtractionAgent(SEABaseAgent):
                     f"Attempting structured output "
                     f"(turn cap: {self.config.max_structured_turns})..."
                 )
-                structured = self.invoke_structured(extraction_prompt, ExtractionResult)
+                structured = self.invoke_structured(extraction_prompt, self._schema())
                 
                 if structured is not None:
-                    triples = list(structured.triples)
-                    entities = list(structured.entities)
-                    relationships = list(structured.relationships)
+                    structured_obj = structured
+                    triples, entities, relationships = self._unpack_structured(structured)
                     if triples or entities:
                         path = "structured_output"
                         self.log(
@@ -297,6 +355,11 @@ class KnowledgeExtractionAgent(SEABaseAgent):
             # Deterministic object-contract check (independent of model behaviour).
             # Flags for human review; never drops content.
             contract_flags = self._flag_contract_violations(triples)
+            
+            # Profile-specific structural checks (e.g. ARC-G containment).
+            profile_flags = self._profile_flags(triples, entities, relationships)
+            contract_flags.extend(profile_flags)
+            
             if contract_flags:
                 self.log(
                     f"  {len(contract_flags)}/{len(triples)} triples violate the object "
@@ -310,15 +373,27 @@ class KnowledgeExtractionAgent(SEABaseAgent):
                 level="success"
             )
             
-            # Build output dict
+            # Build output dict. Node/edge key names come from the profile hook
+            # so an architecture run emits `elements`/`connections` while a
+            # requirements run emits `entities`/`relationships`.
+            keys = self._output_keys()
             output = {
                 "triples": [t.model_dump() for t in triples],
-                "entities": [e.model_dump() for e in entities],
-                "relationships": [r.model_dump() for r in relationships],
+                keys["nodes"]: [e.model_dump() for e in entities],
+                keys["edges"]: [r.model_dump() for r in relationships],
                 "low_confidence_items": [t.model_dump() for t in low_confidence],
                 "contract_violations": contract_flags,
                 "statistics": statistics,
             }
+            
+            # Profile-specific extra collections (e.g. ARC-G technology stacks
+            # and architecture styles, which are neither nodes nor edges).
+            if structured_obj is not None:
+                for key, values in (self._extra_collections(structured_obj) or {}).items():
+                    output[key] = [
+                        v.model_dump() if hasattr(v, "model_dump") else v
+                        for v in (values or [])
+                    ]
             
             return AgentResult(
                 success=True,
@@ -505,13 +580,112 @@ information and prevents the human-review threshold from doing its job.
 - Name concepts rather than describing behaviour
 - Map each object to an ontology class
 - List all unique entities and relationship types you used
+
+### Preserve identifiers — they are the join keys
+
+Sources frequently label requirements with stable identifiers (`FR-PM-001`,
+`NFR-SC-002`) and work with Initiatives / business cases (`INIT-2026-014`).
+**Carry them through verbatim** into `requirement_id` and `initiative_refs`.
+
+These identifiers are how the architecture graph later traces back to a specific
+requirement. If they are dropped here, the two graphs cannot be joined and
+cross-verification becomes impossible — so a missing identifier is a worse defect
+than an imperfectly-worded description.
+
+If the source provides no identifier, leave the field empty. **Do not invent one.**
 """
         return prompt
     
+    def _extract_named_list(self, text: str, *names: str) -> List[Any]:
+        """Find a named list anywhere the model might have put it.
+
+        The model varies its output envelope between runs — observed shapes:
+          - an XML tool-call envelope:  <parameter=triples>[ ... ]</parameter>
+          - a fenced JSON block:        ```json {"triples": [ ... ]}```
+          - a bare JSON object
+
+        Content is the same either way; only the packaging moves. Rather than
+        teach each parser one envelope, this looks in all of them for any of the
+        supplied key names (e.g. ("entities", "elements")).
+
+        Returns the first non-empty list found, or [].
+        """
+        import re
+        import json
+
+        # 1. XML tool-call envelope
+        blocks = self._extract_parameter_blocks(text)
+        for name in names:
+            value = blocks.get(name)
+            if isinstance(value, list) and value:
+                return value
+
+        # 2. Fenced JSON blocks, and the raw text as a last resort
+        candidates = re.findall(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL)
+        candidates.append(text)
+        for blob in candidates:
+            blob = blob.strip()
+            start, end = blob.find("{"), blob.rfind("}")
+            if start == -1 or end <= start:
+                continue
+            try:
+                data = json.loads(blob[start:end + 1])
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if isinstance(data, dict):
+                for name in names:
+                    value = data.get(name)
+                    if isinstance(value, list) and value:
+                        return value
+
+        return []
+
+    def _extract_parameter_blocks(self, text: str) -> Dict[str, Any]:
+        """Recover data from a <tool_call>/<parameter=NAME> XML envelope.
+
+        Models sometimes emit a tool call as XML *text* rather than invoking the
+        tool:
+
+            <tool_call>
+            <function=ExtractionResult>
+            <parameter=triples>
+            [ {...}, {...} ]
+            </parameter>
+            <parameter=elements>
+            [ ... ]
+            </parameter>
+
+        The content is complete and correct — only the envelope is unreadable by
+        the JSON-code-block path. Recovering it is what makes the text fallback
+        usable for schemas with several named collections at once, which is
+        exactly the architecture profile.
+
+        Returns {parameter_name: parsed_json}.
+        """
+        import re
+        import json
+
+        blocks: Dict[str, Any] = {}
+        for name, body in re.findall(
+            r"<parameter=([A-Za-z_]\w*)>(.*?)</parameter>", text, re.DOTALL
+        ):
+            body = body.strip()
+            # Strip a fenced code block if the model wrapped the payload.
+            body = re.sub(r"^```[A-Za-z]*\s*", "", body)
+            body = re.sub(r"\s*```$", "", body).strip()
+            if not body:
+                continue
+            try:
+                blocks[name] = json.loads(body)
+            except (json.JSONDecodeError, TypeError):
+                continue
+        return blocks
+
     def _parse_triples_from_text(self, text: str) -> List[ExtractedTriple]:
         """Parse triples from the model's text response.
         
         Handles multiple formats:
+        - XML tool-call envelope: <parameter=triples>[ ... ]</parameter>
         - JSON code blocks: ```json { "triples": [...] } ```
         - Markdown tables: | SUBJECT | PREDICATE | OBJECT | CONF | SOURCE |
         - Pipe-separated: SUBJECT | PREDICATE | OBJECT | CONF | SOURCE
@@ -519,6 +693,15 @@ information and prevents the human-review threshold from doing its job.
         """
         import re
         import json
+        
+        # Envelope-agnostic: find "triples" in an XML tool-call envelope, a
+        # fenced JSON block, or bare JSON.
+        named = self._extract_named_list(text, "triples")
+        if named:
+            out = [t for t in (self._parse_triple_dict(d) for d in named
+                               if isinstance(d, dict)) if t]
+            if out:
+                return out
         
         triples = []
         
@@ -690,6 +873,17 @@ information and prevents the human-review threshold from doing its job.
         import json
         
         entities = []
+        
+        # Envelope-agnostic. "elements" is accepted because the architecture
+        # profile names its node list that, and the JSON-block path below only
+        # looks for entity-oriented keys.
+        for d in self._extract_named_list(text, "entities", "elements"):
+            if isinstance(d, dict):
+                ent = self._parse_entity_dict(d)
+                if ent:
+                    entities.append(ent)
+        if entities:
+            return entities
         
         # Try to find JSON with entities
         json_blocks = re.findall(r'```(?:json)?\s*\n?(.*?)\n?```', text, re.DOTALL)
@@ -940,13 +1134,26 @@ information and prevents the human-review threshold from doing its job.
         return flags
 
     def _parse_entity_dict(self, e: dict) -> Optional[ExtractedEntity]:
-        """Parse a single entity from a dictionary."""
+        """Parse a single entity from a dictionary.
+        
+        Carries identifier fields through. Losing `requirement_id` on the text
+        path is what left the PRD run with 0 identifiers while the structured
+        run captured 16 — and identifiers are the join key architecture uses to
+        trace back, so a silent drop here breaks cross-verification (item 5).
+        """
         try:
             # Handle both 'name' and 'entity' fields
             name = e.get('name', e.get('entity', '')).strip()
             entity_type = e.get('entity_type', e.get('type', 'DomainConcept')).strip()
             description = e.get('description', '').strip()
             ontology_class = e.get('ontology_class', '').strip() or None
+            requirement_type = (e.get('requirement_type') or '').strip() or None
+            requirement_id = (e.get('requirement_id') or '').strip()
+            
+            initiative_refs = e.get('initiative_refs') or []
+            if isinstance(initiative_refs, str):
+                initiative_refs = [initiative_refs] if initiative_refs.strip() else []
+            initiative_refs = [str(x).strip() for x in initiative_refs if str(x).strip()]
             
             if name:
                 return ExtractedEntity(
@@ -954,6 +1161,9 @@ information and prevents the human-review threshold from doing its job.
                     entity_type=entity_type,
                     description=description,
                     ontology_class=ontology_class,
+                    requirement_type=requirement_type,
+                    requirement_id=requirement_id,
+                    initiative_refs=initiative_refs,
                 )
         except (ValueError, TypeError, AttributeError):
             pass
@@ -1121,16 +1331,22 @@ information and prevents the human-review threshold from doing its job.
         entities: List[ExtractedEntity],
         relationships: List[ExtractedRelationship]
     ) -> Dict[str, Any]:
-        """Calculate extraction statistics from lists."""
+        """Calculate extraction statistics from lists.
+        
+        Node/edge totals use the profile's output keys, so a requirements run
+        reports `total_entities`/`total_relationships` and an architecture run
+        reports `total_elements`/`total_connections`.
+        """
         if not triples:
             return {"total_triples": 0}
         
         confidences = [t.confidence for t in triples]
+        keys = self._output_keys()
         
         return {
             "total_triples": len(triples),
-            "total_entities": len(entities),
-            "total_relationships": len(relationships),
+            f"total_{keys['nodes']}": len(entities),
+            f"total_{keys['edges']}": len(relationships),
             "avg_confidence": sum(confidences) / len(confidences),
             "min_confidence": min(confidences),
             "max_confidence": max(confidences),
