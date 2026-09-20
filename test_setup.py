@@ -77,7 +77,7 @@ def test_evaluation_framework():
         print("Creating evaluation config...")
         config = create_evaluation_config(
             agent_name="knowledge_extraction",
-            test_cases_path="data/test_cases/knowledge_extraction_test_cases.json",
+            test_cases_path="test_data/test_cases/knowledge_extraction_test_cases.json",
             metrics=["answer_relevancy"]
         )
         print("✓ Evaluation config created")
@@ -173,8 +173,8 @@ def main():
         print("\n🎉 All tests passed! Your SEA agent framework is ready.")
         print("\nNext steps:")
         print("  1. Copy .env.example to .env and add your API keys")
-        print("  2. Run: sea-agent run --agent knowledge_extraction --input data/input/sample_requirements.md")
-        print("  3. Run: sea-eval evaluate --agent knowledge_extraction --test-cases data/test_cases/knowledge_extraction_test_cases.json")
+        print("  2. Run: sea-agent run --agent knowledge_extraction --input test_data/prd/sample_requirements.md")
+        print("  3. Run: sea-eval evaluate --agent knowledge_extraction --test-cases test_data/test_cases/knowledge_extraction_test_cases.json")
     else:
         print("\n⚠️  Some tests failed. Please check the errors above.")
     

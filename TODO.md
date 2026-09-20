@@ -79,7 +79,7 @@ that improves the metric you're watching can quietly destroy a metric you aren't
 
 ### Verification
 
-Measured on `data/input/sample_requirements.md` via
+Measured on `test_data/prd/sample_requirements.md` via
 `metadata["contract_violation_count"]`. Re-run and compare if the prompt changes.
 - Multi-value statements should produce N triples, not 1 comma-joined triple
 
@@ -669,7 +669,7 @@ it keeps working.
 ## Reference: current extraction result
 
 Model: `unsloth/Qwen3.5-4B-GGUF:Q4_K_M` via llama.cpp `:8080`
-Input: `data/input/sample_requirements.md` (REQ) / `test_data/arch/payment_platform_arch.md` (ARCH)
+Input: `test_data/prd/sample_requirements.md` (REQ) / `test_data/arch/payment_platform_arch.md` (ARCH)
 
 | | REQ-G | ARC-G (draft) |
 |---|---|---|

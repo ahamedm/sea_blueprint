@@ -134,7 +134,7 @@ DEFAULT_MODEL_PROVIDER=anthropic
 python test_agent_quick.py
 
 # Via CLI
-sea-agent run --agent knowledge_extraction --input data/input/sample_requirements.md
+sea-agent run --agent knowledge_extraction --input test_data/prd/sample_requirements.md
 
 # Python API
 from agents.knowledge_extraction import create_knowledge_extraction_agent

@@ -96,7 +96,7 @@ yeah_blueprint/
 
 ```bash
 # Run the Knowledge Extraction Agent on a document
-sea-agent run --agent knowledge_extraction --input data/input/requirements.md --output data/output/extraction.json
+sea-agent run --agent knowledge_extraction --input test_data/prd/requirements.md --output data/output/extraction.json
 
 # Show agent configuration
 sea-agent config --agent knowledge_extraction
@@ -111,7 +111,7 @@ sea-agent list-agents
 # Evaluate an agent on test cases
 sea-eval evaluate \
   --agent knowledge_extraction \
-  --test-cases data/test_cases/knowledge_extraction_test_cases.json \
+  --test-cases test_data/test_cases/knowledge_extraction_test_cases.json \
   --metrics answer_relevancy faithfulness contextual_relevancy
 
 # View evaluation results
@@ -195,7 +195,7 @@ See [STRANDS_INTEGRATION.md](STRANDS_INTEGRATION.md) for full Strands SDK usage 
 ### Testing Your Agent
 
 1. **Create test cases:**
-   Create `data/test_cases/my_agent_test_cases.json`:
+   Create `test_data/test_cases/my_agent_test_cases.json`:
    ```json
    [
      {
@@ -209,7 +209,7 @@ See [STRANDS_INTEGRATION.md](STRANDS_INTEGRATION.md) for full Strands SDK usage 
 
 2. **Run evaluation:**
    ```bash
-   sea-eval evaluate --agent my_new_agent --test-cases data/test_cases/my_agent_test_cases.json
+   sea-eval evaluate --agent my_new_agent --test-cases test_data/test_cases/my_agent_test_cases.json
    ```
 
 ---
@@ -335,7 +335,7 @@ Define test cases that cover:
 
 ```bash
 # Run evaluation
-sea-eval evaluate --agent knowledge_extraction --test-cases data/test_cases/knowledge_extraction_test_cases.json
+sea-eval evaluate --agent knowledge_extraction --test-cases test_data/test_cases/knowledge_extraction_test_cases.json
 
 # Check results
 sea-eval show-results --results data/output/evaluation_results.json
@@ -371,7 +371,7 @@ pytest tests/ -v
 
 ```bash
 # Test agent with real LLM calls
-sea-agent run --agent knowledge_extraction --input data/input/sample.md
+sea-agent run --agent knowledge_extraction --input test_data/prd/sample.md
 ```
 
 ---
@@ -442,7 +442,7 @@ MIT
 
 1. **Set up environment:** Copy `.env.example` to `.env` and add API keys
 2. **Install dependencies:** `pip install -e .`
-3. **Run a test:** `sea-agent run --agent knowledge_extraction --input data/input/sample.md`
+3. **Run a test:** `sea-agent run --agent knowledge_extraction --input test_data/prd/sample.md`
 4. **Implement more agents:** Start with Ontology Engineer or Domain Context
 5. **Create evaluation test cases:** Add more comprehensive test scenarios
 6. **Iterate and improve:** Use evaluation results to refine agent implementations

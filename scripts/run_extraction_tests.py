@@ -250,7 +250,7 @@ CASES: List[Dict[str, Any]] = [
     {
         "name": "req_sample",
         "agent": "knowledge_extraction",
-        "input": "data/input/sample_requirements.md",
+        "input": "test_data/prd/sample_requirements.md",
         "output": "data/output/test_req_sample.json",
         "invariants": [inv_success, inv_triples_present, inv_contract_ratio,
                        inv_ontology_class_coverage, inv_confidence_varies],
@@ -258,7 +258,7 @@ CASES: List[Dict[str, Any]] = [
     {
         "name": "req_prd",
         "agent": "knowledge_extraction",
-        "input": "test_data/prd/paypment_platform_brief.md",
+        "input": "test_data/prd/payment_platform_brief.md",
         "output": "data/output/test_req_prd.json",
         "invariants": [inv_success, inv_triples_present, inv_contract_ratio,
                        inv_ontology_class_coverage, inv_confidence_varies,
