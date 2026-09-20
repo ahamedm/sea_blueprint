@@ -192,18 +192,18 @@ enums:
   PatternCategory:
     description: Category of an architectural pattern in use.
     permissible_values:
-      STRUCTURAL: { description: Layering, microservices, monolith, modular monolith. }
-      INTEGRATION: { description: API gateway, BFF, saga, choreography, orchestration. }
-      DATA: { description: CQRS, event sourcing, sharding, replica reads. }
-      RESILIENCE: { description: Circuit breaker, retry, bulkhead, fallback, DLQ. }
-      SECURITY: { description: Zero trust, secrets management, tokenization. }
-      DEPLOYMENT: { description: Blue/green, canary, sidecar, service mesh. }
-      OBSERVABILITY: { description: Distributed tracing, structured logging, metrics. }
+      STRUCTURAL: { description: "Layering, microservices, monolith, modular monolith." }
+      INTEGRATION: { description: "API gateway, BFF, saga, choreography, orchestration." }
+      DATA: { description: "CQRS, event sourcing, sharding, replica reads." }
+      RESILIENCE: { description: "Circuit breaker, retry, bulkhead, fallback, DLQ." }
+      SECURITY: { description: "Zero trust, secrets management, tokenization." }
+      DEPLOYMENT: { description: "Blue/green, canary, sidecar, service mesh." }
+      OBSERVABILITY: { description: "Distributed tracing, structured logging, metrics." }
 
   ArchitectureDecisionStatus:
     description: ADR lifecycle state.
     permissible_values:
-      PROPOSED: { description: Raised, not yet agreed. }
+      PROPOSED: { description: "Raised, not yet agreed." }
       ACCEPTED: { description: Agreed and in force. }
       REJECTED: { description: Considered and declined. }
       DEPRECATED: { description: Still in force but discouraged. }
@@ -285,14 +285,14 @@ enums:
       Richards & Ford taxonomy, so a style is a comparable value rather than free
       text. Sources often name these directly ("Stateless Modular Microservices").
     permissible_values:
-      MONOLITH: { description: Single deployable unit, no enforced modularity. }
+      MONOLITH: { description: "Single deployable unit, no enforced modularity." }
       MODULAR_MONOLITH: { description: Single deployable unit with enforced module boundaries. }
-      MICROSERVICES: { description: Independently deployable services, own data, network calls. }
-      SERVICE_BASED: { description: Coarse-grained services, often a shared database. }
+      MICROSERVICES: { description: "Independently deployable services, own data, network calls." }
+      SERVICE_BASED: { description: "Coarse-grained services, often a shared database." }
       SERVICE_ORIENTED: { description: Enterprise service bus / SOA integration. }
-      SERVERLESS: { description: Managed functions and event triggers, no server management. }
+      SERVERLESS: { description: "Managed functions and event triggers, no server management." }
       EVENT_DRIVEN: { description: Events are the primary integration mechanism. }
-      LAYERED: { description: Technical layers (presentation, business, persistence). }
+      LAYERED: { description: "Technical layers (presentation, business, persistence)." }
       HEXAGONAL: { description: Ports and adapters; domain isolated from delivery. }
       MICROKERNEL: { description: Core system with pluggable extensions. }
       PIPELINE: { description: Filters and pipes; data transformation flow. }
@@ -574,7 +574,7 @@ classes:
         multivalued: true
         inlined_as_list: true
     class_uri: sea-arc:ArchitectureSpecification
-    subsets:
+    in_subset:
       - Specification
 
   # --------------------------------------------------------------------------
@@ -682,7 +682,7 @@ classes:
         range: BusinessCapability
         multivalued: true
     class_uri: sea-arc:ArchitectureElement
-    subsets:
+    in_subset:
       - C4Model
       - ArchitectureTraceability
 
@@ -764,7 +764,7 @@ classes:
           `system_class`, not this slot.
         range: Platform
     class_uri: sea-arc:SoftwareSystem
-    subsets:
+    in_subset:
       - C4Model
 
   ExternalSystem:
@@ -787,7 +787,7 @@ classes:
           carries.
         range: string
     class_uri: sea-arc:ExternalSystem
-    subsets:
+    in_subset:
       - C4Model
 
   Person:
@@ -807,7 +807,7 @@ classes:
         description: What this person does with the system.
         range: string
     class_uri: sea-arc:Person
-    subsets:
+    in_subset:
       - C4Model
 
   # --------------------------------------------------------------------------
@@ -856,7 +856,7 @@ classes:
         description: How it scales (e.g. "horizontal, stateless", "single writer").
         range: string
     class_uri: sea-arc:Container
-    subsets:
+    in_subset:
       - C4Model
 
   DataStore:
@@ -889,7 +889,7 @@ classes:
           Non-empty here is a coupling signal worth flagging.
         range: Container
     class_uri: sea-arc:DataStore
-    subsets:
+    in_subset:
       - C4Model
 
   # --------------------------------------------------------------------------
@@ -918,7 +918,7 @@ classes:
         range: Component
         multivalued: true
     class_uri: sea-arc:Component
-    subsets:
+    in_subset:
       - C4Model
 
   # --------------------------------------------------------------------------
@@ -941,7 +941,7 @@ classes:
         description: Public signature, when relevant.
         range: string
     class_uri: sea-arc:CodeElement
-    subsets:
+    in_subset:
       - C4Model
 
   # --------------------------------------------------------------------------
@@ -988,7 +988,7 @@ classes:
         description: How callers authenticate (e.g. "OAuth2 client credentials").
         range: string
     class_uri: sea-arc:Interface
-    subsets:
+    in_subset:
       - ArchitectureStructure
 
   Connection:
@@ -1036,7 +1036,7 @@ classes:
         description: Human description of what flows across this connection.
         range: string
     class_uri: sea-arc:Connection
-    subsets:
+    in_subset:
       - ArchitectureStructure
 
   # --------------------------------------------------------------------------
@@ -1078,7 +1078,7 @@ classes:
           to PCI-DSS scoping.
         range: string
     class_uri: sea-arc:DeploymentNode
-    subsets:
+    in_subset:
       - ArchitectureStructure
 
   # --------------------------------------------------------------------------
@@ -1176,7 +1176,7 @@ classes:
       notes:
         range: string
     class_uri: sea-arc:Responsibility
-    subsets:
+    in_subset:
       - ArchitectureStructure
       - ArchitectureTraceability
 
@@ -1237,7 +1237,7 @@ classes:
           Boot framework is mandated for core backend services".
         range: string
     class_uri: sea-arc:TechnologyStack
-    subsets:
+    in_subset:
       - ArchitectureStructure
 
   ArchitectureStyle:
@@ -1285,7 +1285,7 @@ classes:
         range: Requirement
         multivalued: true
     class_uri: sea-arc:ArchitectureStyle
-    subsets:
+    in_subset:
       - ArchitectureStructure
       - ArchitectureRationale
 
@@ -1329,7 +1329,7 @@ classes:
         range: Requirement
         multivalued: true
     class_uri: sea-arc:ArchitecturePattern
-    subsets:
+    in_subset:
       - ArchitectureRationale
 
   ArchitectureDecision:
@@ -1369,7 +1369,7 @@ classes:
         range: ArchitectureElement
         multivalued: true
     class_uri: sea-arc:ArchitectureDecision
-    subsets:
+    in_subset:
       - ArchitectureRationale
 
   ArchitectureView:
@@ -1401,7 +1401,7 @@ classes:
         description: For DYNAMIC views, the scenario being described.
         range: string
     class_uri: sea-arc:ArchitectureView
-    subsets:
+    in_subset:
       - ArchitectureStructure
 
   # --------------------------------------------------------------------------
@@ -1444,5 +1444,5 @@ classes:
         description: Who or what confirmed this realization.
         range: string
     class_uri: sea-arc:RequirementRealization
-    subsets:
+    in_subset:
       - ArchitectureTraceability

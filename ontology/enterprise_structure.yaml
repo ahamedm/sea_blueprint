@@ -156,7 +156,7 @@ classes:
         range: string
         multivalued: true
     class_uri: sea-ent:EnterpriseConstruct
-    subsets:
+    in_subset:
       - EnterpriseStructure
 
   # --------------------------------------------------------------------------
@@ -201,7 +201,7 @@ classes:
           For product hierarchies — the parent product this is a variant of.
         range: Product
     class_uri: sea-ent:Product
-    subsets:
+    in_subset:
       - EnterpriseStructure
 
   SubProduct:
@@ -228,7 +228,7 @@ classes:
           capabilities to the platform (not just a feature subset).
         range: boolean
     class_uri: sea-ent:SubProduct
-    subsets:
+    in_subset:
       - EnterpriseStructure
 
   # --------------------------------------------------------------------------
@@ -275,7 +275,7 @@ classes:
           "identity management", "data analytics").
         range: string
     class_uri: sea-ent:System
-    subsets:
+    in_subset:
       - EnterpriseStructure
 
   # --------------------------------------------------------------------------
@@ -331,7 +331,7 @@ classes:
         range: Application
         multivalued: true
     class_uri: sea-ent:Application
-    subsets:
+    in_subset:
       - EnterpriseStructure
 
   # --------------------------------------------------------------------------
@@ -399,7 +399,7 @@ classes:
           (e.g., "24 months deprecation notice", "rolling 2 major versions").
         range: string
     class_uri: sea-ent:Platform
-    subsets:
+    in_subset:
       - EnterpriseStructure
       - PlatformModel
 
@@ -443,5 +443,5 @@ classes:
         range: Platform
         required: true
     class_uri: sea-ent:PlatformContract
-    subsets:
+    in_subset:
       - PlatformModel

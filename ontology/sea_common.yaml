@@ -200,7 +200,7 @@ classes:
       notes:
         range: string
     class_uri: sea-cmn:ExternalReference
-    subsets:
+    in_subset:
       - Identity
 
   # --------------------------------------------------------------------------
@@ -264,7 +264,7 @@ classes:
       notes:
         range: string
     class_uri: sea-cmn:Provenance
-    subsets:
+    in_subset:
       - Provenance
 
   # --------------------------------------------------------------------------
@@ -291,7 +291,7 @@ classes:
         multivalued: true
         inlined_as_list: true
     class_uri: sea-cmn:ExternallyReferenced
-    subsets:
+    in_subset:
       - Identity
 
   Provenanced:
@@ -307,5 +307,5 @@ classes:
         range: Provenance
         inlined: true
     class_uri: sea-cmn:Provenanced
-    subsets:
+    in_subset:
       - Provenance

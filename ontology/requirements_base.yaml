@@ -166,7 +166,7 @@ enums:
       CRITICAL: { description: System failure or regulatory breach. }
       HIGH: { description: Major feature or workflow disruption. }
       MEDIUM: { description: Noticeable degradation with workaround. }
-      LOW: { description: Minor inconvenience, easily absorbed. }
+      LOW: { description: "Minor inconvenience, easily absorbed." }
       NEGLIGIBLE: { description: No meaningful effect. }
 
   MeasurementUnit:
@@ -180,7 +180,7 @@ enums:
       BYTES: { description: Data size. }
       CURRENCY: { description: Monetary value. }
       BOOLEAN: { description: Binary pass/fail. }
-      LEVEL_ORDINAL: { description: Ordinal scale (e.g., Low/Med/High). }
+      LEVEL_ORDINAL: { description: "Ordinal scale (e.g., Low/Med/High)." }
 
   InitiativeType:
     description: >-
@@ -211,9 +211,9 @@ enums:
   InitiativeStatus:
     description: Lifecycle of an Initiative through business-case approval.
     permissible_values:
-      PROPOSED: { description: Business case drafted, not yet approved. }
+      PROPOSED: { description: "Business case drafted, not yet approved." }
       UNDER_REVIEW: { description: Business case in approval. }
-      APPROVED: { description: Business case approved, delivery not started. }
+      APPROVED: { description: "Business case approved, delivery not started." }
       IN_FLIGHT: { description: Delivery underway. }
       ON_HOLD: { description: Paused. }
       DELIVERED: { description: Outcomes realised or handed over. }
@@ -392,7 +392,7 @@ classes:
         multivalued: true
         inlined_as_list: true
     class_uri: sea-req:RequirementSpecification
-    subsets:
+    in_subset:
       - Specification
 
   # --------------------------------------------------------------------------
@@ -495,7 +495,7 @@ classes:
         range: ConstraintRequirement
         multivalued: true
     class_uri: sea-req:Initiative
-    subsets:
+    in_subset:
       - BusinessContext
 
   Stakeholder:
@@ -523,7 +523,7 @@ classes:
         range: string
         multivalued: true
     class_uri: sea-req:Stakeholder
-    subsets:
+    in_subset:
       - BusinessContext
 
   BusinessGoal:
@@ -559,7 +559,7 @@ classes:
         description: For goal decomposition — links to a higher-level goal.
         range: BusinessGoal
     class_uri: sea-req:BusinessGoal
-    subsets:
+    in_subset:
       - BusinessContext
 
   BusinessCapability:
@@ -590,7 +590,7 @@ classes:
         multivalued: true
         inlined_as_list: true
     class_uri: sea-req:BusinessCapability
-    subsets:
+    in_subset:
       - BusinessContext
 
   BusinessProcess:
@@ -632,7 +632,7 @@ classes:
         description: Which business capability this process realizes.
         range: BusinessCapability
     class_uri: sea-req:BusinessProcess
-    subsets:
+    in_subset:
       - BusinessContext
 
   ProcessActivity:
@@ -662,7 +662,7 @@ classes:
         range: string
         multivalued: true
     class_uri: sea-req:ProcessActivity
-    subsets:
+    in_subset:
       - BusinessContext
 
   DomainConcept:
@@ -695,7 +695,7 @@ classes:
         multivalued: true
         inlined_as_list: true
     class_uri: sea-req:DomainConcept
-    subsets:
+    in_subset:
       - BusinessContext
 
   ConceptAttribute:
@@ -717,7 +717,7 @@ classes:
         range: string
         multivalued: true
     class_uri: sea-req:ConceptAttribute
-    subsets:
+    in_subset:
       - BusinessContext
 
   ConceptRelationship:
@@ -744,7 +744,7 @@ classes:
           "references", "composed_of").
         range: string
     class_uri: sea-req:ConceptRelationship
-    subsets:
+    in_subset:
       - BusinessContext
 
   BusinessRule:
@@ -779,7 +779,7 @@ classes:
         description: Consequence of violation.
         range: ImpactLevel
     class_uri: sea-req:BusinessRule
-    subsets:
+    in_subset:
       - BusinessContext
 
   # --------------------------------------------------------------------------
@@ -907,7 +907,7 @@ classes:
         range: Requirement
         multivalued: true
     class_uri: sea-req:Requirement
-    subsets:
+    in_subset:
       - Requirements
 
   BusinessRequirement:
@@ -936,7 +936,7 @@ classes:
         range: Initiative
         multivalued: true
     class_uri: sea-req:BusinessRequirement
-    subsets:
+    in_subset:
       - Requirements
 
   FunctionalRequirement:
@@ -975,7 +975,7 @@ classes:
         range: DomainConcept
         multivalued: true
     class_uri: sea-req:FunctionalRequirement
-    subsets:
+    in_subset:
       - Requirements
 
   NonFunctionalRequirement:
@@ -1008,7 +1008,7 @@ classes:
         description: How the quality attribute is measured or observed.
         range: string
     class_uri: sea-req:NonFunctionalRequirement
-    subsets:
+    in_subset:
       - Requirements
       - QualityAttributes
 
@@ -1036,7 +1036,7 @@ classes:
         description: Consequence of non-compliance.
         range: string
     class_uri: sea-req:ConstraintRequirement
-    subsets:
+    in_subset:
       - Requirements
 
   # --------------------------------------------------------------------------
@@ -1087,7 +1087,7 @@ classes:
         range: BusinessRule
         multivalued: true
     class_uri: sea-req:UseCase
-    subsets:
+    in_subset:
       - BusinessContext
       - Requirements
 
@@ -1113,7 +1113,7 @@ classes:
           - value: EXTERNAL_SYSTEM
           - value: TIME_TRIGGER
     class_uri: sea-req:Actor
-    subsets:
+    in_subset:
       - BusinessContext
 
   UseCaseStep:
@@ -1129,7 +1129,7 @@ classes:
         description: How the system responds.
         range: string
     class_uri: sea-req:UseCaseStep
-    subsets:
+    in_subset:
       - BusinessContext
 
   AlternativeFlow:
@@ -1153,7 +1153,7 @@ classes:
         description: How the alternative flow concludes or rejoins the main flow.
         range: string
     class_uri: sea-req:AlternativeFlow
-    subsets:
+    in_subset:
       - BusinessContext
 
   # --------------------------------------------------------------------------
@@ -1202,7 +1202,7 @@ classes:
         range: string
         required: true
     class_uri: sea-req:QualityScenario
-    subsets:
+    in_subset:
       - QualityAttributes
 
   # --------------------------------------------------------------------------
@@ -1232,7 +1232,7 @@ classes:
         description: How we can verify this assumption.
         range: string
     class_uri: sea-req:Assumption
-    subsets:
+    in_subset:
       - Specification
 
   GlossaryTerm:
@@ -1252,7 +1252,7 @@ classes:
         range: string
         multivalued: true
     class_uri: sea-req:GlossaryTerm
-    subsets:
+    in_subset:
       - Specification
 
   # --------------------------------------------------------------------------
@@ -1291,7 +1291,7 @@ classes:
           complete core workflow").
         range: string
     class_uri: sea-req:PlatformExtensibilityRequirement
-    subsets:
+    in_subset:
       - Requirements
       - PlatformModel
       - QualityAttributes
@@ -1327,7 +1327,7 @@ classes:
           (e.g., "strict isolation", "opt-in sharing").
         range: string
     class_uri: sea-req:PlatformMultiTenancyRequirement
-    subsets:
+    in_subset:
       - Requirements
       - PlatformModel
       - QualityAttributes
@@ -1364,7 +1364,7 @@ classes:
           "manual migration guide").
         range: string
     class_uri: sea-req:PlatformCompatibilityRequirement
-    subsets:
+    in_subset:
       - Requirements
       - PlatformModel
       - QualityAttributes
@@ -1407,7 +1407,7 @@ classes:
         description: Why this scope was chosen (segment, pricing, licensing).
         range: string
     class_uri: sea-req:SubProductScope
-    subsets:
+    in_subset:
       - Requirements
       - EnterpriseStructure
 
@@ -1432,6 +1432,6 @@ classes:
           (e.g., "full", "partial", "planned", "none").
         range: string
     class_uri: sea-req:SystemCapabilityBinding
-    subsets:
+    in_subset:
       - Requirements
       - EnterpriseStructure

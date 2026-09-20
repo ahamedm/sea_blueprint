@@ -666,6 +666,100 @@ it keeps working.
 
 ---
 
+## 9. Architecture gaps — canonical model, correction merge, incompleteness
+
+**Status:** Analysed, not started
+**Priority:** High — these are load-bearing, not polish
+**Full analysis:** [`docs/architecture-review.md`](docs/architecture-review.md)
+
+A sanity check of the proposed system architecture (agents / workflow / two UIs /
+MCP servers / API) surfaced two gaps that force decisions everything else depends
+on. Recorded in full in the linked document; the actionable core:
+
+**9a. Canonical knowledge model + owned serialisation layer.**
+Five representations are already in play (Markdown → Pydantic → LinkML → RDF →
+UI views) and no component owns the transformations between them. The implied gap
+is:
+
+```
+extraction output → ??? → Jena → SPARQL → UI
+```
+
+That `???` is the highest-risk component in the system: every extraction change
+breaks it, it is where `confidence`/`source_text` must land on reified
+assertions, and it is the only thing that can guarantee a well-formed graph. A
+named part with tests, not an implementation detail.
+
+**9b. Human corrections vs re-extraction — the sleeper.**
+The correction UI edits extracted knowledge; a later re-run with a better prompt
+or a new document revision can silently destroy that work. Three viable designs
+(overlay layer / provenance-ranked assertions / diff-and-review), all resting on
+one requirement: **the graph must distinguish agent-asserted from human-confirmed
+knowledge structurally.** This is the architectural reason for `Provenance` and
+`VerificationStatus`, and it is expensive to retrofit.
+
+**9c. Incompleteness must be representable.**
+A partial extraction treated as complete makes the auditor **report extraction
+artifacts as architectural gaps** — confidently wrong. "This pass failed", "this
+chunk produced nothing" must be first-class graph state, not a log line.
+
+**9d. Revisions.** The PRD requires evolving requirements/architecture. Nothing
+diffs or versions. Named graphs would carry it; no component owns it.
+
+**Also worth settling:** orchestrator vs workflow (recommendation: **workflow**
+with explicit human gates — a dynamic router adds non-determinism to a product
+selling determinism), agents stateless with the graph as memory, one validation
+service consumed by both UI and API, and a stage→validate→commit write path.
+
+### Sequencing
+
+1. Canonical model + serialisation layer — nothing else is testable without it
+2. Validation as a service, rules **generated from the ontology**
+3. Correction write path + merge semantics — hardest, so before UI depends on it
+4. Validation/correction UI
+5. Workflow (scriptable first; four passes do not need an engine)
+6. MCP servers — good encapsulation, not load-bearing early
+7. Interaction UI — last, least risky, most likely to change
+
+**Build UIs last.** They are the most tempting to start with and the most likely
+to lock in data-model decisions that should be deliberate.
+
+---
+
+## 10. Adopt RDF for the knowledge layer (rdflib first, Jena later)
+
+**Status:** Analysed, not started
+**Priority:** Medium — staged behind extraction reliability
+**Full analysis:** [`docs/architecture-review.md`](docs/architecture-review.md) Part 2
+
+**Why:** makes the *audit* deterministic while leaving extraction as-is, and its
+biggest value is diagnostic — a fixed query over a varying graph does not hide
+extraction non-determinism, it **exposes** it. Also makes ARC-G ⇄ REQ-G a SPARQL
+join (item 5) and gives named graphs for revision diffing (item 4).
+
+**Tool:** `rdflib 7.6.0` and `SPARQLWrapper 2.0.0` are already installed.
+`pyshacl` would be needed. rdflib + pySHACL delivers most of the benefit with no
+service boundary and no second toolchain; `SPARQLWrapper` already bridges to a
+Jena Fuseki endpoint later, so choosing rdflib now does not foreclose Jena.
+
+**Verified:** LinkML generates SHACL from our ontology (242,561 chars from
+`architecture_base.yaml`), including `sh:closed true`. **Caveat:** generation
+fails on any layer with `imports:` (`KeyError` on the imported schema name);
+workaround is `SchemaView(...).merge_imports()` before generating.
+
+**The trap:** SHACL is closed-world (absence is a violation — right for gap
+auditing); OWL is open-world (absence entails nothing — a gap query finds nothing,
+ever, silently). **SHACL for the audit, OWL for entailment.**
+
+### Do not start this until
+
+Extraction reliability is proven by the harness. A precise reasoning layer over a
+lossy graph produces **rigorously-derived wrong answers** — worse than fuzzy ones,
+because precision implies trust. **The `req_prd` `ontology_class` coverage
+invariant is currently failing and is the gate.**
+
+---
+
 ## Reference: current extraction result
 
 Model: `unsloth/Qwen3.5-4B-GGUF:Q4_K_M` via llama.cpp `:8080`
