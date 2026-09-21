@@ -676,7 +676,29 @@ A sanity check of the proposed system architecture (agents / workflow / two UIs 
 MCP servers / API) surfaced two gaps that force decisions everything else depends
 on. Recorded in full in the linked document; the actionable core:
 
-**9a. Canonical knowledge model + owned serialisation layer.**
+**9a. Canonical knowledge model + owned serialisation layer. — STARTED**
+`agents/knowledge/` implements the model, the ingest transform and RDF emission.
+28/28 checks pass (`scripts/test_knowledge_layer.py`). Still to do: the view
+projection layer (graph → C4 / gap-report view models) and wiring the agents to
+emit the canonical model rather than JSON dicts.
+
+Verified on real output: ARC-G ingests to 31 nodes / 156 assertions / 0 dangling /
+13 unresolved cross-graph references; 2,030 RDF triples. Two findings from the
+exercise are below.
+
+*Finding — the requirements extraction emits 3.5x duplication.* 169 triples
+collapse to **48 unique facts**, each repeated up to 4x. The architecture agent
+deduplicates via its chunk/pass merge; the requirements agent is still single-call
+and has no merge, so duplicates survive. Content-addressed assertion ids collapse
+them at ingest, but the extraction itself should stop producing them.
+
+*Finding — completeness must be UNKNOWN, not FAILED, when pass data is absent.*
+The requirements output carries no per-pass metadata, and treating that as FAILED
+is a false alarm — while treating it as COMPLETE would be a false assurance, which
+is worse. `RUN_UNKNOWN` is now distinct from both, and reaches the RDF so a
+consumer can honour it. The requirements agent should emit per-pass records.
+
+**9a-i. Canonical knowledge model + owned serialisation layer.**
 Five representations are already in play (Markdown → Pydantic → LinkML → RDF →
 UI views) and no component owns the transformations between them. The implied gap
 is:
