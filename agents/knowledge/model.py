@@ -45,7 +45,7 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 import hashlib
 import re
-from typing import Any, Dict, Iterable, List, Optional, Set
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 
 # ============================================================================
@@ -300,6 +300,11 @@ class KnowledgeGraph:
     nodes: Dict[str, Node] = field(default_factory=dict)
     assertions: Dict[str, Assertion] = field(default_factory=dict)
     runs: Dict[str, ExtractionRun] = field(default_factory=dict)
+    
+    # Versioning fields for the "Living System"
+    version_id: str = ""                # Unique ID for this graph state (e.g., hash or UUID)
+    parent_version_id: str = ""         # ID of the graph this was derived from
+    label: str = ""                     # Human-readable label (e.g., "Baseline v1.2", "INIT-001 Draft")
 
     # -- construction ------------------------------------------------------
 
@@ -455,4 +460,79 @@ class KnowledgeGraph:
             "node_kinds": dict(sorted(kinds.items(), key=lambda kv: -kv[1])),
             "runs": len(self.runs),
             "run_completeness": [r.completeness for r in self.runs.values()],
+            "version_id": self.version_id,
+            "parent_version_id": self.parent_version_id,
+            "label": self.label,
         }
+
+
+# ============================================================================
+# Versioning and Diffing
+# ============================================================================
+
+@dataclass
+class GraphDelta:
+    """The difference between two graph versions."""
+    added_nodes: List[Node] = field(default_factory=list)
+    removed_nodes: List[Node] = field(default_factory=list)
+    added_assertions: List[Assertion] = field(default_factory=list)
+    removed_assertions: List[Assertion] = field(default_factory=list)
+    changed_assertions: List[Tuple[Assertion, Assertion]] = field(default_factory=list) # (old, new)
+
+
+def compute_graph_delta(old_graph: KnowledgeGraph, new_graph: KnowledgeGraph) -> GraphDelta:
+    """Compute the structural difference between two graph versions.
+    
+    This is the core of the "Living System" merge logic. It allows us to see
+    exactly what an Initiative changed relative to the Baseline.
+    """
+    delta = GraphDelta()
+    
+    # Node diff
+    old_node_ids = set(old_graph.nodes.keys())
+    new_node_ids = set(new_graph.nodes.keys())
+    
+    for nid in new_node_ids - old_node_ids:
+        delta.added_nodes.append(new_graph.nodes[nid])
+    for nid in old_node_ids - new_node_ids:
+        delta.removed_nodes.append(old_graph.nodes[nid])
+        
+    # Assertion diff (using content-addressed IDs)
+    old_assertion_ids = set(old_graph.assertions.keys())
+    new_assertion_ids = set(new_graph.assertions.keys())
+    
+    for aid in new_assertion_ids - old_assertion_ids:
+        delta.added_assertions.append(new_graph.assertions[aid])
+    for aid in old_assertion_ids - new_assertion_ids:
+        delta.removed_assertions.append(old_graph.assertions[aid])
+        
+    # Check for changes in existing assertions (e.g., status or confidence updates)
+    for aid in old_assertion_ids & new_assertion_ids:
+        old_a = old_graph.assertions[aid]
+        new_a = new_graph.assertions[aid]
+        if old_a != new_a:
+            delta.changed_assertions.append((old_a, new_a))
+            
+    return delta
+
+
+def apply_delta(graph: KnowledgeGraph, delta: GraphDelta) -> KnowledgeGraph:
+    """Apply a GraphDelta to a KnowledgeGraph to produce a new version."""
+    import copy
+    new_graph = copy.deepcopy(graph)
+    
+    # Apply node changes
+    for node in delta.added_nodes:
+        new_graph.nodes[node.id] = node
+    for node in delta.removed_nodes:
+        new_graph.nodes.pop(node.id, None)
+        
+    # Apply assertion changes
+    for assertion in delta.added_assertions:
+        new_graph.assertions[assertion.id] = assertion
+    for assertion in delta.removed_assertions:
+        new_graph.assertions.pop(assertion.id, None)
+    for old_a, new_a in delta.changed_assertions:
+        new_graph.assertions[new_a.id] = new_a
+        
+    return new_graph

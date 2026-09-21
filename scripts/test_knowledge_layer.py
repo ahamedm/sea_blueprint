@@ -27,6 +27,8 @@ from agents.knowledge.model import (
     RUN_PARTIAL,
     PassRecord,
     make_node_id,
+    SCOPE_BASELINE,
+    SCOPE_INITIATIVE,
 )
 from agents.knowledge.rdf import SEA, PROV
 
@@ -280,6 +282,40 @@ def test_initiative_scoping():
           f"{len(initiative_scoped)} assertions scoped to {initiative_id}")
 
 
+def test_versioning_and_diff():
+    """Test that graph versioning and diffing works correctly."""
+    from agents.knowledge.model import compute_graph_delta, apply_delta
+    
+    # Create v1 (Baseline)
+    g1 = KnowledgeGraph()
+    g1.version_id = "v1"
+    g1.label = "Baseline"
+    n1 = g1.add_node("Container", "Payment Service")
+    g1.add_assertion(n1, "description", value="Handles payments", scope=SCOPE_BASELINE)
+    
+    # Create v2 (Initiative Change) - adds a new technology
+    g2 = KnowledgeGraph()
+    g2.version_id = "v2"
+    g2.parent_version_id = "v1"
+    g2.label = "INIT-001 Proposal"
+    n2 = g2.add_node("Container", "Payment Service")
+    g2.add_assertion(n2, "description", value="Handles payments", scope=SCOPE_BASELINE) # Same as v1
+    stripe = g2.add_node("TechnologyStack", "Stripe")
+    g2.add_assertion(n2, "uses_technology", obj=stripe, scope=SCOPE_INITIATIVE)
+    
+    # Compute Delta
+    delta = compute_graph_delta(g1, g2)
+    
+    check("delta detects added node", len(delta.added_nodes) == 1, f"{len(delta.added_nodes)}")
+    check("delta detects added assertion", len(delta.added_assertions) == 1, f"{len(delta.added_assertions)}")
+    check("delta has no changed assertions", len(delta.changed_assertions) == 0, f"{len(delta.changed_assertions)}")
+    
+    # Apply Delta to v1
+    g3 = apply_delta(g1, delta)
+    check("applied delta matches v2 nodes", set(g3.nodes.keys()) == set(g2.nodes.keys()))
+    check("applied delta matches v2 assertions", set(g3.assertions.keys()) == set(g2.assertions.keys()))
+
+
 def main():
     test_identity_is_stable_and_derived()
     test_duplicates_collapse_keeping_the_best_observation()
@@ -289,6 +325,7 @@ def main():
     test_cross_graph_references_held_not_invented()
     test_rdf_emits_both_forms()
     test_initiative_scoping()
+    test_versioning_and_diff()
     test_real_extraction_output()
 
     print(f"\n{'=' * 68}\nCANONICAL KNOWLEDGE LAYER\n{'=' * 68}")
