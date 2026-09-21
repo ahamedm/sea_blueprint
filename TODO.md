@@ -800,6 +800,141 @@ invariant is currently failing and is the gate.**
 
 ---
 
+## 11. Domain ontology layer — the ontology of the SUBJECT MATTER, not the artifact
+
+**Status:** Not started — **flagged CRITICAL for review**
+**Priority:** High
+**Area:** new `ontology/domains/`, new Domain Context Agent, extraction grounding
+
+### What is missing
+
+We built the ontology **of requirements**, not the ontology of the **domain being
+required**. `requirements_base` describes the engineering artifact — Requirement,
+Goal, Capability, Stakeholder, Process. A Payment Processing domain ontology
+describes the subject matter — Payment, Card, PAN, Authorization, Capture,
+Settlement, Chargeback, Merchant, Acquirer, Token.
+
+One is the vocabulary of *what we build and how we reason about it*. The other is
+the vocabulary of *what the business is actually about*. The meta-level exists;
+the content does not.
+
+### Evidence it is structurally absent, not merely unfinished
+
+```
+PRD agent #2     Domain Context Agent — "propose ontological structures for a
+                 new domain", "suggest initial concepts and relationships"
+PRD NFR 5.4      adding a new domain "requires only the creation of a new Domain
+                 Context Agent specialization and a corresponding set of LinkML
+                 modules"
+Built            sea_common, enterprise_structure, requirements_base,
+                 architecture_base
+Not built        domains/<name>.yaml, and agent #2 itself
+```
+
+**The tell is in the flow:** `domain` is read from `input_data`, logged, and
+written to metadata by **both** extraction agents — and never reaches a prompt or
+a schema. It does nothing. That is the signature of a layer that was assumed
+rather than built: the interface exists, the substance does not.
+
+**And `DomainConcept` is the catch-all it was meant to replace.** From the real
+requirements output:
+
+```
+DomainConcept  contains:  Tenancy Identifier, Payment Request Status,
+                          Primary Payment Gateway, Secondary Payment Gateway,
+                          Spring Boot, AlpineJS
+```
+
+Two **frameworks** classified as domain concepts. A generic placeholder absorbs
+whatever does not fit, and in doing so hides mis-classification. Separately, **20
+of 47 entities (43%) carry no ontology class at all.** With a domain vocabulary
+to map onto, both become findings rather than silence.
+
+### Why this is critical — the coverage question
+
+A requirements document implicitly claims to cover a domain. Whether it does is
+**currently unmeasurable**, because there is no reference frame. The auditor can
+find gaps *internal* to the requirements (orphans, broken traceability) because
+those are relations within one graph. It cannot ask "does this requirement set
+cover the subject matter?" because the subject matter is nowhere represented.
+
+With a domain ontology, four questions become measurable — and **the mismatches
+run both ways**:
+
+| | Finding |
+|---|---|
+| Domain concept present in the requirements | covered |
+| Domain concept absent | deliberate exclusion, or an oversight |
+| Requirement references a concept not in the domain ontology | ontology incomplete, **or** the requirement is confused |
+| Requirement references a control as if it were a domain entity | mis-classification (the `Spring Boot` case) |
+
+The third and fourth are the ones usually missed: requirements also **invent**
+things the domain does not have, and conflate controls with entities. Both
+directions are findings, and neither is expressible today.
+
+### It makes reconciliation triangular, not pairwise
+
+```
+REQ-G  ⇄  ARC-G    does the design answer the requirement?          (item 5)
+REQ-G  ⇄  DOMAIN   does the requirement set cover the subject matter?    (new)
+ARC-G  ⇄  DOMAIN   which domain concepts has the design ignored?         (new)
+```
+
+The third leg is the valuable one, and it is unreachable by any other means.
+*"You have built authorisation and capture, but nothing anywhere handles
+chargebacks"* is a **domain-coverage** finding, not a traceability finding — no
+amount of REQ⇄ARC reconciliation surfaces it, because nothing in the requirements
+ever mentioned chargebacks. There is no requirement to be unimplemented.
+
+### Where it sits
+
+Topmost, most-specific layer. It must import `requirements_base` to subclass
+`DomainConcept`:
+
+```
+sea_common → enterprise_structure → requirements_base → architecture_base
+                                                             ↑
+                                       domains/payment_processing.yaml
+```
+
+Extraction then points at the domain ontology instead of the base and inherits
+everything below by import — which the existing import-resolution in
+`_collect_ontology_names()` already handles. **No restructuring required.**
+
+### What it takes
+
+1. **`ontology/domains/payment_processing.yaml`** — domain concepts subclassing
+   `DomainConcept`, their relationships and constraints, and the payment
+   lifecycle state machine (PENDING → AUTHORIZED → CAPTURED → SETTLED).
+2. **The Domain Context Agent** (PRD #2) — the component that *proposes* a domain
+   ontology from business context. Without it, every new domain is hand-authored.
+3. **Wire `domain` through** — inject the domain vocabulary into the extraction
+   prompt so concepts map to real classes instead of collapsing to a placeholder.
+4. **A coverage audit** — the third reconciliation leg plus the both-ways
+   mismatch report.
+
+### Ordering note
+
+Its value is realised **through the coverage audit**, which needs the audit engine
+that does not yet exist (item 9, gap 5). So building the domain ontology before
+the audit engine produces a vocabulary nothing consumes.
+
+**Recommended:** record now (done), build after the review gate and audit engine
+— unless domain grounding is wanted earlier purely for extraction precision, in
+which case step 3 alone is independently useful and much smaller than the whole.
+
+### Why it lingered
+
+**Its absence causes imprecision, not error.** Nothing fails. Extraction works;
+the graph is simply coarser than it should be, and coverage questions silently
+cannot be asked. The same silent-absence pattern as the corrupted enum
+descriptions and the inert subsets: no symptom, so no pressure.
+
+It also sits outside both the build order and the workflow — which is why neither
+the sequencing nor the user journey surfaced it.
+
+---
+
 ## Reference: current extraction result
 
 Model: `unsloth/Qwen3.5-4B-GGUF:Q4_K_M` via llama.cpp `:8080`
