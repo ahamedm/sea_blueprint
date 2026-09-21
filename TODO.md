@@ -280,11 +280,11 @@ workflow), structural variance will produce false diffs and drown the signal.
 
 ---
 
-## 5. ARC-G ⇄ REQ-G linkage is not joinable — blocks cross-verification
+## 5. ARC-G ⇄ REQ-G linkage — Initiative-scoped reconciliation
 
-**Status:** Not started
+**Status:** In progress — shifting to Initiative as primary join key
 **Priority:** **Critical** — this is the platform's core purpose, currently unmet
-**Area:** `agents/knowledge_extraction/`, `agents/architecture_extraction/`, ontology
+**Area:** `agents/knowledge_extraction/`, `agents/architecture_extraction/`, ontology, `agents/knowledge/ingest.py`
 
 ### Problem
 
@@ -331,6 +331,22 @@ node by name**:
    reference against requirement-side nodes. The ontology already has the right
    construct — `RequirementRealization` (requirement ↔ realised_by, with
    `coverage`, `evidence`, `confidence`) — but nothing populates it.
+
+### New approach: Initiative as the primary scoping identifier
+
+Relying on document names or input source names is fragile. `Initiative` (from
+`requirements_base.yaml`) is the stable, semantic anchor that spans both graphs:
+
+- **REQ-G:** Requirements are linked to their authorising `Initiative` via `authorised_by_initiative`.
+- **ARC-G:** Architecture elements are linked to the `Initiative` they deliver via `delivers_initiative`.
+- **The Join:** We can now ask: *"Which architecture elements are delivering the same Initiative that authorised these requirements?"*
+
+This makes cross-reference robust even when requirement IDs are lost or paraphrased.
+If both a requirement and an architecture element point to `INIT-2024-001 (Payment Modernisation)`,
+they belong in the same reconciliation scope.
+
+**Implemented:** `agents/knowledge/ingest.py` now captures `Initiative` nodes and
+creates `delivers_initiative` / `authorised_by_initiative` assertions during ingestion.
 
 ### The `requirement_type` observation
 

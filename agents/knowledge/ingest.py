@@ -94,6 +94,13 @@ def _collect_declared_nodes(graph: KnowledgeGraph, output: Dict[str, Any]) -> Di
         kind = (e.get("ontology_class") or e.get("entity_type") or "Concept").strip()
         declare(kind, e.get("name") or "")
 
+    # Initiative scoping — the stable anchor across REQ-G and ARC-G
+    for init in output.get("initiatives", []) or []:
+        if not isinstance(init, dict):
+            continue
+        declare("Initiative", init.get("id") or init.get("name") or "", 
+                external_refs=[init.get("id")] if init.get("id") else None)
+
     return by_label
 
 
@@ -254,6 +261,29 @@ def graph_from_extraction(
             source_text=r.get("source_text") or "",
             provenance=p,
         )
+
+    # ---- initiative scoping links ----
+    # Link architecture elements and requirements to their authorising Initiative.
+    # This provides a stable cross-graph join key that doesn't depend on document names.
+    for e in output.get("elements", []) or []:
+        if not isinstance(e, dict):
+            continue
+        nid = _resolve(graph, e.get("name") or "", by_label)
+        init_id = e.get("initiative_id") or e.get("delivers_initiative")
+        if init_id:
+            iid = _resolve(graph, init_id, by_label, "Initiative")
+            p = prov("structure")
+            graph.add_assertion(nid, "delivers_initiative", obj=iid, confidence=1.0, provenance=p)
+
+    for e in output.get("entities", []) or []:
+        if not isinstance(e, dict):
+            continue
+        nid = _resolve(graph, e.get("name") or "", by_label)
+        init_id = e.get("initiative_id") or e.get("authorised_by_initiative")
+        if init_id:
+            iid = _resolve(graph, init_id, by_label, "Initiative")
+            p = prov("triples")
+            graph.add_assertion(nid, "authorised_by_initiative", obj=iid, confidence=1.0, provenance=p)
 
     return graph, run
 
