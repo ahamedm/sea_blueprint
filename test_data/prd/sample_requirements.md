@@ -1,6 +1,6 @@
 # Sample Requirements Document
 
-This is a sample requirements document for testing the Knowledge Extraction Agent.
+This is a sample requirements document for testing the Knowledge Extraction Agent. The initiative is PSYA-I2001.
 
 ## Payment Processing Requirements
 

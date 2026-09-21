@@ -95,6 +95,11 @@ def _collect_declared_nodes(graph: KnowledgeGraph, output: Dict[str, Any]) -> Di
             continue
         kind = (e.get("ontology_class") or e.get("entity_type") or "Concept").strip()
         declare(kind, e.get("name") or "")
+        
+        # Collect Initiative nodes from entity initiative_refs
+        for init_ref in e.get("initiative_refs") or []:
+            if isinstance(init_ref, str) and init_ref.strip():
+                declare("Initiative", init_ref.strip(), external_refs=[init_ref.strip()])
 
     # Initiative scoping — the stable anchor across REQ-G and ARC-G
     for init in output.get("initiatives", []) or []:
@@ -282,17 +287,27 @@ def graph_from_extraction(
         if init_id:
             iid = _resolve(graph, init_id, by_label, "Initiative")
             p = prov("structure")
-            graph.add_assertion(nid, "delivers_initiative", obj=iid, confidence=1.0, provenance=p)
+            graph.add_assertion(nid, "delivers_initiative", obj=iid, confidence=1.0, provenance=p, scope=default_scope, initiative_id=initiative_id)
 
     for e in output.get("entities", []) or []:
         if not isinstance(e, dict):
             continue
         nid = _resolve(graph, e.get("name") or "", by_label)
-        init_id = e.get("initiative_id") or e.get("authorised_by_initiative")
-        if init_id:
+        
+        # Handle both single initiative_id and list of initiative_refs
+        init_ids = []
+        if e.get("initiative_id"):
+            init_ids.append(e["initiative_id"])
+        if e.get("authorised_by_initiative"):
+            init_ids.append(e["authorised_by_initiative"])
+        for init_ref in e.get("initiative_refs") or []:
+            if isinstance(init_ref, str) and init_ref.strip():
+                init_ids.append(init_ref.strip())
+        
+        for init_id in init_ids:
             iid = _resolve(graph, init_id, by_label, "Initiative")
             p = prov("triples")
-            graph.add_assertion(nid, "authorised_by_initiative", obj=iid, confidence=1.0, provenance=p)
+            graph.add_assertion(nid, "authorised_by_initiative", obj=iid, confidence=1.0, provenance=p, scope=default_scope, initiative_id=initiative_id)
 
     return graph, run
 

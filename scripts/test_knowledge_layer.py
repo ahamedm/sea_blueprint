@@ -225,6 +225,61 @@ def test_real_extraction_output():
           f"{len(g.find(predicate='part_of'))} part_of")
 
 
+def test_initiative_scoping():
+    """Test that Initiative extraction and scoping works correctly.
+    
+    Simulates extraction from a document that states 'The initiative is PSYA-I2001'.
+    Verifies that the canonical model creates Initiative nodes and scopes assertions.
+    """
+    from agents.knowledge.model import SCOPE_INITIATIVE
+    
+    output = {
+        "entities": [
+            {
+                "name": "Payment Gateway Platform",
+                "entity_type": "SoftwareSystem",
+                "ontology_class": "SoftwareSystem",
+                "initiative_refs": ["PSYA-I2001"]
+            },
+            {
+                "name": "Payment Request Validation",
+                "entity_type": "FunctionalRequirement",
+                "ontology_class": "FunctionalRequirement",
+                "requirement_id": "FR-PM-001",
+                "initiative_refs": ["PSYA-I2001"]
+            }
+        ],
+        "triples": [
+            {
+                "subject": "Payment Gateway Platform",
+                "predicate": "has_functional_requirement",
+                "object": "Payment Request Validation",
+                "confidence": 0.95,
+                "source_text": "The Payment Gateway Platform shall accept and validate incoming payment requests"
+            }
+        ]
+    }
+    
+    initiative_id = "PSYA-I2001"
+    g, run = graph_from_extraction(
+        output,
+        metadata={"model_id": "test-model"},
+        document_ref="test_data/prd/sample_requirements.md",
+        initiative_id=initiative_id
+    )
+    
+    # Check 1: Initiative node was created
+    initiative_nodes = [n for n in g.nodes.values() if n.kind == "Initiative"]
+    check("initiative node created", len(initiative_nodes) == 1, 
+          f"{len(initiative_nodes)} initiative nodes")
+    
+    # Check 2: Assertions are scoped to the Initiative
+    initiative_scoped = [a for a in g.assertions.values() 
+                        if a.scope == SCOPE_INITIATIVE and a.initiative_id == initiative_id]
+    check("assertions scoped to initiative", len(initiative_scoped) > 0,
+          f"{len(initiative_scoped)} assertions scoped to {initiative_id}")
+
+
 def main():
     test_identity_is_stable_and_derived()
     test_duplicates_collapse_keeping_the_best_observation()
@@ -233,6 +288,7 @@ def main():
     test_completeness_distinguishes_unknown_from_complete()
     test_cross_graph_references_held_not_invented()
     test_rdf_emits_both_forms()
+    test_initiative_scoping()
     test_real_extraction_output()
 
     print(f"\n{'=' * 68}\nCANONICAL KNOWLEDGE LAYER\n{'=' * 68}")
