@@ -733,7 +733,25 @@ with explicit human gates — a dynamic router adds non-determinism to a product
 selling determinism), agents stateless with the graph as memory, one validation
 service consumed by both UI and API, and a stage→validate→commit write path.
 
-### Sequencing
+### Sequencing — REORDERED by the user journey
+
+`docs/user-journey.md` reorders this. The journey is blocked at the **human
+review gate**, not at extraction: knowledge can be produced but has no route to a
+person and no route onward. The pipeline's only exit is a JSON file that only the
+test harness reads (verified).
+
+Blocking, in dependency order:
+
+1. **View projection layer** — nothing to look at; every downstream step needs it
+2. **Correction write path** — the review gate has nowhere to record a decision
+3. **Revision / baseline** — without it "verified" is a flag on a mutable graph
+4. **Reconciliation** — the core job; 13 unresolved refs already surface and go nowhere
+5. **Audit engine + gap report** — the product
+
+Demoted: the requirements pass-split was going to be next. It improves step 2,
+which already works. Quality, not blocking.
+
+### Original sequencing (superseded)
 
 1. Canonical model + serialisation layer — nothing else is testable without it
 2. Validation as a service, rules **generated from the ontology**
