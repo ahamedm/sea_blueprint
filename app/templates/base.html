@@ -22,10 +22,22 @@
         <h1>SEA Platform</h1>
         <nav>
             <a href="/">Home</a>
+            <a href="/ingest">Ingest</a>
             <a href="/review">Review Gate</a>
             <a href="/graph">Graph View</a>
             <a href="/gaps">Gap Report</a>
         </nav>
+        
+        {% with messages = get_flashed_messages() %}
+          {% if messages %}
+            <div style="background: #d4edda; color: #155724; padding: 10px; border-radius: 4px; margin-bottom: 20px;">
+              {% for message in messages %}
+                {{ message }}
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% endwith %}
+        
         <main>
             {% block content %}{% endblock %}
         </main>

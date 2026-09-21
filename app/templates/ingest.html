@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2>Ingest Document</h2>
+<p>Upload a Business Requirement or Architecture document to extract knowledge.</p>
+
+{% with messages = get_flashed_messages() %}
+  {% if messages %}
+    <ul style="color: red;">
+    {% for message in messages %}
+      <li>{{ message }}</li>
+    {% endfor %}
+    </ul>
+  {% endif %}
+{% endwith %}
+
+<form action="/ingest" method="post" enctype="multipart/form-data" style="margin-top: 20px; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
+    <div style="margin-bottom: 15px;">
+        <label for="type" style="display: block; margin-bottom: 5px; font-weight: bold;">Document Type:</label>
+        <select name="type" id="type" style="padding: 8px; width: 100%; max-width: 300px;">
+            <option value="requirements">Business Requirements (PRD)</option>
+            <option value="architecture">Architecture Outline</option>
+        </select>
+    </div>
+
+    <div style="margin-bottom: 15px;">
+        <label for="document" style="display: block; margin-bottom: 5px; font-weight: bold;">Markdown File:</label>
+        <input type="file" name="document" id="document" accept=".md" style="padding: 8px; width: 100%; max-width: 300px;">
+    </div>
+
+    <button type="submit" style="padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">
+        Extract & Ingest
+    </button>
+</form>
+{% endblock %}
