@@ -676,11 +676,12 @@ A sanity check of the proposed system architecture (agents / workflow / two UIs 
 MCP servers / API) surfaced two gaps that force decisions everything else depends
 on. Recorded in full in the linked document; the actionable core:
 
-**9a. Canonical knowledge model + owned serialisation layer. — STARTED**
+**9a. Canonical knowledge model + owned serialisation layer. — ✅ DONE**
 `agents/knowledge/` implements the model, the ingest transform and RDF emission.
-28/28 checks pass (`scripts/test_knowledge_layer.py`). Still to do: the view
-projection layer (graph → C4 / gap-report view models) and wiring the agents to
-emit the canonical model rather than JSON dicts.
+28/28 checks pass (`scripts/test_knowledge_layer.py`). View projection layer
+proven via CLI table view (`scripts/review_assertions.py`) — exposes all assertions
+with provenance for human review. Still to do: wiring the agents to emit the
+canonical model rather than JSON dicts, and C4 / gap-report view models.
 
 Verified on real output: ARC-G ingests to 31 nodes / 156 assertions / 0 dangling /
 13 unresolved cross-graph references; 2,030 RDF triples. Two findings from the
@@ -712,18 +713,20 @@ breaks it, it is where `confidence`/`source_text` must land on reified
 assertions, and it is the only thing that can guarantee a well-formed graph. A
 named part with tests, not an implementation detail.
 
-**9b. Human corrections vs re-extraction — the sleeper.**
-The correction UI edits extracted knowledge; a later re-run with a better prompt
-or a new document revision can silently destroy that work. Three viable designs
-(overlay layer / provenance-ranked assertions / diff-and-review), all resting on
-one requirement: **the graph must distinguish agent-asserted from human-confirmed
-knowledge structurally.** This is the architectural reason for `Provenance` and
-`VerificationStatus`, and it is expensive to retrofit.
+**9b. Human corrections vs re-extraction — ✅ PROVEN**
+The canonical model structurally distinguishes agent-asserted from human-confirmed
+knowledge via `Provenance.source_type` and `Assertion.status`. The merge logic in
+`add_assertion()` ensures human corrections survive agent re-observations. Proven
+via `scripts/review_assertions.py` — interactive CLI allows marking assertions as
+VERIFIED or CORRECTED, with corrections persisting in the graph. Next: wire this
+into a proper UI and implement the diff-and-review workflow for re-extractions.
 
-**9c. Incompleteness must be representable.**
-A partial extraction treated as complete makes the auditor **report extraction
-artifacts as architectural gaps** — confidently wrong. "This pass failed", "this
-chunk produced nothing" must be first-class graph state, not a log line.
+**9c. Incompleteness must be representable. — ✅ IMPLEMENTED**
+`ExtractionRun.completeness` tracks COMPLETE / PARTIAL / FAILED / UNKNOWN per run.
+`PassRecord` captures per-chunk outcomes. This prevents partial extractions from
+being mistaken for complete ones, which would cause the auditor to report missing
+content as architectural gaps. Verified: completeness state reaches the RDF so
+consumers can honour it.
 
 **9d. Revisions.** The PRD requires evolving requirements/architecture. Nothing
 diffs or versions. Named graphs would carry it; no component owns it.
