@@ -50,6 +50,9 @@ dependencies = [
     "rich>=13.7.0",
     "click>=8.1.0",
     "jinja2>=3.1.0",
+    
+    # Web Application (MVP)
+    "flask>=3.0.0",
 ]
 
 [project.optional-dependencies]
@@ -65,10 +68,11 @@ dev = [
 [project.scripts]
 sea-agent = "agents.cli:main"
 sea-eval = "evaluation.cli:main"
+sea-app = "run:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["agents*", "evaluation*", "config*"]
+include = ["agents*", "evaluation*", "config*", "app*"]
 
 [tool.black]
 line-length = 100
