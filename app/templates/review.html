@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2>Human Review Gate</h2>
+<p>Verify or correct extracted assertions. Changes are scoped to the current Initiative.</p>
+
+<table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
+    <thead>
+        <tr style="background: #f8f9fa; text-align: left;">
+            <th style="padding: 12px; border-bottom: 2px solid #dee2e6;">Subject</th>
+            <th style="padding: 12px; border-bottom: 2px solid #dee2e6;">Predicate</th>
+            <th style="padding: 12px; border-bottom: 2px solid #dee2e6;">Target</th>
+            <th style="padding: 12px; border-bottom: 2px solid #dee2e6;">Status</th>
+            <th style="padding: 12px; border-bottom: 2px solid #dee2e6;">Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for row in rows %}
+        <tr style="border-bottom: 1px solid #eee;">
+            <td style="padding: 12px;">[{{ row.subject_kind }}] {{ row.subject_label }}</td>
+            <td style="padding: 12px;">{{ row.predicate }}</td>
+            <td style="padding: 12px;">{{ row.target }}</td>
+            <td style="padding: 12px;">
+                <span style="padding: 4px 8px; border-radius: 4px; background: {{ '#d4edda' if row.status == 'VERIFIED' else '#fff3cd' }};">
+                    {{ row.status }}
+                </span>
+            </td>
+            <td style="padding: 12px;">
+                <button 
+                    hx-post="/api/verify/{{ row.id }}" 
+                    hx-swap="outerHTML"
+                    style="padding: 6px 12px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                    Verify
+                </button>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}
