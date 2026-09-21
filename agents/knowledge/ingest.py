@@ -37,6 +37,8 @@ from .model import (
     RUN_UNKNOWN,
     SOURCE_EXTRACTION,
     STATUS_UNVERIFIED,
+    SCOPE_INITIATIVE,
+    SCOPE_BASELINE,
     utc_now,
 )
 
@@ -133,11 +135,12 @@ def graph_from_extraction(
     document_ref: str = "",
     document_text: str = "",
     pass_records: Optional[List[PassRecord]] = None,
+    initiative_id: Optional[str] = None,  # The "Living System" scoping key
 ) -> Tuple[KnowledgeGraph, ExtractionRun]:
     """Build a canonical graph from one extraction result.
 
-    Accepts the agent's output dict as produced (and therefore also a saved JSON
-    file), so the same path serves live runs and re-ingesting history.
+    If `initiative_id` is provided, all assertions are scoped as INITIATIVE_PROPOSAL.
+    Otherwise, they are treated as SYSTEM_BASELINE or DOMAIN_TRUTH depending on context.
     """
     metadata = metadata or {}
     graph = KnowledgeGraph()
@@ -156,6 +159,9 @@ def graph_from_extraction(
     )
     run.completeness = run.compute_completeness()
     graph.runs[run.id] = run
+
+    # Determine default scope for this run
+    default_scope = SCOPE_INITIATIVE if initiative_id else SCOPE_BASELINE
 
     def prov(pass_name: str = "", chunk_label: str = "") -> Provenance:
         return Provenance(
@@ -177,22 +183,25 @@ def graph_from_extraction(
         nid = _resolve(graph, e.get("name") or "", by_label,
                        (e.get("element_type") or "Concept"))
         p = prov("structure")
+        scope = default_scope
+        init_id = initiative_id or e.get("initiative_id")
+        
         if e.get("description"):
             graph.add_assertion(nid, "description", value=e["description"],
-                                confidence=1.0, provenance=p)
+                                confidence=1.0, provenance=p, scope=scope, initiative_id=init_id)
         for attr in ("element_type", "c4_level", "system_class", "origin",
                      "deployment_model"):
             if e.get(attr):
                 graph.add_assertion(nid, attr, value=str(e[attr]),
-                                    confidence=1.0, provenance=p)
+                                    confidence=1.0, provenance=p, scope=scope, initiative_id=init_id)
         if e.get("parent"):
             pid = _resolve(graph, e["parent"], by_label)
-            graph.add_assertion(nid, "part_of", obj=pid, confidence=1.0, provenance=p)
+            graph.add_assertion(nid, "part_of", obj=pid, confidence=1.0, provenance=p, scope=scope, initiative_id=init_id)
         for r in e.get("responsibilities") or []:
             text = str(r).strip()
             if text:
                 graph.add_assertion(nid, "responsibility", value=text,
-                                    confidence=1.0, provenance=p)
+                                    confidence=1.0, provenance=p, scope=scope, initiative_id=init_id)
 
     # ---- technology / style usage ----
     for t in output.get("technology_stacks", []) or []:

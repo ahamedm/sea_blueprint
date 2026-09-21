@@ -88,12 +88,19 @@ def make_assertion_id(subject: str, predicate: str, obj: Optional[str],
 
 # Kept as plain strings rather than enums so unknown values from a source are
 # preserved rather than rejected — the same posture as the extraction schemas.
+# Provenance sources
 SOURCE_EXTRACTION = "EXTRACTION_AGENT"
 SOURCE_HUMAN_ARCHITECT = "HUMAN_ARCHITECT"
 SOURCE_HUMAN_ANALYST = "HUMAN_ANALYST"
 SOURCE_HUMAN_REVIEWER = "HUMAN_REVIEWER"
 SOURCE_ENRICHMENT = "ENRICHMENT"
 SOURCE_IMPORTED = "IMPORTED"
+SOURCE_BASELINE_MERGE = "BASELINE_MERGE"  # Fact promoted from Initiative to System Baseline
+
+# Assertion Lifecycle / Scope
+SCOPE_INITIATIVE = "INITIATIVE_PROPOSAL"  # A change proposed by a specific initiative
+SCOPE_BASELINE = "SYSTEM_BASELINE"        # Established, persistent system truth
+SCOPE_DOMAIN = "DOMAIN_TRUTH"             # Universal domain concept (e.g., "PAN is sensitive")
 
 STATUS_UNVERIFIED = "UNVERIFIED"
 STATUS_VERIFIED = "VERIFIED"
@@ -159,7 +166,7 @@ def utc_now() -> str:
 
 @dataclass
 class Assertion:
-    """One claim about the world, with its own provenance and review state."""
+    """One claim about the world, with its own provenance, scope, and review state."""
 
     id: str
     subject: str                       # NodeId
@@ -172,6 +179,10 @@ class Assertion:
     provenance: Provenance = field(default_factory=Provenance)
     status: str = STATUS_UNVERIFIED
     superseded_by: Optional[str] = None
+    
+    # Living System fields
+    scope: str = SCOPE_INITIATIVE      # INITIATIVE_PROPOSAL | SYSTEM_BASELINE | DOMAIN_TRUTH
+    initiative_id: Optional[str] = None # If scope is INITIATIVE_PROPOSAL, which one?
 
     @property
     def is_human(self) -> bool:
@@ -316,6 +327,8 @@ class KnowledgeGraph:
         ontology_class: Optional[str] = None,
         provenance: Optional[Provenance] = None,
         status: str = STATUS_UNVERIFIED,
+        scope: str = SCOPE_INITIATIVE,
+        initiative_id: Optional[str] = None,
     ) -> Assertion:
         """Add or fold an assertion.
 
@@ -329,7 +342,8 @@ class KnowledgeGraph:
         prov = provenance or Provenance()
         new = Assertion(id=aid, subject=subject, predicate=predicate, object=obj,
                         value=value, confidence=confidence, source_text=source_text,
-                        ontology_class=ontology_class, provenance=prov, status=status)
+                        ontology_class=ontology_class, provenance=prov, status=status,
+                        scope=scope, initiative_id=initiative_id)
 
         existing = self.assertions.get(aid)
         if existing is None:
