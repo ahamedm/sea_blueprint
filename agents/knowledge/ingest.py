@@ -24,21 +24,18 @@ values, and `unresolved_references()` finds them.
 from typing import Any, Dict, List, Optional, Tuple
 
 from .model import (
-    Assertion,
     CROSS_GRAPH_PREDICATES,
-    ExtractionRun,
-    KnowledgeGraph,
-    Node,
-    PassRecord,
-    Provenance,
     RUN_COMPLETE,
     RUN_FAILED,
     RUN_PARTIAL,
     RUN_UNKNOWN,
-    SOURCE_EXTRACTION,
-    STATUS_UNVERIFIED,
-    SCOPE_INITIATIVE,
     SCOPE_BASELINE,
+    SCOPE_INITIATIVE,
+    SOURCE_EXTRACTION,
+    ExtractionRun,
+    KnowledgeGraph,
+    PassRecord,
+    Provenance,
     utc_now,
 )
 
@@ -61,6 +58,33 @@ def _document_hash(text: str) -> str:
 # Node collection
 # ============================================================================
 
+def _external_refs(record: Dict[str, Any]) -> List[str]:
+    """Every stable external identifier a record carries.
+
+    The two profiles name this differently and one is easy to miss: the
+    architecture profile emits `external_references`, while the requirements
+    profile carries the document's own key as `requirement_id`. Reading only the
+    former is why requirement IDs stayed out of the graph even after the extractor
+    began emitting them — the primary cause of ARC-G <-> REQ-G being unjoinable
+    (TODO item 5, root cause 1). An identifier the graph does not record cannot be
+    matched on, so reconciliation's strongest signal was unreachable.
+    """
+    refs: List[str] = []
+
+    raw = record.get("external_references") or record.get("external_refs") or []
+    for r in raw:
+        value = (r.get("identifier") or r.get("id") or "") if isinstance(r, dict) else r
+        if value:
+            refs.append(str(value).strip())
+
+    for key in ("requirement_id", "external_id"):
+        value = record.get(key)
+        if value:
+            refs.append(str(value).strip())
+
+    return [r for r in refs if r]
+
+
 def _collect_declared_nodes(graph: KnowledgeGraph, output: Dict[str, Any]) -> Dict[str, str]:
     """Create nodes from explicit collections. Returns label -> node id."""
     by_label: Dict[str, str] = {}
@@ -77,9 +101,7 @@ def _collect_declared_nodes(graph: KnowledgeGraph, output: Dict[str, Any]) -> Di
         if not isinstance(e, dict):
             continue
         kind = (e.get("element_type") or e.get("ontology_class") or "Concept").strip()
-        refs = [r.get("identifier") if isinstance(r, dict) else str(r)
-                for r in (e.get("external_references") or [])]
-        declare(kind, e.get("name") or "", [r for r in refs if r])
+        declare(kind, e.get("name") or "", _external_refs(e))
 
     for t in output.get("technology_stacks", []) or []:
         if isinstance(t, dict):
@@ -94,8 +116,8 @@ def _collect_declared_nodes(graph: KnowledgeGraph, output: Dict[str, Any]) -> Di
         if not isinstance(e, dict):
             continue
         kind = (e.get("ontology_class") or e.get("entity_type") or "Concept").strip()
-        declare(kind, e.get("name") or "")
-        
+        declare(kind, e.get("name") or "", _external_refs(e))
+
         # Collect Initiative nodes from entity initiative_refs
         for init_ref in e.get("initiative_refs") or []:
             if isinstance(init_ref, str) and init_ref.strip():
@@ -105,7 +127,7 @@ def _collect_declared_nodes(graph: KnowledgeGraph, output: Dict[str, Any]) -> Di
     for init in output.get("initiatives", []) or []:
         if not isinstance(init, dict):
             continue
-        declare("Initiative", init.get("id") or init.get("name") or "", 
+        declare("Initiative", init.get("id") or init.get("name") or "",
                 external_refs=[init.get("id")] if init.get("id") else None)
 
     return by_label
@@ -190,7 +212,7 @@ def graph_from_extraction(
         p = prov("structure")
         scope = default_scope
         init_id = initiative_id or e.get("initiative_id")
-        
+
         if e.get("description"):
             graph.add_assertion(nid, "description", value=e["description"],
                                 confidence=1.0, provenance=p, scope=scope, initiative_id=init_id)
@@ -293,7 +315,7 @@ def graph_from_extraction(
         if not isinstance(e, dict):
             continue
         nid = _resolve(graph, e.get("name") or "", by_label)
-        
+
         # Handle both single initiative_id and list of initiative_refs
         init_ids = []
         if e.get("initiative_id"):
@@ -303,7 +325,7 @@ def graph_from_extraction(
         for init_ref in e.get("initiative_refs") or []:
             if isinstance(init_ref, str) and init_ref.strip():
                 init_ids.append(init_ref.strip())
-        
+
         for init_id in init_ids:
             iid = _resolve(graph, init_id, by_label, "Initiative")
             p = prov("triples")
@@ -370,3 +392,57 @@ def completeness_note(graph: KnowledgeGraph) -> str:
                      "recorded. Absence of a fact is NOT evidence of its absence.",
     }[worst]
     return header + "\n" + "\n".join(lines)
+
+
+# ============================================================================
+# Merge — graph -> graph
+# ============================================================================
+
+def merge_graphs(base: KnowledgeGraph, incoming: KnowledgeGraph) -> KnowledgeGraph:
+    """Fold a freshly extracted graph into an existing one.
+
+    Re-extraction must NOT replace the graph. If it did, every human decision
+    made in the review gate would be destroyed by the next run — the "sleeper"
+    problem in `docs/architecture-review.md` §3.3, and the reason `Provenance`
+    and `VerificationStatus` exist at all.
+
+    Precedence is not reimplemented here: `add_assertion` already encodes the
+    fold rule (a human assertion outranks an agent re-observation, and
+    re-observing the same fact raises confidence instead of duplicating). Merge
+    is therefore just routing every incoming fact through the one place that
+    knows the rule.
+
+    Returns a NEW graph. The caller diffs it against `base` to get
+    diff-and-review rather than blind replacement.
+    """
+    import copy
+
+    merged = copy.deepcopy(base)
+
+    for node in incoming.nodes.values():
+        merged.add_node(node.kind, node.label, node.external_refs)
+
+    # Runs accumulate: each extraction stays attributable after a later one lands.
+    for run in incoming.runs.values():
+        merged.runs[run.id] = run
+
+    for a in incoming.assertions.values():
+        folded = merged.add_assertion(
+            a.subject,
+            a.predicate,
+            obj=a.object,
+            value=a.value,
+            confidence=a.confidence,
+            source_text=a.source_text,
+            ontology_class=a.ontology_class,
+            provenance=a.provenance,
+            status=a.status,
+            scope=a.scope,
+            initiative_id=a.initiative_id,
+        )
+        # Lineage fields are not part of the fold rule; carry them explicitly so
+        # a snapshot that is itself the product of a merge round-trips faithfully.
+        if a.superseded_by and not folded.superseded_by:
+            folded.superseded_by = a.superseded_by
+
+    return merged

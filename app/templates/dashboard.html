@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}Overview · SEA{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Architecture knowledge overview</h1>
+    <p>
+      The canonical graph is the memory; the agents are stateless functions over it.
+      This page is the state of that memory, and what it still needs from a human.
+    </p>
+  </div>
+  <div class="row">
+    <a class="btn" href="{{ url_for('gaps') }}">Gap report</a>
+    <a class="btn btn-primary" href="{{ url_for('review') }}">Go to review gate</a>
+  </div>
+</div>
+
+{% if view.empty %}
+  <div class="card empty">
+    <h2>No knowledge yet</h2>
+    <p>Load a requirements document and the extraction agent will draft a graph for review.</p>
+    <p><a class="btn btn-primary" href="{{ url_for('ingest') }}">Ingest a document</a></p>
+  </div>
+{% else %}
+
+  <div class="grid grid-4" style="margin-bottom:18px;">
+    <div class="stat">
+      <div class="value">{{ view.stats.nodes }}</div>
+      <div class="label">Elements</div>
+      <div class="foot">{{ view.top_kinds.values()|sum }} nodes across {{ view.top_kinds|length }} kinds</div>
+    </div>
+    <div class="stat">
+      <div class="value">{{ view.stats.assertions }}</div>
+      <div class="label">Assertions</div>
+      <div class="foot">{{ view.stats.human_assertions }} human-attributed · {{ view.stats.superseded }} superseded</div>
+    </div>
+    <div class="stat">
+      <div class="value {{ 'ok' if view.progress.outstanding == 0 }}" style="{{ 'color:var(--ok)' if view.progress.outstanding == 0 else 'color:var(--warn)' }}">
+        {{ view.progress.outstanding }}
+      </div>
+      <div class="label">Awaiting review</div>
+      <div class="foot">{{ view.progress.percent_reviewed }}% reviewed · {{ view.low_confidence }} low confidence</div>
+    </div>
+    <div class="stat">
+      <div class="value small">
+        <span class="badge badge-{{ view.completeness|lower }}">{{ view.completeness }}</span>
+      </div>
+      <div class="label">Extraction completeness</div>
+      <div class="foot">{{ view.runs }} run(s) · {{ view.revisions }} revision(s)</div>
+    </div>
+  </div>
+
+  {% if view.completeness != 'COMPLETE' %}
+    <div class="banner banner-warn">
+      <strong>Extraction completeness is {{ view.completeness }}.</strong>
+      {{ view.auditability }} The gap report cannot make absence claims on this graph.
+    </div>
+  {% elif not view.progress.is_auditable %}
+    <div class="banner banner-warn">
+      <strong>{{ view.progress.outstanding }} assertion(s) still need a human decision.</strong>
+      Until they have one, the audit would report extraction artifacts as architecture gaps.
+    </div>
+  {% elif view.unresolved %}
+    <div class="banner banner-warn">
+      <strong>{{ view.unresolved }} cross-graph reference(s) are unresolved.</strong>
+      Reconciliation between REQ-G and ARC-G is the next stage; these are its work queue.
+      <a href="{{ url_for('reconcile') }}">Open reconciliation →</a>
+    </div>
+  {% else %}
+    <div class="banner banner-ok">
+      <strong>This graph is reviewable and complete.</strong>
+      Every assertion has a human decision and extraction is COMPLETE — absence of a
+      fact here may be meaningful.
+    </div>
+  {% endif %}
+
+  <div class="grid grid-2">
+    <div class="card">
+      <div class="card-head">
+        <h2>What is in the graph</h2>
+        <a class="small" href="{{ url_for('c4') }}">C4 view →</a>
+      </div>
+      {% if view.top_kinds %}
+        <table class="table-plain">
+          <thead><tr><th>Node kind</th><th style="text-align:right;">Count</th></tr></thead>
+          <tbody>
+            {% for kind, n in view.top_kinds.items() %}
+              <tr>
+                <td><a href="{{ url_for('review') }}?kind={{ kind }}">{{ kind }}</a></td>
+                <td style="text-align:right;">{{ n }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}<p class="hint">No nodes yet.</p>{% endif %}
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>Most asserted predicates</h2>
+        <a class="small" href="{{ url_for('review') }}">review →</a>
+      </div>
+      {% if view.top_predicates %}
+        <table class="table-plain">
+          <thead><tr><th>Predicate</th><th style="text-align:right;">Assertions</th></tr></thead>
+          <tbody>
+            {% for predicate, n in view.top_predicates.items() %}
+              <tr>
+                <td><a href="{{ url_for('review') }}?predicate={{ predicate }}"><code>{{ predicate }}</code></a></td>
+                <td style="text-align:right;">{{ n }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}<p class="hint">No assertions yet.</p>{% endif %}
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Recent human decisions</h2>
+      <a class="small" href="{{ url_for('changes') }}">all changes →</a>
+    </div>
+    {% if view.recent_decisions %}
+      <table class="table-plain">
+        <thead>
+          <tr><th>When</th><th>Decision</th><th>Subject</th><th>By</th><th>Note</th></tr>
+        </thead>
+        <tbody>
+          {% for d in view.recent_decisions %}
+            <tr>
+              <td class="nowrap small muted">{{ d.at }}</td>
+              <td><span class="badge badge-{{ d.badge }}">{{ d.label }}</span></td>
+              <td>{{ d.subject }} <code class="muted">{{ d.predicate }}</code></td>
+              <td class="small">{{ d.actor }}</td>
+              <td class="small muted">{{ d.note or '—' }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="hint">No human decisions recorded yet. The review gate has not been used.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Sources and revisions</h2>
+      <a class="small" href="{{ url_for('changes') }}">change management →</a>
+    </div>
+    <p class="hint" style="margin-bottom:10px;">
+      Documents loaded:
+      {% if view.documents %}
+        {% for doc in view.documents %}<span class="tag">{{ doc }}</span> {% endfor %}
+      {% else %}<span class="muted">none</span>{% endif %}
+    </p>
+    <div class="row">
+      {% if view.latest_revision %}
+        <a class="btn" href="{{ url_for('changes_diff', **{'from': view.latest_revision.id, 'to': 'working'}) }}">
+          Diff working set vs {{ view.latest_revision.label }}
+        </a>
+      {% endif %}
+      <a class="btn" href="{{ url_for('export_json') }}">Export canonical JSON</a>
+      <a class="btn" href="{{ url_for('export_rdf') }}">Export RDF (Turtle)</a>
+    </div>
+  </div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% block title %}Diff · SEA{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Diff</h1>
+    <p>
+      Re-extraction is shown as a change set rather than a silent replacement. This is
+      the diff-and-review primitive: what an agent run would add, change or drop,
+      before you accept it.
+    </p>
+  </div>
+  <div class="row">
+    <a class="btn" href="{{ url_for('changes') }}">Back to changes</a>
+  </div>
+</div>
+
+<div class="card">
+  <form class="filters" method="get" action="{{ url_for('changes_diff') }}">
+    <label class="field" style="min-width:280px;">
+      <span>From</span>
+      <select name="from">
+        <option value="">(empty graph)</option>
+        {% for r in revisions %}
+          <option value="{{ r.id }}" {{ 'selected' if old_id == r.id else '' }}>
+            {{ r.label }} · {{ r.id }}{{ ' · baseline' if r.is_baseline else '' }}
+          </option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="field" style="min-width:280px;">
+      <span>To</span>
+      <select name="to">
+        <option value="working" {{ 'selected' if new_is_working else '' }}>working set (uncommitted)</option>
+        {% for r in revisions %}
+          <option value="{{ r.id }}" {{ 'selected' if new_id == r.id else '' }}>
+            {{ r.label }} · {{ r.id }}{{ ' · baseline' if r.is_baseline else '' }}
+          </option>
+        {% endfor %}
+      </select>
+    </label>
+    <button class="btn btn-primary" type="submit">Compare</button>
+  </form>
+  <p class="hint" style="margin:8px 0 0;">
+    <strong>{{ old_ref.label if old_ref else 'empty graph' }}</strong>
+    →
+    <strong>{{ 'working set' if new_is_working else (new_ref.label if new_ref else new_id) }}</strong>
+  </p>
+</div>
+
+<div class="grid grid-4" style="margin-bottom:18px;">
+  <div class="stat"><div class="value" style="color:var(--ok)">{{ view.totals.facts_added }}</div><div class="label">Facts added</div></div>
+  <div class="stat"><div class="value" style="color:var(--warn)">{{ view.totals.facts_changed }}</div><div class="label">Facts changed</div></div>
+  <div class="stat"><div class="value" style="color:var(--bad)">{{ view.totals.facts_removed }}</div><div class="label">Facts removed</div></div>
+  <div class="stat"><div class="value">{{ view.totals.nodes_added }}</div><div class="label">New elements</div></div>
+</div>
+
+{% if view.is_empty %}
+  <div class="card empty">
+    <h2>No structural difference</h2>
+    <p>These two states of the graph are identical.</p>
+  </div>
+{% else %}
+
+  {% if view.added_assertions %}
+    <div class="card">
+      <div class="card-head"><h2>Added<span class="muted small">&nbsp;{{ view.added_assertions|length }}</span></h2></div>
+      <table class="table-plain">
+        <thead><tr><th>Subject</th><th>Predicate</th><th>Target</th><th style="text-align:right;">Conf.</th><th>Status</th></tr></thead>
+        <tbody>
+          {% for a in view.added_assertions %}
+            <tr>
+              <td>{{ a.subject }}</td>
+              <td><code>{{ a.predicate }}</code></td>
+              <td>{{ a.target }}</td>
+              <td style="text-align:right;">{{ a.confidence }}</td>
+              <td><span class="badge badge-{{ a.status_slug }}">{{ a.status }}</span></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+
+  {% if view.changed_assertions %}
+    <div class="card">
+      <div class="card-head"><h2>Changed<span class="muted small">&nbsp;{{ view.changed_assertions|length }}</span></h2></div>
+      <table class="table-plain">
+        <thead><tr><th>Subject</th><th>Predicate</th><th>Target</th><th>Field</th><th>Before</th><th>After</th></tr></thead>
+        <tbody>
+          {% for c in view.changed_assertions %}
+            {% for f in c.fields %}
+              <tr>
+                {% if loop.first %}
+                  <td rowspan="{{ c.fields|length }}">{{ c.subject }}</td>
+                  <td rowspan="{{ c.fields|length }}"><code>{{ c.predicate }}</code></td>
+                  <td rowspan="{{ c.fields|length }}">{{ c.target }}</td>
+                {% endif %}
+                <td><code>{{ f }}</code></td>
+                <td class="muted">{{ c.before.get(f) }}</td>
+                <td><strong>{{ c.after.get(f) }}</strong></td>
+              </tr>
+            {% endfor %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+
+  {% if view.removed_assertions %}
+    <div class="card">
+      <div class="card-head"><h2>Removed<span class="muted small">&nbsp;{{ view.removed_assertions|length }}</span></h2></div>
+      <p class="hint">
+        Removed facts come from replaced extractions. A human correction that is
+        superseded will appear here — that is the record working, not a loss.
+      </p>
+      <table class="table-plain">
+        <thead><tr><th>Subject</th><th>Predicate</th><th>Target</th><th>Status</th></tr></thead>
+        <tbody>
+          {% for a in view.removed_assertions %}
+            <tr>
+              <td>{{ a.subject }}</td>
+              <td><code>{{ a.predicate }}</code></td>
+              <td>{{ a.target }}</td>
+              <td><span class="badge badge-{{ a.status_slug }}">{{ a.status }}</span></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+
+  {% if view.added_nodes or view.removed_nodes %}
+    <div class="card">
+      <div class="card-head"><h2>Elements</h2></div>
+      <div class="grid grid-2">
+        <div>
+          <p class="hint">Added ({{ view.added_nodes|length }})</p>
+          {% for n in view.added_nodes %}<div><span class="kind">{{ n.kind }}</span>{{ n.label }}</div>{% else %}<p class="muted small">none</p>{% endfor %}
+        </div>
+        <div>
+          <p class="hint">Removed ({{ view.removed_nodes|length }})</p>
+          {% for n in view.removed_nodes %}<div><span class="kind">{{ n.kind }}</span>{{ n.label }}</div>{% else %}<p class="muted small">none</p>{% endfor %}
+        </div>
+      </div>
+    </div>
+  {% endif %}
+{% endif %}
+{% endblock %}

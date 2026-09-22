@@ -1,40 +1,183 @@
 {% extends "base.html" %}
+{% block title %}Review gate · SEA{% endblock %}
 
 {% block content %}
-<h2>Human Review Gate</h2>
-<p>Verify or correct extracted assertions. Changes are scoped to the current Initiative.</p>
+<div class="page-head">
+  <div>
+    <h1>Review gate</h1>
+    <p>
+      Every assertion is a claim carrying its own provenance and review state.
+      Confirming, correcting or disputing it here is the step that turns extraction
+      output into knowledge the audit can stand on.
+    </p>
+  </div>
+  <div class="row">
+    <a class="btn" href="{{ url_for('changes') }}">Change history</a>
+    <a class="btn btn-primary" href="{{ url_for('ingest') }}">Ingest document</a>
+  </div>
+</div>
 
-<table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
-    <thead>
-        <tr style="background: #f8f9fa; text-align: left;">
-            <th style="padding: 12px; border-bottom: 2px solid #dee2e6;">Subject</th>
-            <th style="padding: 12px; border-bottom: 2px solid #dee2e6;">Predicate</th>
-            <th style="padding: 12px; border-bottom: 2px solid #dee2e6;">Target</th>
-            <th style="padding: 12px; border-bottom: 2px solid #dee2e6;">Status</th>
-            <th style="padding: 12px; border-bottom: 2px solid #dee2e6;">Actions</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for row in rows %}
-        <tr style="border-bottom: 1px solid #eee;">
-            <td style="padding: 12px;">[{{ row.subject_kind }}] {{ row.subject_label }}</td>
-            <td style="padding: 12px;">{{ row.predicate }}</td>
-            <td style="padding: 12px;">{{ row.target }}</td>
-            <td style="padding: 12px;">
-                <span style="padding: 4px 8px; border-radius: 4px; background: {{ '#d4edda' if row.status == 'VERIFIED' else '#fff3cd' }};">
-                    {{ row.status }}
-                </span>
-            </td>
-            <td style="padding: 12px;">
-                <button 
-                    hx-post="/api/verify/{{ row.id }}" 
-                    hx-swap="outerHTML"
-                    style="padding: 6px 12px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer;">
-                    Verify
-                </button>
-            </td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
+{% if empty %}
+  <div class="card empty">
+    <h2>Nothing to review yet</h2>
+    <p>The working set is empty. Load a requirements or architecture document to extract a graph.</p>
+    <p><a class="btn btn-primary" href="{{ url_for('ingest') }}">Ingest a document</a></p>
+  </div>
+{% else %}
+
+  {% set p = summary.progress %}
+  <div class="card">
+    <div class="card-head">
+      <h2>Review progress</h2>
+      <span class="badge badge-{{ 'complete' if p.is_auditable else 'partial' }}">
+        {{ 'auditable' if p.is_auditable else 'not auditable yet' }}
+      </span>
+    </div>
+    <div class="progress {{ 'ok' if p.outstanding == 0 else ('bad' if p.percent_reviewed < 30 else 'warn') }}">
+      <span style="width: {{ p.percent_reviewed }}%"></span>
+    </div>
+    <p class="hint" style="margin-top:8px;">
+      <strong>{{ p.reviewed }}</strong> of <strong>{{ p.total }}</strong> active assertions reviewed
+      ({{ p.percent_reviewed }}%) ·
+      {{ p.unverified }} unverified · {{ p.disputed }} disputed · {{ p.corrected }} corrected ·
+      {{ p.human }} human-attributed · {{ p.superseded }} superseded
+    </p>
+    {% if not p.is_auditable %}
+      <div class="banner banner-warn" style="margin:0;">
+        <strong>The audit gate is closed.</strong>
+        An audit over unverified extraction reports extraction artifacts as architecture
+        gaps — confidently wrong, which is worse than no audit. Clear
+        {{ p.outstanding }} outstanding assertion(s) first.
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="chips">
+    {% set chips = [
+      ('All active',        filters.to_query(status='', only=''),                    p.total),
+      ('Needs review',      filters.to_query(status='', only='pending'),              p.outstanding),
+      ('Low confidence',    filters.to_query(status='', only='low_confidence'),       summary.low_confidence),
+      ('Disputed',          filters.to_query(only='', status='DISPUTED'),             summary.by_status.get('DISPUTED', 0)),
+      ('Unresolved refs',   filters.to_query(status='', only='unresolved'),           summary.unresolved),
+      ('Human-edited',      filters.to_query(status='', only='human'),                p.human),
+      ('Superseded',        filters.to_query(status='', only='superseded'),           p.superseded)
+    ] %}
+    {% for label, query, count in chips %}
+      <a class="chip {{ 'active' if query == filters.to_query() else '' }}"
+         href="{{ url_for('review') }}?{{ query }}">{{ label }}<span class="n">{{ count }}</span></a>
+    {% endfor %}
+  </div>
+
+  <div class="card">
+    <form class="filters" method="get" action="{{ url_for('review') }}">
+      <label class="field" style="min-width:220px;">
+        <span>Search</span>
+        <input type="text" name="q" value="{{ filters.q }}" placeholder="subject, target, source text">
+      </label>
+      <label class="field">
+        <span>Status</span>
+        <select name="status">
+          <option value="">any</option>
+          {% for s in ['UNVERIFIED', 'VERIFIED', 'CORRECTED', 'DISPUTED', 'SUPERSEDED'] %}
+            <option value="{{ s }}" {{ 'selected' if filters.status == s else '' }}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        <span>Subject kind</span>
+        <select name="kind">
+          <option value="">any</option>
+          {% for k in summary.by_kind.keys() %}
+            <option value="{{ k }}" {{ 'selected' if filters.kind == k else '' }}>{{ k }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        <span>Predicate</span>
+        <select name="predicate">
+          <option value="">any</option>
+          {% for pr in summary.predicates %}
+            <option value="{{ pr }}" {{ 'selected' if filters.predicate == pr else '' }}>{{ pr }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field" style="max-width:110px;">
+        <span>Confidence ≥</span>
+        <input type="number" name="min_confidence" step="0.05" min="0" max="1" value="{{ filters.min_confidence if filters.min_confidence is not none else '' }}">
+      </label>
+      <label class="field" style="max-width:110px;">
+        <span>≤</span>
+        <input type="number" name="max_confidence" step="0.05" min="0" max="1" value="{{ filters.max_confidence if filters.max_confidence is not none else '' }}">
+      </label>
+      <label class="field">
+        <span>Order</span>
+        <select name="sort">
+          {% for key, label in filters.SORTS.items() %}
+            <option value="{{ key }}" {{ 'selected' if filters.sort == key else '' }}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button class="btn btn-primary" type="submit">Apply</button>
+      <a class="btn btn-ghost" href="{{ url_for('review') }}">Reset</a>
+    </form>
+  </div>
+
+  {# Bulk controls live in their own form so row buttons never nest inside it. #}
+  <div class="card">
+    <form id="bulk-form" method="post" action="{{ url_for('review_bulk') }}"></form>
+    <input type="hidden" name="actor" value="{{ reviewer }}" form="bulk-form">
+    <div class="row">
+      <strong class="small">Bulk review</strong>
+      <span class="muted small">·</span>
+      <button class="btn btn-sm" form="bulk-form" name="bulk_scope" value="selected">
+        Verify selected
+      </button>
+      <span class="muted small">or verify everything at or below</span>
+      <input type="number" name="threshold" form="bulk-form" step="0.05" min="0" max="1"
+             value="{{ low_confidence_threshold }}" style="width:80px;">
+      <button class="btn btn-sm" form="bulk-form" name="bulk_scope" value="threshold">
+        Verify all ≤ threshold
+      </button>
+      <input type="text" name="note" form="bulk-form" placeholder="note for the audit trail"
+             style="width:260px;">
+      <span class="spacer"></span>
+      <span class="muted small">{{ total_rows }} row(s) shown</span>
+    </div>
+    <p class="hint" style="margin:8px 0 0;">
+      Bulk verification re-derives its selection from the graph, so a stale page
+      cannot verify assertions you never saw. Every action is written to the audit trail.
+    </p>
+  </div>
+
+  {% if rows %}
+    <div class="layout-split">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th class="col-check"></th>
+              <th>Subject</th>
+              <th>Predicate</th>
+              <th>Target</th>
+              <th class="col-confidence">Conf.</th>
+              <th class="col-status">Status</th>
+              <th class="col-actions">Decision</th>
+            </tr>
+          </thead>
+          <tbody id="review-rows">
+            {% for row in rows %}
+              {% include "partials/review_row.html" %}
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <aside class="drawer" id="drawer"></aside>
+    </div>
+  {% else %}
+    <div class="card empty">
+      <h2>No assertions match these filters</h2>
+      <p><a href="{{ url_for('review') }}">Clear the filters</a> to see the whole queue.</p>
+    </div>
+  {% endif %}
+{% endif %}
 {% endblock %}

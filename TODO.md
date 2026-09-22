@@ -282,7 +282,8 @@ workflow), structural variance will produce false diffs and drown the signal.
 
 ## 5. ARC-G ⇄ REQ-G linkage — Initiative-scoped reconciliation
 
-**Status:** In progress — shifting to Initiative as primary join key
+**Status:** In progress — a bulk resolution path now exists (item 14); the
+resolution pass itself is still outstanding
 **Priority:** **Critical** — this is the platform's core purpose, currently unmet
 **Area:** `agents/knowledge_extraction/`, `agents/architecture_extraction/`, ontology, `agents/knowledge/ingest.py`
 
@@ -1191,6 +1192,323 @@ This should be **critical** — not because it's blocking the current workflow, 
 **Effort:** Medium. Structurizr JSON parsing is straightforward. PlantUML parsing is more complex but doable. Mermaid is simpler.
 
 **Timeline:** Can be done in parallel with the review gate work, since it's independent.
+
+---
+
+## 13. MVP UI — extraction projection, review gate, change management
+
+**Status:** ✅ IMPLEMENTED (first slice of the journey) — see
+[`docs/ui-review-workflow.md`](docs/ui-review-workflow.md)
+**Priority:** Closed for this slice; follow-ups below
+**Area:** `app/`, `agents/knowledge/` (`serialise.py`, `review.py`, `store.py`), `tests/`
+
+### What this closes
+
+`docs/user-journey.md` §3: *"extraction output has nowhere to go once produced.
+The pipeline's only exit is a JSON file."* It now has somewhere to go — a
+projection to judge, a write path to record judgement, and revisions to judge
+against. Three of the journey's five blocking gaps (1–3) are addressed:
+
+| Journey gap | Status |
+|---|---|
+| 1. View projection layer | ✅ `/`, `/review`, `/graph`, `/gaps`, `/changes`, `/changes/diff` |
+| 2. Correction write path | ✅ verify / correct / dispute / reopen + audit trail |
+| 3. Revision / baseline | ✅ working set vs immutable revision vs frozen baseline |
+
+Still open, in dependency order: **4. Reconciliation** (item 5) and **5. Audit
+engine + gap report** (item 9) — `/gaps` does the structural half only.
+
+### Bugs fixed
+
+1. **Ingest produced an empty graph and reported success.** `app/__init__.py`
+   passed `result.model_dump()` (the `AgentResult` envelope) to
+   `graph_from_extraction`, which reads `triples`/`elements` from the top level
+   and therefore found nothing. Now unwraps `result.output`. A characterisation
+   test pins the failure mode.
+2. **Document type was read and ignored.** The form collected `type` and always
+   ran the requirements extractor. Now selects the REQ-G or ARC-G agent.
+3. **`/graph` and `/gaps` were nav links with no routes** — hard 404s. Both now
+   exist, plus `/changes` and `/changes/diff`.
+4. **Graph state was a module global.** Every decision was lost on restart and two
+   workers could not agree on what the graph was. Now persisted per request.
+5. **`/graph` would also have 500'd** — the nav called `url_for('graph')` while the
+   endpoint was `graph_view`. The route is now `/c4` (endpoint `c4`) with `/graph`
+   kept as a redirect: "graph" in this project means the knowledge graph, so the
+   URL was itself part of the projection/viewpoint confusion recorded below.
+
+### New knowledge-layer modules
+
+- `serialise.py` — field-complete JSON round trip. The architecture review called
+  this transform the highest-risk component and required a named part with tests.
+  It did not exist; nothing could persist a graph.
+- `review.py` — decisions, audit trail, `ReviewProgress`, baseline promotion.
+  Correction is **supersession, not mutation**, so lineage survives.
+- `store.py` — working set / revision / baseline, with `BaselineNotReady` as the
+  freeze gate. Ordering is by insertion, not `created_at` (second precision would
+  order same-second commits arbitrarily).
+- `ingest.merge_graphs` — re-extraction **merges** rather than replaces, so human
+  corrections survive a re-run (architecture-review §3.3, the "sleeper").
+
+### Verification
+
+`tests/` was empty; it now holds 239 tests covering the knowledge layer, the
+projections and every route, running against an injectable fake extractor so the
+suite needs no model server. All routes verified 200 against a real booted
+server.
+
+### Follow-ups (deliberately not in this slice)
+
+1. **Reconciliation at scale** — see item 14. `/reconcile` binds to existing nodes
+   only: it does not create a missing target, does not invert the direction, and
+   matches lexically.
+2. **Semantic audit** — all checks are structural. "Does this design answer this
+   requirement?" is unimplemented.
+3. **Authentication / multi-user review** — one reviewer identity from config.
+   Open question 1 in the journey (is Reviewer/Auditor a distinct persona?) is
+   still unanswered, and it decides whether review is inline or a queue.
+4. **Concurrent writers** — reads/writes hit disk per request. Fine for a
+   single-process MVP; a multi-worker deployment needs locking or a real store.
+5. **Correction merge conflicts** — supersession is sufficient while one document
+   owns a graph. Item 9b returns the first time knowledge arrives from two sources.
+6. **The graph view is a depiction, not a diagram editor** — no layout persistence,
+   no manual arrangement, no write-back from the canvas.
+
+---
+
+## 14. Bulk reference resolution — reconciliation, first slice
+
+**Status:** ✅ IMPLEMENTED — see
+[`docs/ui-review-workflow.md`](docs/ui-review-workflow.md) §4
+**Priority:** Closed for this slice; follow-ups below
+**Area:** `agents/knowledge/reconcile.py`, `agents/knowledge/ingest.py`, `app/`
+
+### What this closes
+
+Item 5 called ARC-G ⇄ REQ-G linkage *"the platform's core purpose, currently
+unmet"*. It is still unmet in full, but unresolved references now have a place to
+go: a projection that proposes targets, a decision that records the binding, and a
+bulk path that is honest about what it declines.
+
+| | |
+|---|---|
+| Unresolved references | 13 |
+| Resolvable at the default 0.75 threshold | 1 |
+| Below threshold | 3 |
+| No candidate of the expected kind | 9 |
+| Predicate looks wrong | 2 |
+
+### Design decisions worth keeping
+
+1. **Kind scoping is mandatory.** Measured on the real ARC-G output, unscoped
+   best-match picks `Concept:'Card Payment Processing'` (0.94) over the correct
+   `BusinessCapability:'Unified Payment Processing'` (0.92) for
+   `supports_capability → 'Payment Processing'`. Lexical similarity alone prefers
+   the wrong kind of thing, so every predicate declares the kinds it may point at
+   and bulk resolve never crosses them. An override is available and recorded.
+2. **Resolution is not `review.correct()`.** `correct()` refuses to turn a
+   cross-graph reference into a node, because doing that silently erases the
+   resolved/unresolved distinction. Resolution is the deliberate opposite act.
+3. **Bulk reports what it declined.** `below_threshold`, `no_candidate` and
+   `unknown_ids` are returned and surfaced, not swallowed. A wrong traceability
+   link is worse than a missing one.
+4. **`mislabel_suspected`** — a strong match in the wrong kind means the predicate
+   is probably wrong. On the real data, two `traces_to_goal` references score 0.90
+   and 0.86 against `FunctionalRequirement`s with no `BusinessGoal` candidate at
+   all: the extractor attached a goal predicate to a function name. This is an
+   extraction finding surfaced by reconciliation, and it is worth acting on
+   upstream (item 7 / item 12).
+
+### Bug found and fixed while building this
+
+**Requirement IDs never reached the graph.** The requirements profile emits
+`requirement_id`; `ingest._collect_declared_nodes` read only the architecture
+profile's `external_references`. So the document's own stable key was discarded at
+ingest — meaning root cause 1 of item 5 was still live *below* the extractor, and
+reconciliation's strongest signal was structurally unreachable no matter how good
+the extraction got. `ingest._external_refs` now reads both shapes.
+
+**Caveat, stated plainly:** the saved fixture in `data/output/` carries **zero**
+`requirement_id` values (0 of 54 entities) and an empty `references` collection,
+because it predates that work. The fix is therefore forward-looking for this data;
+`test_a_preserved_id_joins_two_documents_end_to_end` proves the path works end to
+end when a key does survive.
+
+### Follow-ups
+
+1. **Invert the direction.** All unresolved references currently run ARC → REQ.
+   REQ-G emits no cross-graph predicates, so "requirements with no architectural
+   answer" cannot be computed at all. It is the inversion of the resolved links,
+   and it needs links that resolve first.
+2. **Create the missing target.** Deliberately not offered: resolution asserts the
+   referent was already extracted. A separate, explicitly different action should
+   handle "the architecture references a requirement the document never stated" —
+   which is itself a finding, not a binding.
+3. **Semantic matching.** Lexical candidates cannot bridge a paraphrase with no
+   shared vocabulary. Embedding or model-assisted proposals belong here, with the
+   same propose/decide split and the same audit trail.
+4. **Surface the mislabel finding upstream.** `traces_to_goal` carrying function
+   names is an extraction defect (item 7's pass-split, or item 12's deterministic
+   C4 parser).
+5. **Coverage reporting.** `RequirementRealization` carries `coverage` and
+   `evidence` in the ontology; resolution currently sets `ontology_class` but
+   populates neither.
+
+---
+
+## 15. Split graph projection from architecture viewpoints
+
+**Status:** ✅ IMPLEMENTED — see
+[`docs/ui-review-workflow.md`](docs/ui-review-workflow.md) §8
+**Priority:** Closed
+**Area:** `app/projections.py`, `app/viewpoints/`, `app/templates/c4.html`
+
+### The conflation
+
+"Project the graph" and "project the architecture as a C4 view" were one module,
+one entry in the docs' module map, and one nav label ("Graph"). They are not the
+same thing:
+
+| | Graph projection | Architecture viewpoint |
+|---|---|---|
+| Question | make the graph readable and judgeable | describe the architecture in a recognised notation |
+| Knows about | assertions, confidence, provenance, filters | C4 levels, element kinds, element detail |
+| Changes when | the knowledge model changes | the notation, or the views offered, changes |
+| Domain-specific | no | yes |
+
+### What changed
+
+1. `app/views.py` → **`app/projections.py`**, renamed for what it is (Flask
+   *routes* are the views). Its C4 content was removed.
+2. **`app/viewpoints/`** added, holding `c4.py`. The C4 decisions — level→kind
+   tables, which facts are element detail, what the renderer receives — now live
+   beside the notation they describe.
+3. The fused work was split by concern:
+   - notation-agnostic → new primitives in `projections.py` (`node_records`,
+     `edge_records`, `literal_facts`), which any viewpoint composes;
+   - C4-specific → `viewpoints/c4.py`, which now *selects* instead of
+     re-deriving. `project_c4_context` → `c4_view`.
+4. `/graph` → **`/c4`**, endpoint `c4`, nav label **"C4 view"**. `/graph` is kept
+   as a 301 redirect. `/api/graph/c4` → `/api/c4`.
+5. `graph.html` → `c4.html`. Its page copy was describing *generic assertion
+   flattening* — the projection layer's job — on a page about C4. Rewritten to
+   explain what a C4 level is and why it deliberately omits elements.
+6. Tests split to mirror the layers: `test_views.py` → **`test_projections.py`**
+   plus **`test_viewpoint_c4.py`**, which covers the new primitives.
+
+### Guards against re-fusing
+
+- `test_projection_layer_does_not_own_architecture_notation` — no C4 level tables
+  and no import of a viewpoint from the projection layer.
+- `test_the_viewpoint_composes_projection_primitives` — the viewpoint must call
+  `node_records`/`edge_records`/`literal_facts` and must not walk `graph.active()`
+  itself, because a second implementation of assertion flattening is a second
+  thing to keep correct.
+
+### Consequence worth keeping
+
+A viewpoint is a **deliberate reduction**: at C4 context level a `Container` is
+real, is in the graph, and is not drawn. The view therefore reports
+`excluded_kinds`, so "not at this level" is never mistaken for "not in the graph".
+The same reasoning is why the direction is one-way — viewpoints compose
+projections, never the reverse.
+
+---
+
+## 16. Ontology reference view — a browsable view of the four schemas
+
+**Status:** ✅ IMPLEMENTED — see
+[`docs/ui-review-workflow.md`](docs/ui-review-workflow.md) §8, §8a
+**Priority:** Closed
+**Area:** `agents/ontology.py`, `app/ontology_reference.py`,
+`app/templates/ontology.html`, `tests/test_ontology*.py`
+
+### Why
+
+The four foundational ontologies are the vocabulary every extracted fact is
+expressed in, and the only way to read them was the YAML plus a README whose tables
+have drifted — it still calls `architecture_base.yaml` "(future)" and never mentions
+`sea_common.yaml`. A list of class names is not comprehension. What actually explains
+these schemas is structural: the import chain, `is_a` versus mixins, inheritance, and
+which slots point at other classes.
+
+### The third kind of view
+
+This is **not** graph projection and **not** an architecture viewpoint; it reads the
+LinkML *schemas*, not the extracted graph. Two of those three were fused in one module
+until item 15 split them, so this one was placed and guarded deliberately:
+
+| Module | Reads |
+|---|---|
+| `app/projections.py` | the instance graph (ABox) |
+| `app/viewpoints/c4.py` | the instance graph + a notation |
+| `agents/ontology.py` + `app/ontology_reference.py` | the LinkML schemas (TBox) |
+
+`agents/ontology.py` imports nothing from `agents.knowledge` or `app`, so the Ontology
+Engineer and Domain Context agents can use it without the web layer. Guarded by
+`test_the_loader_reads_schemas_and_not_the_graph`.
+
+The schema and the instance graph meet in exactly one place — the `instances` column
+on `/ontology` — and that join lives in the view layer so the loader never learns
+about graphs.
+
+### What it shows
+
+- **The one-way import chain**, which is why the layers exist at all.
+- **`is_a` versus `mixins`**, kept visually distinct. Each layer's abstract root mixes
+  in `ExternallyReferenced` and `Provenanced`, so every class beneath inherits identity
+  and provenance — but a mixin is not a taxonomy edge and is not drawn as one.
+- **Inheritance, resolved.** `NonFunctionalRequirement` carries 33 slots of which 7 are
+  its own; the slot table separates own from inherited and names the declaring class,
+  because "`id` from `Requirement`" is a different fact from a local slot.
+- **Relationships versus hierarchy.** Slots whose `range` is a class are the real
+  concept-to-concept links (150 of them).
+- **Binding classes** (`SubProductScope`, `SystemCapabilityBinding`) that exist only to
+  break a circular import, stated as such rather than silently omitted.
+- **Integrity findings** — unresolved supertypes and slot ranges whose type is neither
+  a class, an enum, nor a primitive. Currently zero.
+
+The focus drawing uses **semantic rows** (supertypes above, subtypes below, relationship
+targets and incoming references further out) rather than a force simulation: position
+means something, whereas a hairball of 58 classes teaches nothing.
+
+### Verified against LinkML
+
+The loader's own resolution is checked against LinkML's authoritative parser for
+**every one of the 58 classes** — ancestors and effective slot sets
+(`test_resolution_matches_linkml`). Asserting against hand-written expectations would
+only prove the loader is consistently wrong. It agrees exactly.
+
+### Measured state
+
+| | |
+|---|---|
+| Classes | 58 (4 common, 7 enterprise, 28 requirements, 19 architecture) |
+| Enums / subsets | 37 / 13 |
+| Slots declared (whose range is a class) | 457 (150) |
+| Unresolved supertypes / ranges / duplicates | 0 / 0 / 0 |
+
+### Findings
+
+1. **A class's direct supertype row shows only `is_a` plus its own mixins.** Mixins are
+   not repeated down the tree — they hang off each layer root. That is good design, and
+   it is exactly why `ancestors()` must include mixins: otherwise
+   `NonFunctionalRequirement` appears to have 7 slots instead of 33.
+2. **`ontology/README.md` has drifted** and is now flagged as such at the top. Fine to
+   keep as history; the live view cannot drift.
+3. **Coverage is the useful cross-reference.** Classes with 0 instances explain why an
+   empty view elsewhere is empty — a requirements-only graph has no C4 elements, so
+   `/c4` is legitimately blank. The page makes that visible instead of leaving a reader
+   to guess.
+
+### Follow-ups
+
+1. **The Ontology Engineer and Domain Context agents are still stubs.** This loader is
+   the first real capability they need; wiring them is item 11's territory.
+2. **No editing.** The page is read-only by design — schema changes belong in the YAML
+   and through the (unbuilt) Ontology Engineer agent, not in a form that silently
+   diverges from the file.
+3. **Domain ontologies** (`ontology/domains/*.yaml`, item 11) are not placed as a layer.
+   When they arrive, `LAYER_ORDER` needs branches rather than a single chain.
 
 ---
 

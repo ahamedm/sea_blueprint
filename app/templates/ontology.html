@@ -1,0 +1,454 @@
+{% extends "base.html" %}
+{% block title %}Ontology · SEA{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Foundational ontologies</h1>
+    <p>
+      The vocabulary this platform reasons with — four LinkML schemas that every
+      extracted fact is expressed in. This is a reference to the <em>schema</em>, not a
+      view of your architecture: <a href="{{ url_for('c4') }}">C4 view</a> shows the
+      architecture, <a href="{{ url_for('gaps') }}">Gaps</a> shows what is missing from it.
+    </p>
+  </div>
+  <div class="row">
+    <a class="btn" href="{{ url_for('api_ontology') }}">JSON</a>
+  </div>
+</div>
+
+{% if error %}
+  <div class="banner banner-bad">
+    <strong>The ontology could not be read.</strong>
+    {{ error }}
+  </div>
+{% else %}
+  {% set s = view.stats %}
+
+  {% if not view.diagnostics.is_clean %}
+    <div class="banner banner-warn">
+      <strong>Schema integrity findings.</strong>
+      {{ view.diagnostics.unresolved_parents|length }} unresolved supertype(s),
+      {{ view.diagnostics.unresolved_ranges|length }} unresolved slot range(s),
+      {{ view.diagnostics.duplicate_names|length }} duplicate name(s).
+      A slot whose range is neither a class, an enum, nor a primitive is reported
+      rather than assumed.
+    </div>
+  {% endif %}
+
+  <div class="grid grid-4" style="margin-bottom:18px;">
+    <div class="stat">
+      <div class="value">{{ s.classes }}</div>
+      <div class="label">Classes</div>
+      <div class="foot">{{ s.abstract }} abstract · {{ s.mixins }} mixins</div>
+    </div>
+    <div class="stat">
+      <div class="value">{{ s.enums }}</div>
+      <div class="label">Enums</div>
+      <div class="foot">controlled vocabularies</div>
+    </div>
+    <div class="stat">
+      <div class="value">{{ s.slots }}</div>
+      <div class="label">Slots declared</div>
+      <div class="foot">{{ s.relationships }} whose range is another class</div>
+    </div>
+    <div class="stat">
+      <div class="value">{{ s.layers }}</div>
+      <div class="label">Layers</div>
+      <div class="foot">{{ s.subsets }} subsets · {{ s.unresolved_ranges + s.unresolved_parents }} unresolved</div>
+    </div>
+  </div>
+
+  {# -- the import chain: why the layers exist ---------------------------- #}
+  <div class="card">
+    <div class="card-head">
+      <h2>The four layers, and the one-way import rule</h2>
+    </div>
+    <p class="hint">
+      Each layer may reference the ones below it and never the reverse. That rule is
+      why the split exists: enterprise constructs are needed by <em>both</em> graphs, so
+      they are defined once and both vocabularies stay comparable.
+    </p>
+    <div class="chain">
+      {% for l in view.layers %}
+        <div class="chain-node layer-{{ l.key }}">
+          <div class="chain-head">
+            <span class="chain-index">{{ l.index + 1 }}</span>
+            <strong>{{ l.label }}</strong>
+            {% if l.version %}<span class="tag">v{{ l.version }}</span>{% endif %}
+          </div>
+          <div class="chain-prefix mono">{{ l.prefix }}</div>
+          <p class="small">{{ l.role }}</p>
+          <div class="small muted">
+            {{ l.class_count }} classes · {{ l.enum_count }} enums
+            {% if l.instances %}· <strong>{{ l.instances }}</strong> in working set{% endif %}
+          </div>
+          <div class="small">
+            {% for imp in l.imports_labeled %}
+              <span class="tag">imports {{ imp.label }}</span>
+            {% endfor %}
+            {% for ext in l.external_imports %}<span class="tag">{{ ext }}</span>{% endfor %}
+          </div>
+          <div class="chain-examples small muted">
+            {% for example in l.examples %}{{ example }}{% if not loop.last %} · {% endif %}{% endfor %}
+          </div>
+          <a class="small" href="{{ url_for('ontology', layer=l.key) }}">browse →</a>
+        </div>
+      {% endfor %}
+    </div>
+    <p class="hint" style="margin-top:12px;">
+      Two classes are <strong>mixins</strong> ({{ view.mixins|join(', ') }}) rather than
+      supertypes: they contribute identity and provenance to whatever mixes them in
+      without being part of any taxonomy. Three classes are
+      <strong>abstract</strong> ({{ view.abstract|join(', ') }}) and exist only to be inherited.
+    </p>
+  </div>
+
+  {# -- filters ----------------------------------------------------------- #}
+  <div class="card">
+    <form class="filters" method="get" action="{{ url_for('ontology') }}">
+      <label class="field" style="min-width:240px;">
+        <span>Search classes, descriptions and slot names</span>
+        <input type="text" name="q" value="{{ q }}" placeholder="e.g. quality_category, Initiative, realization">
+      </label>
+      <label class="field">
+        <span>Layer</span>
+        <select name="layer">
+          <option value="">all layers</option>
+          {% for l in view.layers %}
+            <option value="{{ l.key }}" {{ 'selected' if layer == l.key else '' }}>{{ l.label }} ({{ l.class_count }})</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        <span>Only</span>
+        <select name="only">
+          {% for key, label in [('', 'everything'), ('abstract', 'abstract'), ('mixin', 'mixins'),
+                                ('relationship', 'with relationships'), ('unused', 'no instances yet')] %}
+            <option value="{{ key }}" {{ 'selected' if only == key else '' }}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button class="btn btn-primary" type="submit">Filter</button>
+      <a class="btn btn-ghost" href="{{ url_for('ontology') }}">Reset</a>
+      <span class="spacer"></span>
+      <span class="muted small">{{ classes|length }} class(es), {{ enums|length }} enum(s)</span>
+    </form>
+  </div>
+
+  {# -- focus panel ------------------------------------------------------- #}
+  {% if detail %}
+    <div class="card">
+      <div class="card-head">
+        <h2>{{ detail.name }}</h2>
+        <span>
+          <span class="kind">{{ detail.layer_label }}</span>
+          {% if detail.abstract %}<span class="tag tag-warn">abstract</span>{% endif %}
+          {% if detail.mixin %}<span class="tag tag-human">mixin</span>{% endif %}
+          <span class="tag {{ 'tag-ref' if detail.instances else '' }}">{{ detail.instances }} in working set</span>
+          <a class="small" href="{{ url_for('ontology') }}">clear</a>
+        </span>
+      </div>
+      <p class="hint">{{ detail.description or 'No description in the schema.' }}</p>
+
+      {# the neighbourhood: position carries meaning #}
+      <div class="graph-canvas" id="ontology-graph" style="height:460px;"></div>
+      <div class="legend" id="ontology-legend"></div>
+      {% set h = detail.neighbourhood.hidden %}
+      {% if h.referenced_by or h.subtypes or h.ranges %}
+        <p class="hint">
+          Not drawn to keep this readable:
+          {% if h.referenced_by %}{{ h.referenced_by }} further referrer(s){% endif %}
+          {%- if h.subtypes %}, {{ h.subtypes }} further subtype(s){% endif %}
+          {%- if h.ranges %}, {{ h.ranges }} further range target(s){% endif %}.
+        </p>
+      {% endif %}
+
+      <div class="grid grid-2" style="margin-top:14px;">
+        <div>
+          <h3 class="small">Supertype chain</h3>
+          {% if detail.ancestor_chain %}
+            <p class="small mono">{{ detail.ancestor_chain|join(' → ') }}</p>
+          {% else %}
+            <p class="small muted">No supertypes — this is a root class.</p>
+          {% endif %}
+          {% if detail.children %}
+            <h3 class="small">Specialised by</h3>
+            <p>
+              {% for child in detail.children %}
+                <a class="tag" href="{{ url_for('ontology', focus=child) }}">{{ child }}</a>
+              {% endfor %}
+            </p>
+          {% endif %}
+          {% if detail.referenced_by %}
+            <h3 class="small">Pointed at by ({{ detail.referenced_by|length }})</h3>
+            <p class="small">
+              {% for ref in detail.referenced_by %}
+                <a href="{{ url_for('ontology', focus=ref.owner) }}">{{ ref.owner }}</a><code class="muted">.{{ ref.slot }}</code>{% if not loop.last %} · {% endif %}
+              {% endfor %}
+            </p>
+          {% endif %}
+        </div>
+        <div>
+          <h3 class="small">Relationships ({{ detail.relationships|length }})</h3>
+          {% if detail.relationships %}
+            <table class="table-plain">
+              <thead><tr><th>Slot</th><th>Range</th><th>Layer</th></tr></thead>
+              <tbody>
+                {% for r in detail.relationships %}
+                  <tr>
+                    <td><code>{{ r.slot }}</code></td>
+                    <td><a href="{{ url_for('ontology', focus=r.target) }}">{{ r.target }}</a></td>
+                    <td class="small muted">{{ r.target_layer }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          {% else %}
+            <p class="small muted">No slots whose range is another class.</p>
+          {% endif %}
+        </div>
+      </div>
+
+      {# slots: own versus inherited, because that distinction is the schema's design #}
+      <h3 class="small" style="margin-top:16px;">
+        Slots — {{ detail.own_slots|length }} declared here, {{ detail.inherited_slots|length }} inherited
+        ({{ detail.effective_count }} effective)
+      </h3>
+      <div class="table-wrap" style="max-height:340px;">
+        <table>
+          <thead>
+            <tr><th>Slot</th><th>Range</th><th>Card.</th><th>Declared by</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            {% for slot in detail.own_slots %}
+              <tr>
+                <td><code>{{ slot.name }}</code>{% if slot.identifier %} <span class="tag">id</span>{% endif %}</td>
+                <td>
+                  {% if slot.range_kind in ('class', 'enum') %}
+                    <a href="{{ url_for('ontology', focus=slot.range) if slot.range_kind == 'class' else url_for('ontology', q=slot.range) }}">{{ slot.range }}</a>
+                    <span class="tag">{{ slot.range_kind }}</span>
+                  {% else %}
+                    <span class="mono muted">{{ slot.range }}</span>
+                  {% endif %}
+                </td>
+                <td class="small nowrap">
+                  {% if slot.required %}<span class="tag tag-warn">required</span>{% endif %}
+                  {% if slot.multivalued %}<span class="tag">many</span>{% endif %}
+                </td>
+                <td class="small"><span class="tag tag-human">here</span></td>
+                <td class="small muted">{{ slot.description }}</td>
+              </tr>
+            {% endfor %}
+            {% for slot in detail.inherited_slots %}
+              <tr>
+                <td><code>{{ slot.name }}</code></td>
+                <td>
+                  {% if slot.range_kind == 'class' %}
+                    <a href="{{ url_for('ontology', focus=slot.range) }}">{{ slot.range }}</a>
+                  {% else %}
+                    <span class="mono muted">{{ slot.range }}</span>
+                  {% endif %}
+                </td>
+                <td class="small nowrap">
+                  {% if slot.required %}<span class="tag tag-warn">required</span>{% endif %}
+                  {% if slot.multivalued %}<span class="tag">many</span>{% endif %}
+                </td>
+                <td class="small">
+                  <a class="tag" href="{{ url_for('ontology', focus=slot.declared_by) }}">{{ slot.declared_by }}</a>
+                </td>
+                <td class="small muted">{{ slot.description }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {% endif %}
+
+  {# -- class browser ----------------------------------------------------- #}
+  <div class="card">
+    <div class="card-head">
+      <h2>Classes</h2>
+      <span class="muted small">click a name to focus it</span>
+    </div>
+    {% if classes %}
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Class</th><th>Layer</th><th>Is a</th><th>Mixins</th>
+              <th class="col-confidence">Own</th><th class="col-confidence">Inherited</th>
+              <th class="col-confidence">Rels</th><th class="col-confidence">Instances</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for c in classes %}
+              <tr class="{{ 'row-mixin' if c.mixin else '' }}">
+                <td>
+                  <a href="{{ url_for('ontology', focus=c.name, layer=layer, q=q, only=only) }}"><strong>{{ c.name }}</strong></a>
+                  {% if c.abstract %}<span class="tag tag-warn">abstract</span>{% endif %}
+                  {% if c.mixin %}<span class="tag tag-human">mixin</span>{% endif %}
+                  {% if c.description %}<div class="small muted">{{ c.description[:120] }}{% if c.description|length > 120 %}…{% endif %}</div>{% endif %}
+                </td>
+                <td><span class="kind layer-{{ c.layer }}">{{ c.layer_label }}</span></td>
+                <td class="small">
+                  {% if c.is_a %}<a href="{{ url_for('ontology', focus=c.is_a) }}">{{ c.is_a }}</a>{% else %}<span class="muted">—</span>{% endif %}
+                </td>
+                <td class="small">
+                  {% for m in c.mixins %}<a class="tag tag-human" href="{{ url_for('ontology', focus=m) }}">{{ m }}</a>{% else %}<span class="muted">—</span>{% endfor %}
+                </td>
+                <td class="col-confidence">{{ c.own_attributes }}</td>
+                <td class="col-confidence muted">{{ c.inherited_attributes }}</td>
+                <td class="col-confidence">{{ c.relationships }}</td>
+                <td class="col-confidence">
+                  {% if c.instances %}<strong>{{ c.instances }}</strong>{% else %}<span class="muted">0</span>{% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <p class="hint">
+        <strong>Own</strong> is what the class declares; <strong>Inherited</strong> comes
+        from its supertypes and mixins; <strong>Instances</strong> counts nodes of this
+        class in the working set — a zero there usually explains an empty view elsewhere.
+      </p>
+    {% else %}
+      <p class="hint">No class matches that filter.</p>
+    {% endif %}
+  </div>
+
+  {# -- enums ------------------------------------------------------------- #}
+  <div class="card">
+    <div class="card-head">
+      <h2>Controlled vocabularies</h2>
+      <span class="muted small">{{ enums|length }} enum(s)</span>
+    </div>
+    {% if enums %}
+      <div class="table-wrap" style="max-height:420px;">
+        <table>
+          <thead><tr><th>Enum</th><th>Layer</th><th>Values</th></tr></thead>
+          <tbody>
+            {% for e in enums %}
+              <tr>
+                <td>
+                  <strong>{{ e.name }}</strong>
+                  {% if e.description %}<div class="small muted">{{ e.description[:110] }}{% if e.description|length > 110 %}…{% endif %}</div>{% endif %}
+                </td>
+                <td><span class="kind layer-{{ e.layer }}">{{ e.layer_label }}</span></td>
+                <td class="small">
+                  {% for v in e['values'] %}
+                    <span class="tag" title="{{ e['value_descriptions'].get(v, '') }}">{{ v }}</span>
+                  {% endfor %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="hint">No enum matches that filter.</p>
+    {% endif %}
+  </div>
+
+  {% if neighbourhood and neighbourhood.found %}
+    <script>
+      (function () {
+        var el = document.getElementById('ontology-graph');
+        if (!el || !window.d3) { return; }
+        var data = {{ neighbourhood|tojson }};
+        var layers = {{ view.layers|map(attribute='key')|list|tojson }};
+        var palette = ['#2563eb', '#0891b2', '#7c3aed', '#15803d', '#b45309', '#be123c', '#475569'];
+
+        var width = el.clientWidth || 960;
+        var rowHeight = 88;
+        var topPad = 34;
+        var height = Math.max(200, data.rows.length * rowHeight + topPad);
+
+        var nodes = [], byName = {};
+        data.rows.forEach(function (row, rowIndex) {
+          var count = row.nodes.length || 1;
+          row.nodes.forEach(function (n, i) {
+            var node = Object.assign({}, n, {
+              row: rowIndex,
+              rowKey: row.key,
+              x: width * (i + 1) / (count + 1),
+              y: topPad + rowIndex * rowHeight
+            });
+            nodes.push(node);
+            byName[n.name] = node;
+          });
+        });
+
+        var svg = d3.select(el).append('svg').attr('viewBox', [0, 0, width, height]);
+        el.style.height = height + 'px';
+
+        // Row labels: position is the explanation, so it must be legible.
+        svg.append('g').selectAll('text')
+          .data(data.rows).join('text')
+          .attr('x', 8).attr('y', function (d, i) { return topPad + i * rowHeight - 26; })
+          .attr('font-size', 11).attr('font-weight', 600).attr('fill', '#64748b')
+          .text(function (d) { return d.label; });
+
+        var links = data.links.filter(function (l) { return byName[l.source] && byName[l.target]; });
+
+        svg.append('g').selectAll('path')
+          .data(links).join('path')
+          .attr('fill', 'none')
+          .attr('stroke', function (d) {
+            return d.kind === 'is_a' ? '#2563eb'
+                 : d.kind === 'mixin' ? '#7c3aed'
+                 : d.kind === 'incoming' ? '#94a3b8' : '#0891b2';
+          })
+          .attr('stroke-width', function (d) { return d.kind === 'incoming' ? 1 : 1.4; })
+          .attr('stroke-dasharray', function (d) {
+            return d.kind === 'mixin' ? '4 3' : (d.kind === 'incoming' ? '2 3' : null);
+          })
+          .attr('d', function (d) {
+            var a = byName[d.source], b = byName[d.target];
+            var mid = (a.y + b.y) / 2;
+            return 'M' + a.x + ',' + a.y + ' C' + a.x + ',' + mid + ' ' + b.x + ',' + mid + ' ' + b.x + ',' + b.y;
+          });
+
+        var node = svg.append('g').selectAll('g')
+          .data(nodes).join('g')
+          .attr('transform', function (d) { return 'translate(' + d.x + ',' + d.y + ')'; });
+
+        node.append('rect')
+          .attr('x', -70).attr('y', -13).attr('width', 140).attr('height', 26).attr('rx', 6)
+          .attr('fill', function (d) {
+            if (d.is_focus) { return '#0f172a'; }
+            var idx = layers.indexOf(d.layer);
+            return idx >= 0 ? palette[idx % palette.length] : '#94a3b8';
+          })
+          .attr('fill-opacity', function (d) { return d.is_focus ? 1 : (d.abstract ? 0.14 : 0.2); })
+          .attr('stroke', function (d) {
+            if (d.is_focus) { return '#0f172a'; }
+            var idx = layers.indexOf(d.layer);
+            return idx >= 0 ? palette[idx % palette.length] : '#94a3b8';
+          })
+          .attr('stroke-dasharray', function (d) { return d.mixin ? '4 3' : null; });
+
+        node.append('text')
+          .attr('text-anchor', 'middle').attr('y', 4)
+          .attr('font-size', 11.5)
+          .attr('font-weight', function (d) { return d.is_focus ? 700 : 500; })
+          .attr('fill', function (d) { return d.is_focus ? '#ffffff' : '#0f172a'; })
+          .text(function (d) { return d.name.length > 20 ? d.name.slice(0, 19) + '…' : d.name; });
+
+        node.append('title').text(function (d) {
+          return d.name + ' (' + (d.layer_label || d.kind) + ')'
+               + (d.kind === 'enum' ? ' — enum' : '') + (d.mixin ? ' — mixin' : '');
+        });
+
+        var legend = d3.select('#ontology-legend');
+        legend.append('span').html('<span class="swatch" style="background:#2563eb"></span>is a');
+        legend.append('span').html('<span class="swatch" style="background:#7c3aed"></span>mixes in');
+        legend.append('span').html('<span class="swatch" style="background:#0891b2"></span>slot range');
+        legend.append('span').html('<span class="swatch" style="background:#94a3b8"></span>pointed at by');
+      })();
+    </script>
+  {% endif %}
+{% endif %}
+{% endblock %}

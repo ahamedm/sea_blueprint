@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+{% block title %}Reconcile · SEA{% endblock %}
+
+{% block content %}
+{% set s = view.summary %}
+<div class="page-head">
+  <div>
+    <h1>Reconcile references</h1>
+    <p>
+      An unresolved reference is a claim that points into the other graph — the architecture
+      saying it implements something, or supports a capability — where the referent was kept
+      as text because nothing in this graph matched it. Binding one to a node is what turns
+      a paraphrase into a traceability link.
+    </p>
+  </div>
+  <div class="row">
+    <a class="btn" href="{{ url_for('gaps') }}">Gap report</a>
+    <a class="btn" href="{{ url_for('review') }}">Back to review</a>
+  </div>
+</div>
+
+{% if empty %}
+  <div class="card empty">
+    <h2>Nothing to reconcile</h2>
+    <p>The working set is empty. Load a requirements and an architecture document first.</p>
+    <p><a class="btn btn-primary" href="{{ url_for('ingest') }}">Ingest a document</a></p>
+  </div>
+{% elif not view.rows %}
+  <div class="banner banner-ok">
+    <strong>Every cross-graph reference is resolved.</strong>
+    There is nothing left for reconciliation to bind in this graph.
+  </div>
+{% else %}
+
+  <div class="grid grid-4" style="margin-bottom:18px;">
+    <div class="stat">
+      <div class="value">{{ s.total }}</div>
+      <div class="label">Open references</div>
+      <div class="foot">awaiting a binding</div>
+    </div>
+    <div class="stat">
+      <div class="value" style="color:{{ 'var(--ok)' if s.resolvable else 'var(--text-faint)' }}">{{ s.resolvable }}</div>
+      <div class="label">Resolvable now</div>
+      <div class="foot">a candidate of the expected kind scores ≥ {{ '%g'|format(s.threshold) }}</div>
+    </div>
+    <div class="stat">
+      <div class="value">{{ s.below_threshold }}</div>
+      <div class="label">Weak matches only</div>
+      <div class="foot">a candidate exists but scores below threshold</div>
+    </div>
+    <div class="stat">
+      <div class="value" style="color:{{ 'var(--warn)' if s.mislabel_suspected else 'inherit' }}">{{ s.mislabel_suspected }}</div>
+      <div class="label">Predicate looks wrong</div>
+      <div class="foot">strong match found in a different kind</div>
+    </div>
+  </div>
+
+  {% if s.mislabel_suspected %}
+    <div class="banner banner-warn">
+      <strong>{{ s.mislabel_suspected }} reference(s) match strongly outside their expected kind.</strong>
+      That usually means the extractor attached the wrong predicate — a function name
+      labelled <code>traces_to_goal</code>, say — rather than that the target is missing.
+      The fix is upstream in extraction, but you can bind one deliberately below with
+      <em>allow different kind</em>.
+    </div>
+  {% endif %}
+
+  <div class="card">
+    <form class="filters" method="get" action="{{ url_for('reconcile') }}">
+      <label class="field" style="max-width:170px;">
+        <span>Match threshold</span>
+        <input type="number" name="threshold" step="0.05" min="0" max="1" value="{{ '%g'|format(threshold) }}">
+      </label>
+      <button class="btn btn-primary" type="submit">Apply</button>
+      <a class="btn btn-ghost" href="{{ url_for('reconcile') }}">Reset</a>
+      <span class="spacer"></span>
+      <span class="muted small">
+        by predicate:
+        {% for predicate, n in s.by_predicate.items() %}
+          <span class="tag">{{ predicate }} {{ n }}</span>
+        {% endfor %}
+      </span>
+    </form>
+    <p class="hint" style="margin:10px 0 0;">
+      Matching is deterministic and explainable — <code>exact</code>, <code>external_ref</code>
+      (the document's own stable key), <code>contains</code>, <code>tokens</code>. Nothing is
+      bound automatically below this threshold, and never across kinds.
+    </p>
+  </div>
+
+  {# Bulk controls sit in their own form so the per-row forms never nest inside it. #}
+  <div class="card">
+    <form id="reconcile-bulk-form" method="post" action="{{ url_for('reconcile_bulk') }}"></form>
+    <input type="hidden" name="actor" value="{{ reviewer }}" form="reconcile-bulk-form">
+    <input type="hidden" name="threshold" value="{{ threshold }}" form="reconcile-bulk-form">
+    <div class="row">
+      <strong class="small">Bulk resolve</strong>
+      <span class="muted small">·</span>
+      <button class="btn btn-sm btn-primary" form="reconcile-bulk-form"
+              name="bulk_scope" value="threshold">
+        Bind all {{ s.resolvable }} resolvable at {{ '%g'|format(threshold) }}
+      </button>
+      <button class="btn btn-sm" form="reconcile-bulk-form"
+              name="bulk_scope" value="selected">
+        Bind selected
+      </button>
+      <input type="text" name="note" form="reconcile-bulk-form"
+             placeholder="note for the audit trail" style="width:260px;">
+    </div>
+    <p class="hint" style="margin:8px 0 0;">
+      Bulk binds only the best candidate <em>of the predicate's expected kind</em> that clears
+      the threshold. Everything it declines is reported, not silently skipped — a wrong
+      traceability link makes the downstream audit confidently wrong.
+    </p>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th class="col-check"></th>
+          <th>Element</th>
+          <th>Relationship</th>
+          <th>Reference text</th>
+          <th>Proposed target</th>
+          <th>Verdict</th>
+          <th class="col-actions">Resolve</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in view.rows %}
+          <tr id="ref-{{ row.assertion_id }}">
+            <td class="col-check">
+              <input type="checkbox" name="ids" value="{{ row.assertion_id }}"
+                     form="reconcile-bulk-form" aria-label="select reference">
+            </td>
+            <td>
+              <span class="kind">{{ row.source_kind }}</span>{{ row.source_label }}
+            </td>
+            <td><code>{{ row.predicate }}</code></td>
+            <td>
+              {{ row.target_text }}
+              <div class="small muted">expected:
+                {{ row.expected_kinds|join(' / ') or 'any kind' }}
+              </div>
+            </td>
+            <td>
+              {% if row.best %}
+                <span class="kind">{{ row.best.kind }}</span>{{ row.best.label }}
+                <div class="small">
+                  <span class="conf conf-{{ 'high' if row.best.score >= 0.85 else ('medium' if row.best.score >= threshold else 'low') }}">{{ row.best.score_pct }}%</span>
+                  <span class="muted">· {{ row.best.reason }}</span>
+                </div>
+              {% elif row.best_near_miss %}
+                <span class="muted">none of the expected kind</span>
+                <div class="small">
+                  closest is <span class="kind">{{ row.best_near_miss.kind }}</span>{{ row.best_near_miss.label }}
+                  ({{ row.best_near_miss.score_pct }}%, wrong kind)
+                </div>
+              {% else %}
+                <span class="muted">no candidate at all</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if row.status == 'resolvable' %}
+                <span class="badge badge-verified">resolvable</span>
+              {% elif row.status == 'below_threshold' %}
+                <span class="badge badge-unverified">below threshold</span>
+              {% else %}
+                <span class="badge badge-disputed">no candidate</span>
+              {% endif %}
+              {% if row.mislabel_suspected %}
+                <span class="tag tag-warn">predicate suspects</span>
+              {% endif %}
+              <div class="small muted">source conf. {{ row.confidence|pct }}</div>
+            </td>
+            <td class="col-actions">
+              <details>
+                <summary>Bind to…</summary>
+                <form method="post" action="{{ url_for('reconcile_resolve', assertion_id=row.assertion_id) }}">
+                  <input type="hidden" name="actor" value="{{ reviewer }}">
+                  <label class="field" style="margin:6px 0;">
+                    <span>Target node</span>
+                    <select name="target_node_id">
+                      {% for option in row.options %}
+                        <option value="{{ option.node_id }}" {{ 'selected' if row.best and option.node_id == row.best.node_id else '' }}>
+                          {{ option.kind }}: {{ option.label }} — {{ option.score_pct }}%{% if not option.in_expected_kind %} (different kind){% endif %}
+                        </option>
+                      {% endfor %}
+                    </select>
+                  </label>
+                  {% if row.hidden_options %}
+                    <div class="small muted">{{ row.hidden_options }} further candidate(s) hidden.</div>
+                  {% endif %}
+                  <label class="field small" style="margin:6px 0;">
+                    <input type="checkbox" name="allow_kind_override" style="width:auto;">
+                    allow different kind
+                  </label>
+                  <label class="field" style="margin:6px 0;">
+                    <span>Note</span>
+                    <input type="text" name="note" placeholder="why this binding">
+                  </label>
+                  <button class="btn btn-sm btn-primary" type="submit"
+                          {{ 'disabled' if not row.options else '' }}>Resolve</button>
+                </form>
+                {% if row.source_text %}
+                  <blockquote class="small" style="margin-top:8px;">{{ row.source_text }}</blockquote>
+                {% endif %}
+              </details>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endif %}
+{% endblock %}

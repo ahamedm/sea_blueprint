@@ -1,0 +1,48 @@
+<tr id="row-{{ row.id }}" class="status-{{ row.status_slug }}">
+  <td class="col-check">
+    <input type="checkbox" class="row-check" name="ids" value="{{ row.id }}" form="bulk-form"
+           aria-label="select assertion">
+  </td>
+  <td>
+    <span class="kind">{{ row.subject_kind }}</span>{{ row.subject_label }}
+  </td>
+  <td>
+    <code>{{ row.predicate }}</code>
+    {% if row.target_kind == 'reference' %}<span class="tag tag-ref">ref</span>{% endif %}
+  </td>
+  <td>
+    {{ row.target_label }}
+    {% if row.target_kind == 'node' %}<span class="tag">node</span>{% endif %}
+  </td>
+  <td class="col-confidence">
+    <span class="conf conf-{{ row.confidence_band }}">{{ row.confidence_pct }}%</span>
+  </td>
+  <td class="col-status">
+    <span class="badge badge-{{ row.status_slug }}">{{ row.status }}</span>
+    {% if row.is_human %}<span class="tag tag-human">human</span>{% endif %}
+    {% if row.is_unresolved %}<span class="tag tag-warn">unresolved</span>{% endif %}
+    {% if row.last_decision %}<span class="tag">{{ row.last_decision }}</span>{% endif %}
+  </td>
+  <td class="col-actions">
+    <div class="btn-group">
+      {% if row.needs_review %}
+        <button class="btn btn-sm btn-ok"
+                hx-post="{{ url_for('review_decision', assertion_id=row.id) }}"
+                hx-vals='{"action":"verify","actor":"{{ reviewer }}"}'
+                hx-target="#row-{{ row.id }}" hx-swap="outerHTML">Verify</button>
+        <button class="btn btn-sm btn-warn"
+                hx-post="{{ url_for('review_decision', assertion_id=row.id) }}"
+                hx-vals='{"action":"dispute","actor":"{{ reviewer }}"}'
+                hx-target="#row-{{ row.id }}" hx-swap="outerHTML">Dispute</button>
+      {% else %}
+        <button class="btn btn-sm btn-ghost"
+                hx-post="{{ url_for('review_decision', assertion_id=row.id) }}"
+                hx-vals='{"action":"reset","actor":"{{ reviewer }}"}'
+                hx-target="#row-{{ row.id }}" hx-swap="outerHTML">Reopen</button>
+      {% endif %}
+      <button class="btn btn-sm btn-ghost"
+              hx-get="{{ url_for('review_detail', assertion_id=row.id) }}"
+              hx-target="#drawer" hx-swap="innerHTML">Open</button>
+    </div>
+  </td>
+</tr>

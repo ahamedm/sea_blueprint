@@ -5,6 +5,17 @@
 
 A generic, domain-agnostic ontology for structured business requirement analysis. This ontology supports both **standalone** and **platform-centric** enterprise topologies through a topology-aware design.
 
+> **Reading this?** There is a browsable reference view of all four layers in the
+> MVP UI at **`/ontology`** (route `ontology`). It shows the import chain, the class
+> hierarchy with `is_a` and mixins kept distinct, own versus inherited slots, enums
+> with their permissible values, and how many instances of each class exist in the
+> current working set. The current state is **58 classes, 37 enums, 13 subsets,
+> 457 slots** across the four layers, with no unresolved supertypes or slot ranges.
+>
+> The tables below are hand-maintained and have drifted from the schemas — the live
+> view cannot. Notably, the "File Structure" section further down still calls
+> `architecture_base.yaml` "(future)" and does not mention `sea_common.yaml`.
+
 ---
 
 ## Design Principles

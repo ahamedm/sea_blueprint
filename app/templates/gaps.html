@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %}Gap report · SEA{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Gap report</h1>
+    <p>
+      What the graph cannot yet account for. Every finding is structural and
+      traceable — and each one says whether absence of a fact is meaningful here,
+      which depends entirely on how complete the extraction was.
+    </p>
+  </div>
+  <div class="row">
+    <a class="btn" href="{{ url_for('review') }}">Back to review</a>
+  </div>
+</div>
+
+{% if report.is_auditable %}
+  <div class="banner banner-ok">
+    <strong>Auditable.</strong> Extraction is COMPLETE and every assertion has a human
+    decision. Findings below are real gaps, not extraction artifacts.
+  </div>
+{% else %}
+  <div class="banner {{ 'banner-bad' if report.completeness == 'FAILED' else 'banner-warn' }}">
+    <strong>Not auditable yet.</strong>
+    Completeness is {{ report.completeness }} and
+    {{ report.progress.outstanding }} assertion(s) are outstanding.
+    {{ report.auditability }}
+    Findings below may be artifacts of extraction rather than architecture gaps —
+    do not act on them as though they were facts.
+  </div>
+{% endif %}
+
+<div class="grid grid-4" style="margin-bottom:18px;">
+  <div class="stat">
+    <div class="value" style="color:{{ 'var(--ok)' if report.unresolved_count == 0 else 'var(--warn)' }}">{{ report.unresolved_count }}</div>
+    <div class="label">Unresolved references</div>
+    <div class="foot">cross-graph links awaiting reconciliation</div>
+  </div>
+  <div class="stat">
+    <div class="value" style="color:{{ 'var(--ok)' if report.dangling_count == 0 else 'var(--bad)' }}">{{ report.dangling_count }}</div>
+    <div class="label">Dangling assertions</div>
+    <div class="foot">point at a node id that does not exist</div>
+  </div>
+  <div class="stat">
+    <div class="value">{{ report.elements_without_facts|length }}</div>
+    <div class="label">Elements with no facts</div>
+    <div class="foot">extracted but never described</div>
+  </div>
+  <div class="stat">
+    <div class="value small"><span class="badge badge-{{ report.completeness|lower }}">{{ report.completeness }}</span></div>
+    <div class="label">Completeness</div>
+    <div class="foot">{{ report.runs|length }} run(s)</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <h2>Unresolved cross-graph references</h2>
+    <a class="small" href="{{ url_for('reconcile') }}">reconcile {{ report.unresolved_count }} →</a>
+  </div>
+  <p class="hint">
+    Unresolved is the expected state, not a defect: establishing the link is extraction's
+    job and resolving it against the other graph is a later stage. These are kept as
+    references rather than invented as local nodes, precisely so the distinction survives.
+  </p>
+  {% if report.references %}
+    {% if report.unresolved_by_predicate %}
+      <p class="small muted">
+        By predicate:
+        {% for predicate, n in report.unresolved_by_predicate.items() %}
+          <span class="tag">{{ predicate }} {{ n }}</span>
+        {% endfor %}
+      </p>
+    {% endif %}
+    <table class="table-plain">
+      <thead><tr><th>Element</th><th>Relationship</th><th>References</th><th style="text-align:right;">Conf.</th><th></th></tr></thead>
+      <tbody>
+        {% for r in report.references %}
+          <tr>
+            <td>{{ r.source }}</td>
+            <td><code>{{ r.predicate }}</code></td>
+            <td>{{ r.target }}</td>
+            <td style="text-align:right;" class="conf conf-{{ 'high' if r.confidence >= 0.85 else ('medium' if r.confidence >= 0.7 else 'low') }}">{{ r.confidence }}</td>
+            <td><a class="small" href="{{ url_for('review') }}?q={{ r.target }}">review</a></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="hint">None. Either reconciliation has run, or this graph has no cross-graph links yet.</p>
+  {% endif %}
+</div>
+
+{% if report.dangling %}
+  <div class="card">
+    <div class="card-head"><h2>Dangling assertions</h2></div>
+    <p class="hint">
+      A reference to something never extracted is different from a reference that was
+      extracted and dropped, and both differ from a genuine gap.
+    </p>
+    <table class="table-plain">
+      <thead><tr><th>Subject id</th><th>Predicate</th><th>Target</th></tr></thead>
+      <tbody>
+        {% for d in report.dangling %}
+          <tr><td class="mono small">{{ d.subject }}</td><td><code>{{ d.predicate }}</code></td><td>{{ d.target }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endif %}
+
+<div class="card">
+  <div class="card-head"><h2>Extraction runs</h2></div>
+  <table class="table-plain">
+    <thead>
+      <tr><th>Run</th><th>Document</th><th>Completeness</th><th>Passes</th><th>Failed</th><th>Empty</th><th>Model</th><th>Completed</th></tr>
+    </thead>
+    <tbody>
+      {% for r in report.runs %}
+        <tr>
+          <td class="mono small">{{ r.id }}</td>
+          <td>{{ r.document }}</td>
+          <td><span class="badge badge-{{ r.completeness|lower }}">{{ r.completeness }}</span></td>
+          <td>{{ r.passes }}</td>
+          <td class="{{ 'error' if r.failed else 'muted' }}">{{ r.failed }}</td>
+          <td class="{{ 'error' if r.empty else 'muted' }}">{{ r.empty }}</td>
+          <td class="small muted">{{ r.model_id or '—' }}</td>
+          <td class="small muted nowrap">{{ r.completed_at }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="8" class="muted">No runs recorded.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <details style="margin-top:12px;">
+    <summary>Completeness detail</summary>
+    <pre class="small muted" style="white-space:pre-wrap;">{{ report.completeness_note }}</pre>
+  </details>
+</div>
+
+{% if report.elements_without_facts %}
+  <div class="card">
+    <div class="card-head"><h2>Elements with no facts</h2></div>
+    <p class="hint">Extracted as nodes but nothing is asserted about them — often a symptom of an incomplete pass.</p>
+    <p>
+      {% for e in report.elements_without_facts %}
+        <span class="tag">{{ e.kind }}: {{ e.label }}</span>
+      {% endfor %}
+    </p>
+  </div>
+{% endif %}
+{% endblock %}

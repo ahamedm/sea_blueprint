@@ -1,0 +1,67 @@
+<div class="card detail">
+  <div class="card-head">
+    <h2>Assertion</h2>
+    <span class="badge badge-{{ a.status_slug }}">{{ a.status }}</span>
+  </div>
+  <p class="hint mono" style="word-break:break-all;">{{ a.id }}</p>
+
+  <dl>
+    <dt>Subject</dt><dd><span class="kind">{{ a.subject_kind }}</span>{{ a.subject_label }}</dd>
+    <dt>Predicate</dt><dd><code>{{ a.predicate }}</code></dd>
+    <dt>Target</dt><dd>{{ a.target_label }} <span class="tag">{{ a.target_kind }}</span></dd>
+    <dt>Confidence</dt><dd><span class="conf conf-{{ a.confidence_band }}">{{ a.confidence_pct }}%</span></dd>
+    <dt>Scope</dt><dd>{{ a.scope }}{% if a.initiative_id %} · {{ a.initiative_id }}{% endif %}</dd>
+    <dt>Ontology</dt><dd>{{ a.ontology_class or '—' }}</dd>
+    <dt>Source</dt><dd>{{ a.source_type }}{% if a.asserted_by %} · {{ a.asserted_by }}{% endif %}</dd>
+    <dt>Run</dt><dd><code>{{ a.run_id or '—' }}</code>{% if a.pass_name %} · {{ a.pass_name }}{% endif %}</dd>
+    <dt>Document</dt><dd>{{ a.derived_from or '—' }}</dd>
+    {% if a.superseded_by %}<dt>Superseded by</dt><dd class="mono">{{ a.superseded_by }}</dd>{% endif %}
+    {% if a.correction_note %}<dt>Correction</dt><dd>{{ a.correction_note }}</dd>{% endif %}
+  </dl>
+
+  {% if a.source_text %}
+    <p class="hint" style="margin-bottom:4px;">Source text</p>
+    <blockquote>{{ a.source_text }}</blockquote>
+  {% endif %}
+
+  {% if a.is_active %}
+    <form method="post" action="{{ url_for('review_decision', assertion_id=a.id) }}">
+      <input type="hidden" name="actor" value="{{ reviewer }}">
+      <label class="field">
+        <span>Corrected target</span>
+        <input type="text" name="target" value="{{ a.target }}">
+      </label>
+      <label class="field">
+        <span>Correction predicate (optional)</span>
+        <input type="text" name="predicate" value="{{ a.predicate }}">
+      </label>
+      <label class="field">
+        <span>Note — why this decision</span>
+        <input type="text" name="note" placeholder="e.g. §3.2 says TLS 1.3, not 1.2">
+      </label>
+      <div class="row">
+        <button class="btn btn-primary" name="action" value="correct">Save correction</button>
+        <button class="btn btn-ok" name="action" value="verify">Verify</button>
+        <button class="btn btn-warn" name="action" value="dispute">Dispute</button>
+        {% if a.is_human %}<button class="btn btn-ghost" name="action" value="reset">Reopen</button>{% endif %}
+      </div>
+    </form>
+  {% elif a.superseded_by %}
+    <p class="hint">This assertion was replaced. The correction is
+      <code>{{ a.superseded_by }}</code> — open it to keep reviewing.</p>
+  {% endif %}
+
+  {% if a.decisions %}
+    <hr class="sep">
+    <p class="hint" style="margin-bottom:4px;">Decision history</p>
+    <ul class="timeline">
+      {% for d in a.decisions|reverse %}
+        <li>
+          <strong>{{ d.label }}</strong> · {{ d.actor or '(unattributed)' }}
+          <div class="when">{{ d.at }}{% if d.note %} — {{ d.note }}{% endif %}</div>
+          {% if d.changed_fields %}<div class="small muted">changed: {{ d.changed_fields|join(', ') }}</div>{% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+</div>

@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% block title %}Changes · SEA{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Change management</h1>
+    <p>
+      The working set is where review happens and is autosaved continuously. A revision
+      is a deliberate snapshot; a baseline is a frozen revision that later work is
+      compared against. Keeping those three apart is what makes "verified" a state
+      rather than a flag on a mutable graph.
+    </p>
+  </div>
+  <div class="row">
+    <a class="btn" href="{{ url_for('changes_diff', **{'from': '', 'to': 'working'}) }}">Diff vs empty</a>
+    <a class="btn btn-primary" href="{{ url_for('review') }}">Back to review</a>
+  </div>
+</div>
+
+{% set p = summary.progress %}
+<div class="card">
+  <div class="card-head">
+    <h2>Working set</h2>
+    <span class="badge badge-{{ 'complete' if p.is_auditable else 'partial' }}">
+      {{ p.reviewed }}/{{ p.total }} reviewed
+    </span>
+  </div>
+  <p class="hint">
+    Initiative <code>{{ working_meta.get('initiative_id', initiative_id) }}</code> ·
+    autosaved {{ working_meta.get('saved_at', '—') }} ·
+    {{ summary.by_band.low }} low-confidence · {{ summary.unresolved }} unresolved ·
+    {{ summary.decisions }} recorded decision(s)
+  </p>
+
+  {% if working_meta.get('last_ingest') %}
+    {% set li = working_meta['last_ingest'] %}
+    <p class="hint">
+      Last ingest: <strong>{{ li.document }}</strong> ({{ li.doc_type }} · {{ li.completeness }}) →
+      +{{ li.facts }} facts, {{ li.changed }} changed, {{ li.nodes }} new nodes · run <code>{{ li.run_id }}</code>
+    </p>
+  {% endif %}
+
+  <div class="grid grid-2">
+    <div>
+      <form method="post" action="{{ url_for('changes_commit') }}">
+        <label class="field">
+          <span>Commit as a revision</span>
+          <input type="text" name="label" placeholder="e.g. REQ-G reviewed, pre-audit">
+        </label>
+        <label class="field">
+          <span>Note</span>
+          <input type="text" name="note" placeholder="what this checkpoint represents">
+        </label>
+        <button class="btn btn-primary" type="submit">Commit revision</button>
+      </form>
+    </div>
+    <div>
+      <form method="post" action="{{ url_for('changes_promote') }}">
+        <p class="hint" style="margin-top:0;">
+          Promote verified initiative facts into the <strong>system baseline</strong>.
+          Unverified and disputed facts are deliberately left behind — a baseline does
+          not absorb unchecked extraction.
+        </p>
+        <label class="field">
+          <span>Note</span>
+          <input type="text" name="note" placeholder="e.g. INIT-2024-001 accepted">
+        </label>
+        <button class="btn" type="submit">Promote to baseline</button>
+      </form>
+      <hr class="sep">
+      <form method="post" action="{{ url_for('changes_discard') }}"
+            onsubmit="return confirm('Discard the working set? Revisions are kept.');">
+        <p class="hint" style="margin-top:0;">Discard the working set. Committed revisions are unaffected.</p>
+        <button class="btn btn-danger" type="submit">Discard working set</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <h2>Revisions</h2>
+    <span class="muted small">{{ baselines|length }} baseline(s)</span>
+  </div>
+  {% if revisions %}
+    <table class="table-plain">
+      <thead>
+        <tr>
+          <th>Revision</th><th>Label</th><th>Kind</th><th>Created</th>
+          <th>Review state</th><th>Sources</th><th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in revisions %}
+          <tr>
+            <td class="mono small">{{ r.id }}</td>
+            <td>
+              {{ r.label }}
+              {% if r.note %}<div class="small muted">{{ r.note }}</div>{% endif %}
+            </td>
+            <td><span class="badge badge-{{ 'baseline' if r.is_baseline else 'draft' }}">{{ r.kind }}</span></td>
+            <td class="small muted nowrap">
+              {{ r.created_at }}
+              {% if r.frozen_at %}<div>frozen {{ r.frozen_at }} by {{ r.frozen_by or '—' }}</div>{% endif %}
+            </td>
+            <td class="small">
+              {{ r.progress.get('reviewed', 0) }}/{{ r.progress.get('total', 0) }}
+              {% if r.progress.get('is_auditable') %}
+                <span class="badge badge-verified">auditable</span>
+              {% else %}
+                <span class="badge badge-unverified">{{ r.progress.get('outstanding', 0) }} open</span>
+              {% endif %}
+              <div class="muted">{{ r.completeness|join(', ') or '—' }}</div>
+            </td>
+            <td class="small muted">{{ r.documents|join(', ') or '—' }}</td>
+            <td class="nowrap">
+              <div class="btn-group">
+                <a class="btn btn-sm" href="{{ url_for('changes_diff', **{'from': r.id, 'to': 'working'}) }}">vs working</a>
+                {% if not r.is_baseline %}
+                  <form method="post" action="{{ url_for('changes_freeze') }}" style="display:inline;">
+                    <input type="hidden" name="revision_id" value="{{ r.id }}">
+                    <button class="btn btn-sm" type="submit">Freeze</button>
+                  </form>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="hint" style="margin-top:10px;">
+      Freezing refuses while the revision still contains unverified or disputed
+      assertions, because an audit over unverified knowledge reports extraction
+      artifacts as architecture gaps.
+    </p>
+  {% else %}
+    <p class="hint">No revisions committed yet. Committing is what makes a graph diffable.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <h2>Audit trail</h2>
+    <span class="muted small">{{ log|length }} most recent of {{ summary.decisions }}</span>
+  </div>
+  {% if log %}
+    <table class="table-plain">
+      <thead>
+        <tr><th>When</th><th>Decision</th><th>Assertion</th><th>What changed</th><th>By</th><th>Note</th></tr>
+      </thead>
+      <tbody>
+        {% for d in log %}
+          <tr>
+            <td class="small muted nowrap">{{ d.at }}</td>
+            <td>
+              <span class="badge badge-{{ d.badge }}">{{ d.label }}</span>
+              {% if d.promoted %}<span class="tag">{{ d.promoted }} promoted</span>{% endif %}
+            </td>
+            <td class="small">
+              {% if d.subject %}{{ d.subject }} <code class="muted">{{ d.predicate }}</code>
+                {% if d.target %}<span class="muted">→ {{ d.target }}</span>{% endif %}
+              {% else %}<span class="muted">bulk operation</span>{% endif %}
+              <div class="mono muted" style="font-size:11px;">{{ d.assertion_id or d.replacement_id }}</div>
+            </td>
+            <td class="small">
+              {% if d.changed_fields %}
+                {% for f in d.changed_fields %}
+                  <div><code>{{ f }}</code>: <span class="muted">{{ d.before.get(f) }}</span> → <strong>{{ d.after.get(f) }}</strong></div>
+                {% endfor %}
+              {% else %}<span class="muted">—</span>{% endif %}
+            </td>
+            <td class="small">{{ d.actor }}</td>
+            <td class="small muted">{{ d.note or '—' }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="hint" style="margin-top:10px;">
+      The graph shows current state; this log is the answer to "why does it look like
+      this?" — which is the question an auditor actually asks.
+    </p>
+  {% else %}
+    <p class="hint">No decisions recorded yet.</p>
+  {% endif %}
+</div>
+{% endblock %}
