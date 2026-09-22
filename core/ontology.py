@@ -11,12 +11,12 @@ question and changes for different reasons.
 |---|---|---|
 | `app.projections` | the instance graph (ABox) | what does our architecture knowledge contain? |
 | `app.viewpoints` | the instance graph + a notation | how is that architecture described? (C4) |
-| `agents.ontology` + `app.ontology_reference` |
+| `core.ontology` + `app.ontology_reference` |
   the LinkML schemas (TBox) | what concepts exist, and how do they relate? |
 
 This module is the third: **the schema, not the data**. It parses `ontology/*.yaml`
 and knows nothing about extracted graphs, nodes, assertions or confidence. It
-imports nothing from `agents.knowledge` and nothing from `app`, so it can be used
+imports nothing from `core.knowledge` and nothing from `app`, so it can be used
 by agents — the Ontology Engineer and Domain Context agents will need exactly this
 — without dragging the web layer along.
 

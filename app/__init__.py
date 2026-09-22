@@ -8,8 +8,8 @@ WHAT THIS LAYER IS ALLOWED TO DO
 --------------------------------
 Routes orchestrate: load the working set, call a knowledge-layer operation, save,
 project for rendering. They do not implement knowledge logic. Review decisions
-live in `agents.knowledge.review`, reconciliation in `agents.knowledge.reconcile`,
-revisions in `agents.knowledge.store`, generic rendering in `app.projections`, and
+live in `core.knowledge.review`, reconciliation in `core.knowledge.reconcile`,
+revisions in `core.knowledge.store`, generic rendering in `app.projections`, and
 architecture notation in `app.viewpoints`. That separation is what lets the CLI
 reviewer and the web gate produce identical graphs from identical decisions.
 
@@ -42,26 +42,6 @@ from flask import (
 )
 from werkzeug.utils import secure_filename
 
-from agents.knowledge import (
-    DEFAULT_MATCH_THRESHOLD,
-    BaselineNotReady,
-    KnowledgeGraph,
-    ReconcileError,
-    ReviewError,
-    RevisionStore,
-    Snapshot,
-    apply_decisions,
-    bulk_resolve,
-    bulk_verify,
-    graph_from_extraction,
-    merge_graphs,
-    promote_to_baseline,
-    resolve_reference,
-    review_progress,
-    to_turtle,
-)
-from agents.knowledge.model import compute_graph_delta
-from agents.ontology import OntologyError, load_ontology
 from app.ontology_reference import (
     class_detail,
     class_neighbourhood,
@@ -84,6 +64,26 @@ from app.projections import (
     project_review_summary,
 )
 from app.viewpoints.c4 import c4_view
+from core.knowledge import (
+    DEFAULT_MATCH_THRESHOLD,
+    BaselineNotReady,
+    KnowledgeGraph,
+    ReconcileError,
+    ReviewError,
+    RevisionStore,
+    Snapshot,
+    apply_decisions,
+    bulk_resolve,
+    bulk_verify,
+    graph_from_extraction,
+    merge_graphs,
+    promote_to_baseline,
+    resolve_reference,
+    review_progress,
+    to_turtle,
+)
+from core.knowledge.model import compute_graph_delta
+from core.ontology import OntologyError, load_ontology
 
 DEFAULT_STORE_ROOT = "data/sea"
 MAX_UPLOAD_BYTES = 4 * 1024 * 1024
@@ -733,7 +733,7 @@ def _buffer(text: str):
 
 
 def _graph_json(graph: KnowledgeGraph) -> str:
-    from agents.knowledge import graph_to_dict
+    from core.knowledge import graph_to_dict
 
     return json.dumps(graph_to_dict(graph))
 

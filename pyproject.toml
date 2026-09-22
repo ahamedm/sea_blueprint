@@ -72,7 +72,7 @@ sea-app = "run:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["agents*", "evaluation*", "config*", "app*"]
+include = ["core*", "agents*", "evaluation*", "config*", "app*"]
 
 [tool.black]
 line-length = 100

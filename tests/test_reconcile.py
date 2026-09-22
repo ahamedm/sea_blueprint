@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from agents.knowledge import (
+from core.knowledge import (
     DEFAULT_MATCH_THRESHOLD,
     KnowledgeGraph,
     Provenance,
@@ -26,7 +26,7 @@ from agents.knowledge import (
     resolve_reference,
     review_progress,
 )
-from agents.knowledge.model import (
+from core.knowledge.model import (
     SOURCE_EXTRACTION,
     STATUS_SUPERSEDED,
     STATUS_VERIFIED,

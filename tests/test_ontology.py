@@ -10,7 +10,7 @@ authoritative parser across every class, rather than against my own expectations
 
 import pytest
 
-from agents.ontology import LAYER_ORDER, OntologyError, load_ontology
+from core.ontology import LAYER_ORDER, OntologyError, load_ontology
 
 # ============================================================================
 # Shape of the whole thing

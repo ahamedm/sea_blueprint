@@ -7,8 +7,8 @@ tests — what it must never start doing.
 
 from pathlib import Path
 
-import agents.ontology as ontology_loader
 import app.ontology_reference as reference
+import core.ontology as ontology_loader
 from app.ontology_reference import (
     class_detail,
     class_neighbourhood,
@@ -25,14 +25,14 @@ from app.ontology_reference import (
 
 
 def test_the_loader_reads_schemas_and_not_the_graph():
-    """`agents.ontology` must stay usable by agents that have no graph.
+    """`core.ontology` must stay usable by agents that have no graph.
 
     If it ever imports the knowledge or web layers, it stops being a schema reader
     and becomes a fourth thing pinned to the instance side.
     """
     source = Path(ontology_loader.__file__).read_text()
     assert "from app" not in source
-    assert "from agents.knowledge" not in source
+    assert "from core.knowledge" not in source
     assert "KnowledgeGraph" not in source
 
 
@@ -41,7 +41,7 @@ def test_the_reference_view_is_duck_typed_on_the_graph():
     depending on the canonical model — that keeps the join in the view layer
     where both sides happen to be available."""
     source = Path(reference.__file__).read_text()
-    assert "from agents.knowledge" not in source
+    assert "from core.knowledge" not in source
     assert "C4_LEVELS" not in source
     assert "project_review" not in source
 

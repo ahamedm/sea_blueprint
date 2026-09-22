@@ -11,7 +11,7 @@ they relate — and it is the only one of the three that never reads an assertio
 The one place the schema and the instance graph meet is `instances`: a labelled
 cross-reference counting how many nodes of each class exist in the working set. It
 is deliberately a *join done here*, not something the loader knows about, because
-`agents.ontology` must stay usable by agents that have no graph.
+`core.ontology` must stay usable by agents that have no graph.
 
 WHY POSITIONS ARE COMPUTED HERE
 -------------------------------
@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from agents.ontology import LAYER_LABELS, ClassSpec, OntologyModel
+from core.ontology import LAYER_LABELS, ClassSpec, OntologyModel
 
 # How many incoming references one neighbourhood drawing will show before it stops
 # being readable. The remainder is counted and reported rather than dropped.

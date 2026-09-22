@@ -1,6 +1,6 @@
 # The Review Gate — Extraction Projection, Review and Change Management
 
-**Status:** Implemented (MVP UI) · `app/` + `agents/knowledge/`
+**Status:** Implemented (MVP UI) · `app/` + `core/knowledge/`
 
 This documents the first end-to-end path that actually *delivers* something:
 extraction output can now be **reached, judged, and acted on** by a human. Before
@@ -201,15 +201,15 @@ review → **commit** → freeze.
 
 | Module | Responsibility |
 |---|---|
-| `agents/knowledge/model.py` | canonical graph: nodes, assertions, runs, provenance, delta |
-| `agents/knowledge/ingest.py` | extraction output → graph; `merge_graphs` graph → graph |
-| `agents/knowledge/serialise.py` | graph ↔ JSON, field-complete round trip |
-| `agents/knowledge/review.py` | decisions, audit trail, progress, baseline promotion |
-| `agents/knowledge/reconcile.py` | reference candidates (match + kind scoping), resolve, bulk resolve |
-| `agents/knowledge/store.py` | working set, revisions, freezing, diffing |
-| `agents/knowledge/rdf.py` | graph → RDF (plain triples + assertion resources) |
-| `agents/ontology.py` | **schema reader** — LinkML to a resolved model; no graph, no Flask |
-| `agents/knowledge/store.py` | working set, revisions, freezing, diffing |
+| `core/knowledge/model.py` | canonical graph: nodes, assertions, runs, provenance, delta |
+| `core/knowledge/ingest.py` | extraction output → graph; `merge_graphs` graph → graph |
+| `core/knowledge/serialise.py` | graph ↔ JSON, field-complete round trip |
+| `core/knowledge/review.py` | decisions, audit trail, progress, baseline promotion |
+| `core/knowledge/reconcile.py` | reference candidates (match + kind scoping), resolve, bulk resolve |
+| `core/knowledge/store.py` | working set, revisions, freezing, diffing |
+| `core/knowledge/rdf.py` | graph → RDF (plain triples + assertion resources) |
+| `core/ontology.py` | **schema reader** — LinkML to a resolved model; no graph, no Flask |
+| `app/projections.py` | **graph projection** — notation-agnostic rows, counters, edges, deltas |
 | `app/viewpoints/c4.py` | **architecture viewpoint** — C4 levels and element selection |
 | `app/ontology_reference.py` | **ontology reference** — the schema as a browsable structure |
 | `app/__init__.py` | routes: orchestration only, no knowledge logic |
@@ -218,6 +218,12 @@ review → **commit** → freeze.
 The separation is deliberate: the CLI reviewer (`scripts/review_assertions.py`)
 and the web gate must produce **identical graphs from identical decisions**, or
 "verified" means different things depending on which door you came in through.
+
+`core/` is the domain layer. **Agents and app may import core; core imports
+neither** — which is what keeps the knowledge model usable without an LLM and the
+web layer replaceable without touching the model. `tests/test_layering.py` holds
+that line, and the CLI reviewer above is the proof it matters: it is a second
+consumer of the same decisions.
 
 ---
 
@@ -231,7 +237,7 @@ one of the others, because it is also "a graph".
 
 | | Graph projection | Architecture viewpoint | Ontology reference |
 |---|---|---|---|
-| **Module** | `app/projections.py` | `app/viewpoints/` | `agents/ontology.py` + `app/ontology_reference.py` |
+| **Module** | `app/projections.py` | `app/viewpoints/` | `core/ontology.py` + `app/ontology_reference.py` |
 | **Reads** | the instance graph (ABox) | the instance graph + a notation | the LinkML schemas (TBox) |
 | **Question** | "make the graph readable and judgeable" | "describe the architecture in a recognised notation" | "what concepts exist, and how do they relate?" |
 | **Knows about** | assertions, confidence, provenance, filters, deltas | C4 levels, element kinds, element detail | classes, slots, enums, `is_a`, mixins, imports |
@@ -365,7 +371,7 @@ Recorded so the gaps are choices rather than oversights.
 the suite needs no model server.
 
 ```
-.venv/bin/python -m pytest tests/ -q      # 239 tests
+.venv/bin/python -m pytest tests/ -q      # 246 tests
 ```
 
 | File | Covers |

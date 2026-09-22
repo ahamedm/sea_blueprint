@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from agents.knowledge import graph_from_extraction
+from core.knowledge import graph_from_extraction
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -31,7 +31,7 @@ def ontology():
     explicit expectation that no test mutates the model — every view over it
     returns new dicts.
     """
-    from agents.ontology import load_ontology
+    from core.ontology import load_ontology
 
     return load_ontology(REPO_ROOT / "ontology")
 
@@ -241,7 +241,7 @@ def seeded_client(client):
 @pytest.fixture
 def working_graph(app):
     """Read the working graph back out of the store, the way the UI would."""
-    from agents.knowledge import RevisionStore
+    from core.knowledge import RevisionStore
 
     return RevisionStore(app.config["STORE_ROOT"]).ensure().load_working().graph
 
@@ -253,7 +253,7 @@ def load_working(app):
     A plain fixture is resolved before the test body runs, so anything asserted
     about state after a POST must be re-read or it will be the pre-request graph.
     """
-    from agents.knowledge import RevisionStore
+    from core.knowledge import RevisionStore
 
     store = RevisionStore(app.config["STORE_ROOT"]).ensure()
     return lambda: store.load_working().graph

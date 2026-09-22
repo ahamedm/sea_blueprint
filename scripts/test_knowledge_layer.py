@@ -15,8 +15,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from agents.knowledge import graph_from_extraction, to_rdf, run_query
-from agents.knowledge.model import (
+from core.knowledge import graph_from_extraction, to_rdf, run_query
+from core.knowledge.model import (
     KnowledgeGraph,
     Provenance,
     STATUS_VERIFIED,
@@ -30,7 +30,7 @@ from agents.knowledge.model import (
     SCOPE_BASELINE,
     SCOPE_INITIATIVE,
 )
-from agents.knowledge.rdf import SEA, PROV
+from core.knowledge.rdf import SEA, PROV
 
 RESULTS = []
 
@@ -125,7 +125,7 @@ def test_supersession_is_excluded_from_active():
 def test_completeness_distinguishes_unknown_from_complete():
     g = KnowledgeGraph()
 
-    from agents.knowledge.model import ExtractionRun
+    from core.knowledge.model import ExtractionRun
     no_data = ExtractionRun(id="r1")
     check("no pass records -> UNKNOWN, not FAILED",
           no_data.compute_completeness() == RUN_UNKNOWN,
@@ -233,7 +233,7 @@ def test_initiative_scoping():
     Simulates extraction from a document that states 'The initiative is PSYA-I2001'.
     Verifies that the canonical model creates Initiative nodes and scopes assertions.
     """
-    from agents.knowledge.model import SCOPE_INITIATIVE
+    from core.knowledge.model import SCOPE_INITIATIVE
     
     output = {
         "entities": [
@@ -284,7 +284,7 @@ def test_initiative_scoping():
 
 def test_versioning_and_diff():
     """Test that graph versioning and diffing works correctly."""
-    from agents.knowledge.model import compute_graph_delta, apply_delta
+    from core.knowledge.model import compute_graph_delta, apply_delta
     
     # Create v1 (Baseline)
     g1 = KnowledgeGraph()

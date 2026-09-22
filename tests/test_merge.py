@@ -7,8 +7,8 @@ prompt. If extraction replaces the graph, the human work is silently destroyed.
 
 import copy
 
-from agents.knowledge import KnowledgeGraph, Provenance, ReviewLog, apply_decisions, merge_graphs
-from agents.knowledge.model import SOURCE_EXTRACTION
+from core.knowledge import KnowledgeGraph, Provenance, ReviewLog, apply_decisions, merge_graphs
+from core.knowledge.model import SOURCE_EXTRACTION
 
 
 def test_human_correction_survives_re_extraction(req_extraction):
@@ -89,7 +89,7 @@ def test_merge_does_not_mutate_the_input_graph(req_extraction):
 def test_merge_accumulates_runs_so_each_stays_attributable(req_extraction):
     incoming = KnowledgeGraph()
     incoming.add_node("Concept", "x")
-    from agents.knowledge.model import ExtractionRun, Provenance
+    from core.knowledge.model import ExtractionRun, Provenance
 
     incoming.runs["run_second"] = ExtractionRun(id="run_second", document_ref="second.md")
     incoming.add_assertion(

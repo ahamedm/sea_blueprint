@@ -9,8 +9,6 @@ re-suggest the fusion this split removed.
 from pathlib import Path
 
 import app.projections as projections
-from agents.knowledge import ReviewLog, apply_decisions
-from agents.knowledge.model import compute_graph_delta
 from app.projections import (
     LOW_CONFIDENCE,
     ReviewFilters,
@@ -24,6 +22,8 @@ from app.projections import (
     project_review_rows,
     project_review_summary,
 )
+from core.knowledge import ReviewLog, apply_decisions
+from core.knowledge.model import compute_graph_delta
 
 
 def test_confidence_bands_partition_the_range():
@@ -240,7 +240,7 @@ def test_decision_projection_is_newest_first(req_extraction):
 
 
 def test_dashboard_reports_empty_state():
-    from agents.knowledge import KnowledgeGraph
+    from core.knowledge import KnowledgeGraph
 
     view = project_dashboard(KnowledgeGraph(), ReviewLog())
     assert view["empty"] is True

@@ -16,8 +16,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from agents.knowledge import graph_from_extraction
-from agents.knowledge.model import (
+from core.knowledge import graph_from_extraction
+from core.knowledge.model import (
     STATUS_UNVERIFIED,
     STATUS_VERIFIED,
     STATUS_CORRECTED,

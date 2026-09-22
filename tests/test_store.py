@@ -2,7 +2,7 @@
 
 import pytest
 
-from agents.knowledge import (
+from core.knowledge import (
     BaselineNotReady,
     KnowledgeGraph,
     ReviewLog,
@@ -144,7 +144,7 @@ def test_diff_between_two_revisions(store, req_extraction):
 
     added = KnowledgeGraph()
     added.add_node("SoftwareSystem", "New Element")
-    from agents.knowledge import merge_graphs
+    from core.knowledge import merge_graphs
 
     extended = merge_graphs(req_extraction, added)
     second = store.commit(extended, log, label="two")
@@ -160,7 +160,7 @@ def test_diff_against_working_set(store, req_extraction):
 
     changed = KnowledgeGraph()
     changed.add_node("SoftwareSystem", "Only In Working")
-    from agents.knowledge import merge_graphs
+    from core.knowledge import merge_graphs
 
     store.save_working(merge_graphs(req_extraction, changed), ReviewLog())
 

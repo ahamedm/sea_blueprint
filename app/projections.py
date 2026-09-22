@@ -53,8 +53,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
-from agents.knowledge import completeness_note, review_progress
-from agents.knowledge.model import (
+from core.knowledge import completeness_note, review_progress
+from core.knowledge.model import (
     CROSS_GRAPH_PREDICATES,
     STATUS_CORRECTED,
     STATUS_DISPUTED,
@@ -62,8 +62,8 @@ from agents.knowledge.model import (
     STATUS_UNVERIFIED,
     STATUS_VERIFIED,
 )
-from agents.knowledge.reconcile import DEFAULT_MATCH_THRESHOLD, reference_candidates
-from agents.knowledge.review import ReviewLog
+from core.knowledge.reconcile import DEFAULT_MATCH_THRESHOLD, reference_candidates
+from core.knowledge.review import ReviewLog
 
 # Confidence below this is what the review gate wants a human to look at first.
 # 0.7 is a product decision, not a model one: it is the point below which the

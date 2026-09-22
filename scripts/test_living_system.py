@@ -13,8 +13,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from agents.knowledge import graph_from_extraction
-from agents.knowledge.model import (
+from core.knowledge import graph_from_extraction
+from core.knowledge.model import (
     SCOPE_INITIATIVE,
     SCOPE_BASELINE,
     SOURCE_EXTRACTION,
@@ -134,7 +134,7 @@ def test_baseline_vs_initiative():
     print("TEST: Baseline vs Initiative Distinction")
     print("=" * 80)
 
-    from agents.knowledge.model import KnowledgeGraph, make_node_id
+    from core.knowledge.model import KnowledgeGraph, make_node_id
     
     graph = KnowledgeGraph()
     
@@ -186,7 +186,7 @@ def test_merge_scenario():
     print("TEST: Merge Scenario (Initiative → Baseline)")
     print("=" * 80)
     
-    from agents.knowledge.model import KnowledgeGraph, STATUS_VERIFIED
+    from core.knowledge.model import KnowledgeGraph, STATUS_VERIFIED
     
     graph = KnowledgeGraph()
     

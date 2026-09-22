@@ -8,7 +8,7 @@ handoff from agent result to canonical graph, which is where the MVP was broken.
 
 import pytest
 
-from agents.knowledge import RevisionStore, graph_from_extraction
+from core.knowledge import RevisionStore, graph_from_extraction
 from tests.conftest import FakeExtractor, FakeResult
 
 

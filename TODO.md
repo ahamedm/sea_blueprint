@@ -285,7 +285,7 @@ workflow), structural variance will produce false diffs and drown the signal.
 **Status:** In progress — a bulk resolution path now exists (item 14); the
 resolution pass itself is still outstanding
 **Priority:** **Critical** — this is the platform's core purpose, currently unmet
-**Area:** `agents/knowledge_extraction/`, `agents/architecture_extraction/`, ontology, `agents/knowledge/ingest.py`
+**Area:** `agents/knowledge_extraction/`, `agents/architecture_extraction/`, ontology, `core/knowledge/ingest.py`
 
 ### Problem
 
@@ -346,7 +346,7 @@ This makes cross-reference robust even when requirement IDs are lost or paraphra
 If both a requirement and an architecture element point to `INIT-2024-001 (Payment Modernisation)`,
 they belong in the same reconciliation scope.
 
-**Implemented:** `agents/knowledge/ingest.py` now captures `Initiative` nodes and
+**Implemented:** `core/knowledge/ingest.py` now captures `Initiative` nodes and
 creates `delivers_initiative` / `authorised_by_initiative` assertions during ingestion.
 
 ### The `requirement_type` observation
@@ -694,7 +694,7 @@ MCP servers / API) surfaced two gaps that force decisions everything else depend
 on. Recorded in full in the linked document; the actionable core:
 
 **9a. Canonical knowledge model + owned serialisation layer. — ✅ DONE**
-`agents/knowledge/` implements the model, the ingest transform and RDF emission.
+`core/knowledge/` implements the model, the ingest transform and RDF emission.
 28/28 checks pass (`scripts/test_knowledge_layer.py`). View projection layer
 proven via CLI table view (`scripts/review_assertions.py`) — exposes all assertions
 with provenance for human review. Still to do: wiring the agents to emit the
@@ -1200,7 +1200,7 @@ This should be **critical** — not because it's blocking the current workflow, 
 **Status:** ✅ IMPLEMENTED (first slice of the journey) — see
 [`docs/ui-review-workflow.md`](docs/ui-review-workflow.md)
 **Priority:** Closed for this slice; follow-ups below
-**Area:** `app/`, `agents/knowledge/` (`serialise.py`, `review.py`, `store.py`), `tests/`
+**Area:** `app/`, `core/knowledge/` (`serialise.py`, `review.py`, `store.py`), `tests/`
 
 ### What this closes
 
@@ -1251,7 +1251,7 @@ engine + gap report** (item 9) — `/gaps` does the structural half only.
 
 ### Verification
 
-`tests/` was empty; it now holds 239 tests covering the knowledge layer, the
+`tests/` was empty; it now holds 246 tests covering the knowledge layer, the
 projections and every route, running against an injectable fake extractor so the
 suite needs no model server. All routes verified 200 against a real booted
 server.
@@ -1280,7 +1280,7 @@ server.
 **Status:** ✅ IMPLEMENTED — see
 [`docs/ui-review-workflow.md`](docs/ui-review-workflow.md) §4
 **Priority:** Closed for this slice; follow-ups below
-**Area:** `agents/knowledge/reconcile.py`, `agents/knowledge/ingest.py`, `app/`
+**Area:** `core/knowledge/reconcile.py`, `core/knowledge/ingest.py`, `app/`
 
 ### What this closes
 
@@ -1419,7 +1419,7 @@ projections, never the reverse.
 **Status:** ✅ IMPLEMENTED — see
 [`docs/ui-review-workflow.md`](docs/ui-review-workflow.md) §8, §8a
 **Priority:** Closed
-**Area:** `agents/ontology.py`, `app/ontology_reference.py`,
+**Area:** `core/ontology.py`, `app/ontology_reference.py`,
 `app/templates/ontology.html`, `tests/test_ontology*.py`
 
 ### Why
@@ -1441,9 +1441,9 @@ until item 15 split them, so this one was placed and guarded deliberately:
 |---|---|
 | `app/projections.py` | the instance graph (ABox) |
 | `app/viewpoints/c4.py` | the instance graph + a notation |
-| `agents/ontology.py` + `app/ontology_reference.py` | the LinkML schemas (TBox) |
+| `core/ontology.py` + `app/ontology_reference.py` | the LinkML schemas (TBox) |
 
-`agents/ontology.py` imports nothing from `agents.knowledge` or `app`, so the Ontology
+`core/ontology.py` imports nothing from `core.knowledge` or `app`, so the Ontology
 Engineer and Domain Context agents can use it without the web layer. Guarded by
 `test_the_loader_reads_schemas_and_not_the_graph`.
 
@@ -1509,6 +1509,68 @@ only prove the loader is consistently wrong. It agrees exactly.
    diverges from the file.
 3. **Domain ontologies** (`ontology/domains/*.yaml`, item 11) are not placed as a layer.
    When they arrive, `LAYER_ORDER` needs branches rather than a single chain.
+
+---
+
+## 17. Move the shared domain layer out of agents/ into core/
+
+**Status:** ✅ IMPLEMENTED
+**Priority:** Closed
+**Area:** `core/`, `pyproject.toml`, `AGENTS.md`, `tests/test_layering.py`
+
+### Why
+
+`agents/knowledge/` and `agents/ontology.py` were not agents. Neither was an agent
+runtime concern, and **at the time of the move no agent imported either** — the
+consumers were `app/`, `scripts/` and `tests/`. The extraction agents import only
+`..base_agent`, `..knowledge_extraction` and `..extraction`.
+
+So the justification is not present sharing but a naming error: putting the domain
+model under `agents/` made it look like part of the agent runtime and invited the
+belief that reading a graph requires the agent stack. The move is also
+forward-looking — the Semantic Auditor, Ontology Engineer and Domain Context agents
+are stubs that will read exactly these modules.
+
+### Layout: three-way, by who reads what
+
+| Package | Role |
+|---|---|
+| `core/` | the domain — knowledge model, ingest, review, reconciliation, schema reader |
+| `agents/` | LLM agents that act on the graph; stateless functions over it |
+| `app/` | the human interface — projections, architecture viewpoints, routes |
+
+**Moved:** `agents/knowledge/` (8 modules, ~3,060 LOC) → `core/knowledge/`;
+`agents/ontology.py` → `core/ontology.py`. Renames via `git mv`, so history follows.
+
+**Stayed, by the same criterion** (shared by both → moves; one consumer → stays):
+`agents/base_agent.py`, `agents/cli.py`, `agents/extraction/` (agent-side pass
+infrastructure), the two real extraction agents, the four stub agents. On the app
+side, `app/projections.py`, `app/viewpoints/` and `app/ontology_reference.py` have
+only the app as a consumer, so they stay.
+
+### The rule, and the guards that hold it
+
+**Agents and app may import core; core imports neither.** That is what keeps the
+knowledge model usable without an LLM and the web layer replaceable without
+touching the model.
+
+`tests/test_layering.py` asserts it as source rather than trusting convention:
+no file under `core/` imports `agents` or `app`; `agents.knowledge`/`agents.ontology`
+do not come back; `core*` is registered in `pyproject.toml`; and — the concrete
+payoff — **importing `core.knowledge` and `core.ontology` in a subprocess must not
+load `strands`, `flask` or `linkml_runtime`.**
+
+Consequence worth noting: the test suite no longer imports the agent runtime at all.
+Importing `agents.knowledge` used to execute `agents/__init__.py`, which imports
+`base_agent` and its pydantic model — the suite's pydantic deprecation warnings
+disappeared with the move, which is the decoupling showing up as a side effect.
+
+### Deliberately not done
+
+Pre-existing lint debt in `core/knowledge/model.py` (W293/I001/E501), `rdf.py`
+(I001/F401) and `ingest.py` (5 × E501) was **not** swept up. Auto-fixing it inside
+a rename commit would make the move unreviewable and would silently reformat files
+the change has no business touching. It remains recorded here rather than hidden.
 
 ---
 

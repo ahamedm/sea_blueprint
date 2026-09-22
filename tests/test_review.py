@@ -2,7 +2,7 @@
 
 import pytest
 
-from agents.knowledge import (
+from core.knowledge import (
     ReviewError,
     ReviewLog,
     apply_decisions,
@@ -10,7 +10,7 @@ from agents.knowledge import (
     promote_to_baseline,
     review_progress,
 )
-from agents.knowledge.model import (
+from core.knowledge.model import (
     SCOPE_BASELINE,
     SCOPE_INITIATIVE,
     SOURCE_HUMAN_REVIEWER,

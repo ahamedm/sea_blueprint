@@ -4,8 +4,8 @@ import json
 
 import pytest
 
-from agents.knowledge import KnowledgeGraph, graph_from_dict, graph_to_dict
-from agents.knowledge.serialise import SCHEMA_VERSION
+from core.knowledge import KnowledgeGraph, graph_from_dict, graph_to_dict
+from core.knowledge.serialise import SCHEMA_VERSION
 
 
 def test_round_trip_preserves_identity(req_extraction):
@@ -21,7 +21,7 @@ def test_round_trip_preserves_every_review_relevant_field(req_extraction):
     Dropping `superseded_by` resurrects a fact a human deleted; dropping
     `status` turns a confirmed decision back into an agent guess.
     """
-    from agents.knowledge import ReviewLog, apply_decisions
+    from core.knowledge import ReviewLog, apply_decisions
 
     log = ReviewLog()
     first = next(iter(req_extraction.assertions))
@@ -89,7 +89,7 @@ def test_empty_graph_round_trips():
 
 def test_superseded_lineage_survives_merge_and_reload(req_extraction):
     """Lineage is the one field `add_assertion` does not own, so it is easy to lose."""
-    from agents.knowledge import merge_graphs
+    from core.knowledge import merge_graphs
 
     first = next(iter(req_extraction.assertions))
     req_extraction.assertions[first].superseded_by = "a_deadbeef"
