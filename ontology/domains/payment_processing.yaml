@@ -1,0 +1,670 @@
+# ============================================================================
+# SEA Platform — Payment Processing Domain Pack  [v0.1.0]
+# ============================================================================
+# A DOMAIN ONTOLOGY: the vocabulary of the SUBJECT MATTER, not of the artifact.
+#
+# This is not a fifth link in the base-ontology chain. It is a *pack* — a
+# swappable overlay selected per Initiative (see
+# docs/domain-ontology-integration.md). `hr.yaml` or `learning_management.yaml`
+# are its peers; nothing in core/, app/ or config/ may name a payment concept.
+#
+# LAYERING (one-way imports):
+#
+#   sea_common → enterprise_structure → requirements_base → architecture_base
+#                                              ▲
+#                                              └── domains/payment_processing.yaml  (this file)
+#
+# It imports `requirements_base` for exactly one reason: to subclass
+# `DomainConcept`. It must NOT import `architecture_base`, and
+# `architecture_base` must never import a pack — otherwise the base ontology
+# acquires a payment dependency and stops being generic.
+#
+# WHAT A PACK IS FOR
+# ------------------
+# Without one, extraction has nothing to be wrong against: every business entity
+# collapses to the `DomainConcept` catch-all, and frameworks get filed as domain
+# concepts because nothing rejects them. With one, three things become possible:
+#
+#   1. GROUNDING   — extraction maps to `Card` instead of `DomainConcept`.
+#   2. COVERAGE    — a closed list of concepts can be checked against the graph,
+#                    in BOTH directions (zero-instance concepts; unclassified
+#                    nodes). "Nothing handles chargebacks" is only askable
+#                    because `Chargeback` is a class here that has no instances.
+#   3. THE THIRD LEG — ARC-G ⇄ DOMAIN, which no amount of REQ⇄ARC reconciliation
+#                    can substitute for.
+#
+# DESIGN CHOICES
+# --------------
+# * Every concept subclasses `DomainConcept`, so `ingest.py` needs no change:
+#   a node's `kind` is the subclass name and it is a DomainConcept by is_a.
+# * Relationships are declared ONCE on `PaymentDomainConcept` rather than
+#   duplicated per subclass, except where a subclass narrows the range
+#   (`Chargeback.instrument` is optional; `MerchantAccount.merchant` is required).
+# * `lifecycle_state` carries the state machine. The state machine is an ENUM
+#   rather than a set of concepts: states are values a payment takes, not things
+#   the business consists of, and modelling them as concepts would flood the
+#   coverage census with ~10 near-duplicates.
+# * The lifecycle is also the pack's own regression test — every state in
+#   `PaymentLifecycleState` must be reachable from the transitions documented in
+#   the `description` below, or the pack is internally inconsistent.
+#
+# LIFECYCLE (documented, and the reason the enum is ordered):
+#
+#   INITIATED → AUTHORIZED → CAPTURED → SETTLED → RECONCILED
+#        │           │           │
+#        │           │           └─→ REFUNDED / PARTIALLY_REFUNDED
+#        │           └─→ EXPIRED / VOIDED
+#        └─→ DECLINED / FAILED
+#   (CAPTURED or SETTLED) ─→ CHARGED_BACK ─→ CHARGEBACK_REVERSED
+#
+# ============================================================================
+
+id: https://sea.platform/ontology/domains/payment-processing
+name: payment-processing
+title: Payment Processing Domain Pack
+version: 0.1.0
+description: >-
+  Domain vocabulary for payment processing: the parties, instruments, processing
+  operations and lifecycle states that payment requirements and architectures
+  are stated in terms of. Extends DomainConcept, so instances are ordinary graph
+  nodes and the coverage audit can count them.
+
+license: MIT
+default_curi_maps:
+  - semweb_context
+
+prefixes:
+  linkml: https://w3id.org/linkml/
+  sea-dom: https://sea.platform/ontology/domains/payment-processing/
+  sea-req: https://sea.platform/ontology/requirements-base/
+  schema: https://schema.org/
+  dcterms: http://purl.org/dc/terms/
+
+default_prefix: sea-dom
+default_range: string
+
+imports:
+  - linkml:types
+  - requirements_base
+
+subsets:
+
+  PaymentCore:
+    description: >-
+      The concepts a payment requirements document is expected to speak about.
+      This subset is the coverage census — a concept here with zero instances in
+      the graph is a finding, not an absence of data.
+
+  PaymentLifecycle:
+    description: Lifecycle states and the operations that move between them.
+
+  PaymentParties:
+    description: Who is involved — the roles, not the organisations.
+
+# ============================================================================
+# ANNOTATIONS — prose this pack contributes to the extraction prompt
+# ============================================================================
+# Kept here rather than in a prompt string in `agents/`. A domain example
+# hard-coded in the agent makes the tool domain-shaped while appearing generic,
+# which is precisely how a payment worked example ended up in a base prompt that
+# also served HR and learning-management documents.
+
+annotations:
+
+  worked_example:
+    value: |-
+      Source: *"The gateway shall authorise each payment before capture, and
+      retain the cardholder reference for disputes. Settlement criteria shall
+      include Scheme, Settlement Date, and Transaction Currency."*
+
+      WRONG — clause objects, comma-joined list, frameworks as domain concepts:
+      ```json
+      {
+        "triples": [
+          {"subject": "Payment Gateway", "predicate": "has_functional_requirement",
+            "object": "Authorise each payment before capture", "confidence": 1.0},
+          {"subject": "Settlement Criteria", "predicate": "has_criteria",
+            "object": "Scheme, Settlement Date, Transaction Currency", "confidence": 1.0},
+          {"subject": "Spring Boot", "predicate": "implements",
+            "object": "Payment Processing", "confidence": 1.0,
+            "ontology_class": "DomainConcept"}
+        ]
+      }
+      ```
+
+      RIGHT — named domain concepts, one triple per item, technology is not a
+      domain concept (it belongs to ARC-G as a Container/technology, not here):
+      ```json
+      {
+        "triples": [
+          {"subject": "Payment Gateway", "predicate": "has_functional_requirement",
+            "object": "Payment Authorisation", "confidence": 1.0,
+            "ontology_class": "FunctionalRequirement"},
+          {"subject": "Payment", "predicate": "authorised_by",
+            "object": "Authorization", "confidence": 1.0,
+            "ontology_class": "Authorization"},
+          {"subject": "Authorization", "predicate": "precedes",
+            "object": "Capture", "confidence": 0.9,
+            "ontology_class": "Capture"},
+          {"subject": "Cardholder", "predicate": "referenced_by",
+            "object": "Chargeback", "confidence": 0.8,
+            "ontology_class": "Cardholder"},
+          {"subject": "Settlement", "predicate": "is_determined_by",
+            "object": "Card Scheme", "confidence": 1.0,
+            "ontology_class": "CardScheme"},
+          {"subject": "Settlement", "predicate": "is_determined_by",
+            "object": "Settlement Date", "confidence": 1.0,
+            "ontology_class": "Settlement"},
+          {"subject": "Settlement", "predicate": "is_determined_by",
+            "object": "Transaction Currency", "confidence": 1.0,
+            "ontology_class": "Settlement"}
+        ]
+      }
+      ```
+
+      Note the mis-classification this pack exists to prevent: `Spring Boot` is a
+      framework, not a thing the business consists of. With a domain vocabulary in
+      force it has no domain class, which is the finding — rather than collapsing
+      into the `DomainConcept` catch-all where it is invisible.
+
+# ============================================================================
+# ENUMERATIONS
+# ============================================================================
+
+enums:
+
+  PaymentLifecycleState:
+    description: >-
+      The state a payment occupies. Ordered by progression: a payment does not
+      move backwards except through an explicit reversal operation. DECLINED and
+      FAILED are terminal outcomes of authorisation, not steps on the happy path.
+    permissible_values:
+      INITIATED:
+        description: Payment recorded but not yet submitted for authorisation.
+      AUTHORIZED:
+        description: Funds reserved on the instrument; not yet moved.
+      CAPTURED:
+        description: The authorisation has been claimed for settlement.
+      SETTLED:
+        description: Funds have moved between the parties' accounts.
+      RECONCILED:
+        description: Settled position has been matched against the scheme or bank record.
+      DECLINED:
+        description: Authorisation refused by the issuer or a risk control. Terminal.
+      FAILED:
+        description: Processing error before or during authorisation. Terminal.
+      EXPIRED:
+        description: Authorisation lapsed before capture. Terminal.
+      VOIDED:
+        description: Authorisation cancelled by the merchant before capture. Terminal.
+      PARTIALLY_REFUNDED:
+        description: Some, but not all, of the captured amount has been returned.
+      REFUNDED:
+        description: The captured amount has been returned in full.
+      CHARGED_BACK:
+        description: Funds reclaimed by the issuer following a cardholder dispute.
+      CHARGEBACK_REVERSED:
+        description: A chargeback was overturned in the merchant's favour. Terminal.
+
+  PaymentMethod:
+    description: How the payer's instrument is presented and authenticated.
+    permissible_values:
+      CARD:
+        description: Card-present or card-not-present card payment.
+      DIRECT_DEBIT:
+        description: Pulled from a bank account under a mandate.
+      BANK_TRANSFER:
+        description: Pushed from the payer's bank account.
+      WALLET:
+        description: A stored balance or third-party wallet.
+      INVOICE:
+        description: Payable on terms, settled later.
+      OPEN_BANKING:
+        description: Account-to-account payment initiated through a bank API.
+
+  CardScheme:
+    description: The network that authorises and clears the card transaction.
+    permissible_values:
+      VISA: {}
+      MASTERCARD: {}
+      AMEX: {}
+      DISCOVER: {}
+      UNIONPAY: {}
+      JCB: {}
+      LOCAL_SCHEME:
+        description: A domestic scheme; name it on the concept, not here.
+
+  CaptureMode:
+    description: When the authorisation is claimed for settlement relative to the sale.
+    permissible_values:
+      AUTOMATIC:
+        description: Captured immediately on authorisation — one-step flow.
+      DELAYED:
+        description: Captured later, within the authorisation window.
+      MANUAL:
+        description: Captured on an explicit operator or system action.
+      PARTIAL:
+        description: Captured for less than the authorised amount.
+
+  AuthenticationOutcome:
+    description: >-
+      Result of payer authentication (3-D Secure or equivalent). Recorded
+      separately from authorisation because one can succeed while the other
+      fails, and liability shifts depending on which.
+    permissible_values:
+      AUTHENTICATED:
+        description: Payer verified; liability shift generally applies.
+      ATTEMPTED:
+        description: Authentication attempted but not completed.
+      NOT_AUTHENTICATED:
+        description: Payer failed authentication. Merchant carries liability.
+      NOT_APPLICABLE:
+        description: Authentication not required for this method or channel.
+      EXEMPTED:
+        description: Excluded under a scheme or regulatory exemption.
+
+  TransactionDirection:
+    description: Whether funds are being collected from or paid to the counterparty.
+    permissible_values:
+      COLLECTION:
+        description: Money moving toward the enterprise — a sale.
+      DISBURSEMENT:
+        description: Money moving away from the enterprise — a payout.
+      REVERSAL:
+        description: Money returning to the payer.
+      ADJUSTMENT:
+        description: A correction that is neither a sale nor a reversal.
+
+  ChargebackReasonCategory:
+    description: >-
+      Why a chargeback was raised. Categories, not scheme-specific reason codes —
+      the codes change per scheme and per year, the categories do not.
+    permissible_values:
+      FRAUD:
+        description: The cardholder denies authorising the transaction.
+      AUTHORIZATION_ERROR:
+        description: Missing, late or invalid authorisation.
+      PROCESSING_ERROR:
+        description: Duplicate, incorrect amount, or malformed clearing record.
+      CONSUMER_DISPUTE:
+        description: Goods or services not received, or not as described.
+      SUBSCRIPTION_CANCELLED:
+        description: Recurring billing continued after cancellation.
+
+# ============================================================================
+# CLASSES — the root
+# ============================================================================
+
+classes:
+
+  PaymentDomainConcept:
+    description: >-
+      Root of the payment domain vocabulary. Everything below is a thing the
+      business consists of, as opposed to a requirement about it or a component
+      that implements it.
+    is_a: DomainConcept
+    abstract: true
+    in_subset:
+      - PaymentCore
+    attributes:
+      # --- roles: the parties a payment involves ---
+      merchant:
+        description: The party being paid — the enterprise or its sub-merchant.
+        range: Merchant
+      cardholder:
+        description: The person whose instrument funds the payment.
+        range: Cardholder
+      acquirer:
+        description: The institution that settles funds to the merchant.
+        range: Acquirer
+      issuer:
+        description: The institution that issued the instrument and authorises against it.
+        range: Issuer
+      # --- instrument and routing ---
+      instrument:
+        description: What the payment is drawn on.
+        range: PaymentInstrument
+      scheme:
+        description: The network that authorises and clears it.
+        range: CardScheme
+      gateway:
+        description: The technical access point that submits the payment onward.
+        range: PaymentGateway
+      # --- lifecycle ---
+      lifecycle_state:
+        description: Where the payment currently sits in its lifecycle.
+        range: PaymentLifecycleState
+      payment_method:
+        description: How the instrument was presented and authenticated.
+        range: PaymentMethod
+      direction:
+        description: Whether funds are collected from or paid to the counterparty.
+        range: TransactionDirection
+      # --- linkage back to the artifacts ---
+      # `realised_by` is deliberately a STRING, not a range into ARC-G. This pack
+      # imports `requirements_base`, which sits BELOW `architecture_base`; a range
+      # of `ArchitectureElement` would invert the one-way import rule and make the
+      # domain layer depend on the artifact layer. So the ARC-G ⇄ DOMAIN leg is an
+      # unresolved cross-graph reference, exactly like the predicates in
+      # `core.knowledge.model.CROSS_GRAPH_PREDICATES` — reconciled at the graph
+      # level, not baked into the schema.
+      realised_by:
+        description: >-
+          Name of an architecture element accountable for this concept — the
+          ARC-G ⇄ DOMAIN leg. Kept as a reference rather than a class range so
+          this layer stays independent of the architecture ontology. Which
+          components handle a concept, and which concept has no component at all,
+          is the coverage question no REQ⇄ARC reconciliation can answer.
+        range: string
+        multivalued: true
+      governed_by_rule:
+        description: Business rules that constrain this concept.
+        range: BusinessRule
+        multivalued: true
+
+  # ==========================================================================
+  # CLASSES — parties (PaymentParties)
+  # ==========================================================================
+
+  Merchant:
+    description: >-
+      A party that accepts payment. The enterprise itself, or a sub-merchant
+      onboarded under it — the distinction matters for settlement and liability.
+    is_a: PaymentDomainConcept
+    in_subset:
+      - PaymentCore
+      - PaymentParties
+    attributes:
+      merchant_id:
+        description: The scheme or acquirer reference for this merchant.
+        range: string
+      merchant_category_code:
+        description: The classification that determines interchange and risk.
+        range: string
+      onboarding_state:
+        description: Where the merchant sits in onboarding and risk review.
+        range: string
+
+  Cardholder:
+    description: The person whose instrument funds the payment and who can dispute it.
+    is_a: PaymentDomainConcept
+    in_subset:
+      - PaymentCore
+      - PaymentParties
+    attributes:
+      cardholder_reference:
+        description: A tokenised or internal reference. Never the PAN itself.
+        range: string
+
+  Acquirer:
+    description: The institution that acquires the transaction and settles funds to the merchant.
+    is_a: PaymentDomainConcept
+    in_subset:
+      - PaymentCore
+      - PaymentParties
+
+  Issuer:
+    description: The institution that issued the instrument and authorises against it.
+    is_a: PaymentDomainConcept
+    in_subset:
+      - PaymentCore
+      - PaymentParties
+
+  PaymentGateway:
+    description: >-
+      The technical access point through which a payment enters processing. A
+      party-facing role, not a component — the component that fills it is an
+      ARC-G element, linked via `realised_by`.
+    is_a: PaymentDomainConcept
+    in_subset:
+      - PaymentCore
+      - PaymentParties
+    attributes:
+      supported_methods:
+        description: Payment methods this gateway can accept.
+        range: PaymentMethod
+        multivalued: true
+
+  # ==========================================================================
+  # CLASSES — instruments
+  # ==========================================================================
+
+  PaymentInstrument:
+    description: >-
+      What a payment is drawn on. Abstract: a card, an account, or a wallet
+      balance. The instrument is the thing that is tokenised, stored and
+      protected — which is why it is modelled apart from the payment itself.
+    is_a: PaymentDomainConcept
+    abstract: true
+    in_subset:
+      - PaymentCore
+    attributes:
+      tokenised:
+        description: >-
+          Whether the stored form is a token rather than the primary account
+          number. True is the expected state; false is a compliance finding.
+        range: boolean
+      fingerprint:
+        description: A stable non-reversible reference used to recognise a repeat instrument.
+        range: string
+
+  Card:
+    description: A card payment instrument, present or not present.
+    is_a: PaymentInstrument
+    in_subset:
+      - PaymentCore
+    attributes:
+      masked_pan:
+        description: The first six and last four digits, for display only.
+        range: string
+      expiry:
+        description: Expiry as recorded. Never stored beyond what is needed.
+        range: string
+      scheme:
+        description: The network this card is issued on.
+        range: CardScheme
+
+  BankAccount:
+    description: A bank account instrument — direct debit, transfer or payout destination.
+    is_a: PaymentInstrument
+    in_subset:
+      - PaymentCore
+    attributes:
+      account_reference:
+        description: The masked or tokenised account identifier.
+        range: string
+      mandate_reference:
+        description: The authority under which funds may be collected. Required for direct debit.
+        range: string
+
+  Wallet:
+    description: A stored-balance or third-party wallet instrument.
+    is_a: PaymentInstrument
+    in_subset:
+      - PaymentCore
+
+  # ==========================================================================
+  # CLASSES — operations
+  # ==========================================================================
+
+  Payment:
+    description: >-
+      The root payment operation: a single intent to move funds between a payer
+      and a merchant, which progresses through the lifecycle. Every other
+      operation below is either a refinement of it or something that happens to
+      it after the fact.
+    is_a: PaymentDomainConcept
+    in_subset:
+      - PaymentCore
+      - PaymentLifecycle
+    attributes:
+      amount:
+        description: The amount to move, in the currency of the transaction.
+        range: decimal
+      currency:
+        description: ISO 4217 code of the transaction currency.
+        range: string
+      idempotency_key:
+        description: >-
+          The key that makes retrying a submission safe. Its absence is the
+          usual root cause of duplicate charges.
+        range: string
+
+  Authorization:
+    description: >-
+      The reservation of funds on the instrument, requested from the issuer. It
+      reserves; it does not move money. Everything downstream depends on its
+      outcome and its expiry window.
+    is_a: PaymentDomainConcept
+    in_subset:
+      - PaymentCore
+      - PaymentLifecycle
+    attributes:
+      authorization_code:
+        description: The issuer's reference for an approved authorisation.
+        range: string
+      authentication_outcome:
+        description: Result of payer authentication, where performed.
+        range: AuthenticationOutcome
+      captured_amount:
+        description: How much of the authorisation has been captured so far.
+        range: decimal
+
+  Capture:
+    description: >-
+      Claiming an authorisation for settlement. May be full or partial, and may
+      be delayed — the three together are the usual source of settlement
+      mismatches.
+    is_a: PaymentDomainConcept
+    in_subset:
+      - PaymentCore
+      - PaymentLifecycle
+    attributes:
+      capture_mode:
+        description: How the capture relates in time to the sale.
+        range: CaptureMode
+      capture_amount:
+        description: The amount claimed. Less than the authorised amount implies a partial capture.
+        range: decimal
+
+  Refund:
+    description: The return of captured funds to the payer, in full or in part.
+    is_a: PaymentDomainConcept
+    in_subset:
+      - PaymentCore
+      - PaymentLifecycle
+    attributes:
+      refund_amount:
+        description: The amount returned.
+        range: decimal
+      is_partial:
+        description: Whether this refund leaves a residual captured amount.
+        range: boolean
+
+  Settlement:
+    description: >-
+      The movement of funds between the parties' accounts, and the batch in
+      which it happens. Settlement is where the amount the enterprise expected
+      and the amount it received are found to differ.
+    is_a: PaymentDomainConcept
+    in_subset:
+      - PaymentCore
+      - PaymentLifecycle
+    attributes:
+      settlement_date:
+        description: The value date on which funds move.
+        range: date
+      net_amount:
+        description: The amount after fees, chargebacks and adjustments.
+        range: decimal
+      fees:
+        description: Interchange and scheme fees deducted for this settlement.
+        range: decimal
+
+  Chargeback:
+    description: >-
+      Funds reclaimed by the issuer following a cardholder dispute. Modelled as
+      a first-class concept rather than an error state because it has its own
+      lifecycle, evidence and liability rules — and because a design that handles
+      authorisation and capture but not chargebacks is a coverage finding that
+      nothing else in the graph can express.
+    is_a: PaymentDomainConcept
+    in_subset:
+      - PaymentCore
+      - PaymentLifecycle
+    attributes:
+      reason_category:
+        description: Why the chargeback was raised.
+        range: ChargebackReasonCategory
+      disputed_amount:
+        description: The amount reclaimed.
+        range: decimal
+      representment_deadline:
+        description: The date by which the merchant must contest or accept. Missing it is a loss.
+        range: date
+      instrument:
+        description: Optional here — the dispute is against the payment, not the instrument.
+        range: PaymentInstrument
+
+  Payout:
+    description: >-
+      A disbursement from the enterprise to a merchant or payee — the opposite
+      direction to a collection, and the reason `direction` exists.
+    is_a: PaymentDomainConcept
+    in_subset:
+      - PaymentCore
+      - PaymentLifecycle
+    attributes:
+      direction:
+        description: Payouts are disbursements; a payout recorded as a collection is a modelling error.
+        range: TransactionDirection
+        ifabsent: str(DISBURSEMENT)
+      payout_batch:
+        description: The batch a payout is grouped into for execution.
+        range: string
+
+  Mandate:
+    description: >-
+      The payer's standing authority for future collections against an account.
+      Its state governs whether a recurring collection is legitimate — which is
+      why it is a concept and not an attribute of the instrument.
+    is_a: PaymentDomainConcept
+    in_subset:
+      - PaymentCore
+    attributes:
+      mandate_reference:
+        description: The reference under which the authority was granted.
+        range: string
+      mandate_state:
+        description: Whether the authority is active, cancelled or expired.
+        range: string
+
+  Reconciliation:
+    description: >-
+      Matching the enterprise's internal record of what it processed against the
+      scheme's or bank's record of what it settled. The operation that turns a
+      settlement into an auditable position.
+    is_a: PaymentDomainConcept
+    in_subset:
+      - PaymentCore
+      - PaymentLifecycle
+    attributes:
+      reconciled_period:
+        description: The period this reconciliation covers.
+        range: string
+      unmatched_count:
+        description: Items that could not be matched. The number an operations team acts on.
+        range: integer
+
+  Dispute:
+    description: >-
+      A cardholder challenge that may or may not escalate to a chargeback.
+      Modelled separately because most disputes never reach one, and the steps
+      before escalation are where they are cheaply resolved.
+    is_a: PaymentDomainConcept
+    in_subset:
+      - PaymentCore
+    attributes:
+      dispute_state:
+        description: Where the challenge sits in its resolution process.
+        range: string

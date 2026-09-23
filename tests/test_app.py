@@ -479,9 +479,9 @@ def test_ontology_focus_on_an_unknown_class_is_graceful(client):
 
 def test_api_ontology_returns_the_schema(client):
     payload = client.get("/api/ontology").get_json()
-    assert len(payload["classes"]) == 58
-    assert len(payload["enums"]) == 37
-    assert payload["overview"]["stats"]["classes"] == 58
+    assert len(payload["classes"]) == 61
+    assert len(payload["enums"]) == 42
+    assert payload["overview"]["stats"]["classes"] == 61
     assert payload["overview"]["diagnostics"]["is_clean"] is True
 
 
@@ -510,8 +510,13 @@ def test_a_broken_ontology_degrades_one_page_not_the_app(store_root, tmp_path):
 # ============================================================================
 
 # Built so that all three outcomes are present at once: one reference resolvable
-# by wording, one resolvable only by the document's own key, and one with no
-# candidate at all.
+# by wording, one resolvable only by its identifier, and one with no candidate at
+# all.
+#
+# The identifier is stated as a requirements-TOOLING key (`system: Jira`), which
+# is what makes it matchable across documents. A bare `FR-PM-001` with no system
+# is read as a label local to the document that stated it, and is deliberately
+# refused as a cross-document join — see `test_reconcile.py`.
 RECONCILE_OUTPUT = {
     "triples": [
         {
@@ -542,7 +547,10 @@ RECONCILE_OUTPUT = {
         {
             "name": "Payment Acceptance",
             "ontology_class": "FunctionalRequirement",
-            "external_references": [{"identifier": "FR-PM-001"}],
+            "external_references": [
+                {"identifier": "FR-PM-001", "system": "Jira",
+                 "reference_type": "REQUIREMENT_KEY"}
+            ],
         },
     ],
 }

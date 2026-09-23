@@ -31,10 +31,37 @@ def main():
 ]), required=True, help="Agent to run")
 @click.option("--input", "input_file", type=click.Path(exists=True), help="Input file (JSON or Markdown)")
 @click.option("--output", "output_file", type=click.Path(), help="Output file (JSON)")
-def run(agent: str, input_file: str, output_file: str):
+@click.option(
+    "--domain-pack",
+    default=None,
+    help=(
+        "Domain ontology to ground extraction in (e.g. payment_processing). "
+        "Overrides SEA_DOMAIN_PACK. Omit for no pack."
+    ),
+)
+@click.option("--list-domain-packs", is_flag=True, help="List available domain packs and exit")
+def run(agent: str, input_file: str, output_file: str, domain_pack: str, list_domain_packs: bool):
     """Run an SEA agent."""
     
     console.print(Panel(f"Running {agent} agent", style="blue"))
+
+    if list_domain_packs:
+        from core.ontology import discover_domain_packs
+
+        packs = discover_domain_packs()
+        if not packs:
+            console.print("[yellow]No domain packs found under ontology/domains/[/yellow]")
+            return
+        console.print("\n[bold]Available domain packs:[/bold]\n")
+        for entry in packs:
+            status = "[green]ok[/green]" if entry["loadable"] else f"[red]{entry['error']}[/red]"
+            console.print(
+                f"  [cyan]{entry['spec']}[/cyan] "
+                f"v{entry['version'] or '?'} — {entry['title']} "
+                f"({entry['class_count']} classes) {status}"
+            )
+        console.print()
+        return
     
     # Load input
     if input_file:
@@ -59,6 +86,15 @@ def run(agent: str, input_file: str, output_file: str):
         # Placeholder for other agents
         console.print(f"[yellow]Agent {agent} not yet implemented. Using knowledge_extraction.[/yellow]")
         agent_instance = create_knowledge_extraction_agent()
+
+    # The pack is a per-Initiative choice made after the agent is constructed, and
+    # the vocabulary is baked into the system prompt at construction — so selecting
+    # it here is what makes the flag mean anything, rather than being logged and
+    # ignored.
+    if domain_pack:
+        agent_instance.use_domain_pack(domain_pack)
+    if agent_instance.active_domain_pack_id():
+        input_data.setdefault("domain_pack", agent_instance.active_domain_pack_id())
     
     result = agent_instance.run(input_data)
     

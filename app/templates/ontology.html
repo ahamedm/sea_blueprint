@@ -104,6 +104,87 @@
     </p>
   </div>
 
+  {# -- the domain pack: conditional, swappable, and NOT a fifth layer ---- #}
+  <div class="card">
+    <div class="card-head">
+      <h2>Domain pack — the vocabulary of the subject matter</h2>
+    </div>
+
+    {% if view.pack %}
+      <p class="hint">
+        This graph was extracted under the <strong>{{ view.pack.title }}</strong>
+        domain pack — the vocabulary of <em>what the business is about</em>, as opposed
+        to the four layers above, which describe <em>the artifact</em>. Read from the
+        graph's own provenance, not from configuration, so it reports the vocabulary a
+        fact was actually made in.
+      </p>
+      <div class="chain">
+        <div class="chain-node layer-domain">
+          <div class="chain-head">
+            <span class="chain-index">domain</span>
+            <strong>{{ view.pack.title }}</strong>
+            <span class="tag">v{{ view.pack.version }}</span>
+          </div>
+          <div class="chain-prefix mono">{{ view.pack.prefix }}</div>
+          <p class="small">{{ view.pack.description }}</p>
+          <div class="small muted">
+            {{ view.pack.class_count }} classes · {{ view.pack.enum_count }} enums ·
+            extends <code>DomainConcept</code>
+          </div>
+          <div class="small">
+            {% for imp in view.pack.imports %}<span class="tag">imports {{ imp }}</span>{% endfor %}
+          </div>
+        </div>
+      </div>
+
+      <p class="hint" style="margin-top:12px;">
+        <strong>Coverage, not traceability.</strong> Counts below are instances in the
+        working set. A domain class with <strong>zero</strong> is the finding this layer
+        exists to make askable — a concept the subject matter has that the requirements
+        never mention. No requirement/architecture traceability check can express that,
+        because there is no requirement to be unimplemented.
+      </p>
+      <table class="table-plain">
+        <thead>
+          <tr><th>Domain class</th><th>Instances</th><th>Subset</th></tr>
+        </thead>
+        <tbody>
+          {% for name in view.pack.concrete_classes %}
+            {% set count = view.pack_instances.get(name, 0) %}
+            <tr>
+              <td>
+                <a href="{{ url_for('ontology', focus=name, layer=layer, q=q, only=only) }}">
+                  <strong>{{ name }}</strong>
+                </a>
+              </td>
+              <td class="{{ 'muted' if not count else '' }}">
+                {% if count %}<strong>{{ count }}</strong>{% else %}0 — not mentioned{% endif %}
+              </td>
+              <td class="small muted">
+                {{ view.pack.classes[name].subsets|join(', ') if view.pack.classes.get(name) else '' }}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="hint">
+        <strong>No domain pack is in force for this graph.</strong> That is a supported
+        state, not a missing one: the four layers above are a complete vocabulary for the
+        artifact, and a domain pack only adds the vocabulary of the <em>subject matter</em>.
+        Select one per Initiative at <a href="{{ url_for('ingest') }}">ingest</a>.
+      </p>
+      <p class="small muted">
+        Available packs:
+        {% for p in domain_packs %}
+          <span class="tag">{{ p.spec }}{% if p.version %} v{{ p.version }}{% endif %}</span>
+        {% else %}
+          <em>none found under <code>ontology/domains/</code></em>
+        {% endfor %}
+      </p>
+    {% endif %}
+  </div>
+
   {# -- filters ----------------------------------------------------------- #}
   <div class="card">
     <form class="filters" method="get" action="{{ url_for('ontology') }}">

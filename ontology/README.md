@@ -5,16 +5,18 @@
 
 A generic, domain-agnostic ontology for structured business requirement analysis. This ontology supports both **standalone** and **platform-centric** enterprise topologies through a topology-aware design.
 
-> **Reading this?** There is a browsable reference view of all four layers in the
+> **Reading this?** There is a browsable reference view of all four base layers in the
 > MVP UI at **`/ontology`** (route `ontology`). It shows the import chain, the class
 > hierarchy with `is_a` and mixins kept distinct, own versus inherited slots, enums
 > with their permissible values, and how many instances of each class exist in the
-> current working set. The current state is **58 classes, 37 enums, 13 subsets,
-> 457 slots** across the four layers, with no unresolved supertypes or slot ranges.
+> current working set. The same page also reports the **active domain pack**
+> separately, with a coverage census showing which domain concepts the working set
+> actually mentions — a domain class with zero instances is a finding, not a blank.
 >
 > The tables below are hand-maintained and have drifted from the schemas — the live
-> view cannot. Notably, the "File Structure" section further down still calls
-> `architecture_base.yaml` "(future)" and does not mention `sea_common.yaml`.
+> view cannot. The class counts quoted in older notes (58 classes, 37 enums, 13
+> subsets, 457 slots across four layers) cover the base layers only; they do not
+> include the domain packs under `domains/`.
 
 ---
 
@@ -40,6 +42,114 @@ Every requirement carries structural traceability links:
 
 Aligned with **ISO/IEC 25010:2023** for quality attributes. Non-functional requirements use the **ATAM quality scenario pattern** (stimulus → environment → response → measure) to make them testable, not aspirational.
 
+### 4. Design Choices Are Typed, Not Folded Into One Bucket
+
+Four different questions about how an architecture is shaped, kept apart because
+merging them destroys the property that makes each useful:
+
+| Class | Question | Example | Judged by |
+|---|---|---|---|
+| `ArchitectureStyle` | What **shape** is the design? | Stateless Modular Microservices | comparability — is this system microservices or monolith? |
+| `ArchitecturePattern` | Which **named solution** was adopted? | Circuit Breaker, Saga, CQRS | whether the published pattern is present |
+| `DesignTechnique` | What **mechanism** delivers a quality attribute? | Stateless Services, Redundancy / Replicas | whether the NFR it claims is actually met |
+| `EngineeringConvention` | What **rule** does the organisation impose on how things are built? | `<company>-<product>-<web>` | **conformance** — does the name match the rule? |
+
+The distinction pays for itself in what becomes checkable. A technique carries
+`realizes_quality_attributes → NonFunctionalRequirement`, which supplies the edge
+that turns *"High Availability is required"* plus *"the platform is replicated"*
+into a stated, verifiable mechanism instead of two unrelated facts. A convention
+carries a machine-checkable `pattern` plus the elements it governs, which makes
+naming drift **derivable** — a document that records a standard rarely also
+reports its own violations.
+
+Conventions are deliberately *not* modelled as techniques: a technique is
+justified by a quality attribute and needs judgement to assess, whereas a
+convention is justified by consistency and is decided mechanically against data
+the graph already holds (element names, containment, technology stacks).
+
+### 5. The Quality Model Is ISO/IEC 25010:2023, in Two Levels
+
+Two enums and one class:
+
+| | |
+|---|---|
+| `QualityAttributeCategory` | the **nine characteristics** — Functional Suitability, Performance Efficiency, Compatibility, Interaction Capability, Reliability, Security, Maintainability, Flexibility, Safety — plus `REGULATORY_COMPLIANCE`, which is enterprise governance and labelled as such via `QualityConcernClass` |
+| `QualitySubcharacteristic` | the **forty sub-characteristics** the standard actually classifies at |
+| `QualityAttribute` | a **node**, so a quality concern has an identity rather than being a bare enum value |
+
+The version matters. This is strictly 2023: Usability became **Interaction
+Capability**, and Portability was replaced by **Flexibility** — which is why
+`FLEXIBILITY` is present, `PORTABILITY` is not, and **Scalability** lives under
+Flexibility rather than under a superseded characteristic.
+
+**Why two levels and not one.** "within 500ms" and "1000 TPS with horizontal
+scaling" are both `PERFORMANCE_EFFICIENCY` at the top level, but they are
+`TIME_BEHAVIOUR` and `SCALABILITY` — and they are satisfied by entirely different
+techniques (caching versus statelessness plus replication). A model that stops at
+the characteristic cannot tell them apart, so it cannot check that a technique is
+aimed at the right concern.
+
+**Why `QualityAttribute` is a class.** An enum value is not a thing anything can
+point at. Without the class, `DesignTechnique.realizes_quality_attributes` and
+`ArchitectureElement.satisfies_attributes` could only range over
+`NonFunctionalRequirement` — a *documented instance* — with three consequences: a
+technique could only be justified by an attribute some requirement happened to
+state; two NFRs about the same attribute looked unrelated; and `quality_category`
+was a string with nowhere to hang a scenario, evidence or verdict.
+
+With the node, all three resolve:
+
+```
+NonFunctionalRequirement --realizes_attribute-->  QualityAttribute
+ArchitectureElement      --satisfies_attribute--> QualityAttribute
+DesignTechnique          --satisfies_attribute--> QualityAttribute
+```
+
+That is what makes *"which elements and techniques deliver Availability?"*
+answerable — including when **no requirement states Availability at all**, which
+is the coverage gap the auditor exists to find.
+
+`QualityScenario` (the ATAM pattern: stimulus → environment → response → measure)
+is declared and currently **never populated**; no extraction pass emits it. It is
+kept because it is the intended way to make an NFR falsifiable, and its own
+description says so rather than implying it works.
+
+---
+
+## Identity: Scope Decides What May Be Joined On
+
+`sea_common` records external identifiers through the `ExternallyReferenced`
+mixin (on `Requirement`, `ArchitectureElement`, and the other roots) and the
+`ExternalReference` class. What makes that class usable rather than decorative is
+**`IdentityScope`**, which says how far an identifier's authority reaches:
+
+| Scope | Meaning | May be matched on? |
+|---|---|---|
+| `ENTERPRISE` | Held in a system of record — ServiceNow CI, Jira key, LeanIX id | **Yes**, globally |
+| `INITIATIVE` | Unique within one Initiative | Only within that Initiative |
+| `DOCUMENT` | A label local to one source document | Only inside that document |
+| `RUN` | Local to one extraction run | No |
+
+**Why this matters more than it looks.** A requirements document numbering its
+requirements `FR-001`, `FR-002` is a near-universal convention, and those numbers
+carry no meaning beyond their document. Treating `FR-001` from one document as a
+match for `FR-001` in another produces a **confident wrong join** — worse than a
+missing join, because it makes the audit wrong rather than merely incomplete.
+
+So the two cases are recorded differently:
+
+- An identifier from a **system of record** is `ENTERPRISE`-scoped and is the
+  strongest reconciliation signal available — an exact key match.
+- A label read out of a **source document** is `DOCUMENT`-scoped, with the
+  document named as its `system`. It is kept because it is how a human finds the
+  requirement in its source, and it *does* match inside that same document, but
+  it is refused as a cross-document join.
+
+`reference_type` alone cannot separate the two — `REQUIREMENT_KEY` is a Jira or
+DOORS key, which *is* an enterprise identity, while a markdown heading is not. The
+`system` is what distinguishes them: a document label is typed `OTHER`, and an
+identifier naming a managed system is inferred `ENTERPRISE`.
+
 ---
 
 ## Ontology Structure
@@ -55,6 +165,8 @@ Aligned with **ISO/IEC 25010:2023** for quality attributes. Non-functional requi
 | **Quality Attributes** | NFR scenarios | `QualityScenario` |
 | **Enterprise Structure** | Organizational constructs | `EnterpriseConstruct` (abstract), `Product`, `SubProduct`, `System`, `Application` |
 | **Platform Model** | Platform-specific (optional) | `Platform`, `PlatformContract`, `PlatformExtensibilityRequirement`, `PlatformMultiTenancyRequirement`, `PlatformCompatibilityRequirement` |
+| **Architecture Rationale** | How the design is shaped and why | `ArchitectureStyle` (shape), `ArchitecturePattern` (named solution), `DesignTechnique` (mechanism delivering a quality attribute), `EngineeringConvention` (organisation's own rule) |
+| **Architecture Decisions** | Recorded choices | `ArchitectureDecision` (ADR), `RequirementRealization` (REQ → ARC join) |
 
 ---
 
@@ -226,17 +338,28 @@ RequirementSpecification:
 
 ## Extension Points
 
-This base ontology is designed to be **extended** by domain-specific ontologies:
+This base ontology is **extended** by domain packs under `domains/`. One is built:
 
-- **Payment Processing Ontology:** Adds domain concepts (Transaction, Merchant, Payout), specialized business rules, payment-specific constraints
-- **Healthcare Ontology:** Adds HIPAA-specific constraint types, clinical workflow patterns
-- **E-commerce Ontology:** Adds product catalog concepts, shopping cart patterns, fulfillment workflows
+- **`domains/payment_processing.yaml`** — the parties (Merchant, Cardholder,
+  Acquirer, Issuer, PaymentGateway), the instruments (PaymentInstrument → Card,
+  BankAccount, Wallet), the operations (Payment, Authorization, Capture, Refund,
+  Settlement, Chargeback, Payout, Mandate, Reconciliation, Dispute) and the
+  lifecycle state machine as a closed enum.
 
-Domain ontologies **inherit** from this base and add:
-- Domain-specific `DomainConcept` instances
-- Domain-specific `BusinessRule` types
-- Domain-specific enums and constraints
-- Domain-specific requirement patterns
+A pack **inherits** from this base — it is a *schema*, not a set of instances — and adds:
+
+- Domain classes subclassing `DomainConcept`, so instances are ordinary graph nodes
+- Domain-specific `BusinessRule` references and slot ranges into the base layer
+- Domain-specific enums (lifecycle states, methods, schemes, reason categories)
+- An optional `worked_example` annotation that replaces the subject-neutral example
+  in the extraction prompt, keeping domain guidance **in the pack** rather than
+  hard-coded in `agents/`
+
+> **A note on `DomainConcept`.** Without a pack in force, extraction collapses every
+> business entity into the `DomainConcept` catch-all — which is why frameworks like
+> `Spring Boot` were previously filed as domain concepts and ~43% of entities carried
+> no ontology class at all. That is the placeholder a pack is meant to replace, not a
+> category to target. Selecting a pack is what makes a mis-classification visible.
 
 ---
 
@@ -256,23 +379,42 @@ Domain ontologies **inherit** from this base and add:
 
 ```
 ontology/
-├── enterprise_structure.yaml  # Base layer — organizational constructs
-├── requirements_base.yaml     # Requirement layer — imports enterprise_structure
+├── sea_common.yaml            # Common layer — identity and provenance
+├── enterprise_structure.yaml  # Enterprise layer — organizational constructs
+├── requirements_base.yaml     # Requirements layer — REQ-G
+├── architecture_base.yaml     # Architecture layer — ARC-G
+├── domains/                   # Domain packs — the vocabulary of the SUBJECT MATTER
+│   └── payment_processing.yaml
 └── README.md                  # This documentation
 ```
 
-Future extensions:
+### The four base layers and the domain packs are different kinds of thing
+
+The four base layers above are **fixed**: they are present for every Initiative,
+they describe the *artifact* (what a requirement is, how architecture is
+described), and they must stay domain-neutral. They are loaded once and in a
+strict one-way chain.
+
+A **domain pack** under `domains/` is **conditional and swappable**: it describes
+the *subject matter* (Payment, PAN, Merchant, Chargeback), it is selected per
+Initiative, and it is an overlay that imports `requirements_base` to subclass
+`DomainConcept`. It is deliberately **not** a fifth chain layer.
+
 ```
-ontology/
-├── enterprise_structure.yaml  # Base layer (reused everywhere)
-├── requirements_base.yaml     # REQ-G ontology
-├── architecture_base.yaml     # ARC-G ontology (imports both above)
-├── domains/
-│   ├── payment_processing.yaml
-│   ├── healthcare.yaml
-│   └── ecommerce.yaml
-└── README.md
+sea_common → enterprise_structure → requirements_base → architecture_base
+                                            ▲
+                                            └── domains/payment_processing.yaml
 ```
+
+A pack is loaded by `core.ontology.load_domain_pack`, discovered by
+`discover_domain_packs`, selected at `/ingest` (or via `SEA_DOMAIN_PACK`), and
+recorded in every assertion's provenance as `stem@version` so a vocabulary change
+is never mistaken for a content change. **Selecting no pack is a supported
+state** — the base layers alone are a complete vocabulary for the artifact.
+
+Adding a domain requires **no code changes**: drop a YAML file in `domains/` that
+imports `requirements_base`, subclasses `DomainConcept`, and declares a `version`
+and a unique `id`. See [`docs/domain-ontology-integration.md`](../docs/domain-ontology-integration.md).
 
 ---
 

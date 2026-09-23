@@ -174,13 +174,18 @@ class ArchitectureExtractionAgent(KnowledgeExtractionAgent):
                 collect(outcomes, "technology", "technology_stacks"), named_key, completeness)
             styles = merge_records(
                 collect(outcomes, "technology", "architecture_styles"), named_key, completeness)
+            techniques = merge_records(
+                collect(outcomes, "technology", "design_techniques"), named_key, completeness)
+            conventions = merge_records(
+                collect(outcomes, "technology", "engineering_conventions"), named_key, completeness)
             references = merge_records(
                 collect(outcomes, "traceability", "references"), _reference_key, completeness)
 
             self.log(
                 f"Merged: {len(triples)} triples, {len(elements)} elements, "
                 f"{len(connections)} connections, {len(technology)} technologies, "
-                f"{len(styles)} styles, {len(references)} references"
+                f"{len(styles)} styles, {len(techniques)} techniques, "
+                f"{len(conventions)} conventions, {len(references)} references"
             )
 
             # ---- 4. validate (Option B) ----
@@ -203,6 +208,8 @@ class ArchitectureExtractionAgent(KnowledgeExtractionAgent):
                 "connections": [self._as_output_dict(c) for c in connections],
                 "technology_stacks": [self._as_output_dict(t) for t in technology],
                 "architecture_styles": [self._as_output_dict(s) for s in styles],
+                "design_techniques": [self._as_output_dict(d) for d in techniques],
+                "engineering_conventions": [self._as_output_dict(c) for c in conventions],
                 "references": [self._as_output_dict(r) for r in references],
                 "findings": flag_dicts,
                 "statistics": {
@@ -211,6 +218,8 @@ class ArchitectureExtractionAgent(KnowledgeExtractionAgent):
                     "total_connections": len(connections),
                     "total_technology_stacks": len(technology),
                     "total_architecture_styles": len(styles),
+                    "total_design_techniques": len(techniques),
+                    "total_engineering_conventions": len(conventions),
                     "total_references": len(references),
                     "findings": len(flag_dicts),
                     "chunks": len(chunks),
@@ -227,6 +236,7 @@ class ArchitectureExtractionAgent(KnowledgeExtractionAgent):
                 metadata={
                     "document_type": document_type,
                     "domain": domain,
+                    "domain_pack": self.active_domain_pack_id(),
                     "extraction_path": "passes",
                     "document_chars": len(document),
                     "chunks": len(chunks),

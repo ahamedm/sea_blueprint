@@ -132,11 +132,21 @@ def layer_chain(model: OntologyModel, graph=None) -> List[Dict[str, Any]]:
     return chain
 
 
-def ontology_overview(model: OntologyModel, graph=None) -> Dict[str, Any]:
+def ontology_overview(model: OntologyModel, graph=None, pack=None) -> Dict[str, Any]:
+    """The whole reference page's overview.
+
+    `pack` is the domain overlay in force for the graph being viewed, if any. It is
+    reported SEPARATELY from `layers` and never merged into them: the four base
+    layers are fixed and present for every Initiative, while a pack is conditional
+    and swappable per Initiative. Drawing a pack as "layer 5" would say the base
+    ontology depends on one domain, which is the opposite of the design.
+    """
     stats = model.stats()
     return {
         "stats": stats,
         "layers": layer_chain(model, graph),
+        "pack": pack.to_dict() if pack is not None else None,
+        "pack_instances": _pack_instance_counts(pack, graph) if pack is not None else {},
         "diagnostics": {
             "unresolved_parents": model.unresolved_parents,
             "unresolved_ranges": model.unresolved_ranges,
@@ -156,6 +166,23 @@ def ontology_overview(model: OntologyModel, graph=None) -> Dict[str, Any]:
             )
         ],
     }
+
+
+def _pack_instance_counts(pack, graph) -> Dict[str, int]:
+    """How many nodes the working set holds per domain class.
+
+    The coverage census, in its smallest useful form. A pack class showing 0 is the
+    finding this whole layer exists to make askable — `Chargeback` with no instances
+    means the requirement set never mentions chargebacks, which is a coverage gap
+    no REQ-G/ARC-G traceability check can express.
+    """
+    counts: Dict[str, int] = {}
+    if graph is None or pack is None:
+        return counts
+    for node in graph.nodes.values():
+        if node.kind in pack.classes:
+            counts[node.kind] = counts.get(node.kind, 0) + 1
+    return counts
 
 
 # ============================================================================
@@ -252,6 +279,18 @@ def class_neighbourhood(model: OntologyModel, name: str) -> Dict[str, Any]:
     shown_subtypes = sorted(subtypes)[:MAX_ROW_NODES]
     shown_ranges = sorted(ranges)[:MAX_ROW_NODES]
 
+    # Emit only the range edges whose target is actually DRAWN.
+    #
+    # This was a real defect, not a precaution: with more ranges than
+    # MAX_ROW_NODES the view emitted an edge to a node that no row contained, so
+    # the drawing carried a line to nowhere and `hidden["links"]` counted it as
+    # if it had been rendered. It surfaced only when `realizes_attribute` pushed
+    # NonFunctionalRequirement's range count past the cap. The general rule the
+    # original comment states — never leave the client to drop dangling links —
+    # has to hold for rows truncated by a cap too.
+    drawn_range_set = set(shown_ranges)
+    emitted_range_links = [link for link in range_links if link["target"] in drawn_range_set]
+
     rows = [
         {
             "key": "referenced_by",
@@ -296,15 +335,19 @@ def class_neighbourhood(model: OntologyModel, name: str) -> Dict[str, Any]:
             {"source": name, "target": mixin, "kind": "mixin", "label": "mixes in"}
             for mixin in mixins
         ]
-        + range_links
+        + emitted_range_links
         + incoming_links
     )
     # Emit only edges between nodes this view actually shows. Leaving the client to
     # drop dangling links would make a deliberate omission indistinguishable from a
-    # bug — and untestable, which is how it went unnoticed the first time.
+    # bug — and untestable, which is how it went unnoticed the first time. The
+    # `included` guard is now a second line of defence behind `emitted_range_links`,
+    # covering the case where a row is capped rather than absent.
     links = [
         link for link in candidates if link["source"] in included and link["target"] in included
     ]
+    # Edges dropped by the cap, so `hidden` reports what the reader is not seeing.
+    capped_range_edges = len(range_links) - len(emitted_range_links)
 
     return {
         "focus": name,
@@ -318,6 +361,7 @@ def class_neighbourhood(model: OntologyModel, name: str) -> Dict[str, Any]:
             "subtypes": max(0, len(subtypes) - MAX_ROW_NODES),
             "ranges": max(0, len(ranges) - MAX_ROW_NODES),
             "links": len(candidates) - len(links),
+            "capped_range_edges": capped_range_edges,
         },
     }
 

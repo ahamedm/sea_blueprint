@@ -83,7 +83,12 @@ from core.knowledge import (
     to_turtle,
 )
 from core.knowledge.model import compute_graph_delta
-from core.ontology import OntologyError, load_ontology
+from core.ontology import (
+    OntologyError,
+    discover_domain_packs,
+    load_ontology,
+    pack_for_graph,
+)
 
 DEFAULT_STORE_ROOT = "data/sea"
 MAX_UPLOAD_BYTES = 4 * 1024 * 1024
@@ -191,7 +196,15 @@ def create_app(
     @app.route("/ingest", methods=["GET", "POST"])
     def ingest():
         if request.method == "GET":
-            return render_template("ingest.html", runs=_run_summaries(state().graph))
+            return render_template(
+                "ingest.html",
+                runs=_run_summaries(state().graph),
+                # The domain pack picker: the Architect/BA's per-Initiative choice.
+                # Listing is deliberately separate from loading, so one malformed
+                # pack cannot take the whole form down with it.
+                domain_packs=discover_domain_packs(current_app.config["ONTOLOGY_DIR"]),
+                active_domain_pack=state().meta.get("domain_pack", ""),
+            )
 
         uploaded = request.files.get("document")
         text = (request.form.get("text") or "").strip()
@@ -210,6 +223,12 @@ def create_app(
         initiative_id = (
             request.form.get("initiative_id") or current_app.config["INITIATIVE_ID"]
         ).strip()
+        # The domain pack is the Architect/BA's per-Initiative choice, made here.
+        # It reaches the extractor through `use_domain_pack` rather than through
+        # `input_data`, because the vocabulary is compiled into the system prompt
+        # when the agent is constructed — passing it as data would be the same
+        # inert-parameter mistake the old hard-coded `domain` field made.
+        domain_pack = (request.form.get("domain_pack") or "").strip()
         actor = reviewer()
 
         try:
@@ -219,11 +238,31 @@ def create_app(
             return redirect(url_for("ingest"))
 
         try:
+            # Capability-probed rather than assumed. The extractor is injectable,
+            # and a test double that stands in for the model stack should not have
+            # to implement prompt compilation it never performs. A real agent does
+            # have this method; anything without it simply runs with no pack.
+            select_pack = getattr(agent, "use_domain_pack", None)
+            if domain_pack and callable(select_pack):
+                select_pack(domain_pack)
+        except Exception as exc:  # noqa: BLE001
+            flash(f"Could not load the domain pack: {exc}", "error")
+            return redirect(url_for("ingest"))
+
+        active_pack_id = ""
+        read_pack_id = getattr(agent, "active_domain_pack_id", None)
+        if callable(read_pack_id):
+            try:
+                active_pack_id = read_pack_id() or ""
+            except Exception:  # noqa: BLE001 - provenance is best-effort here
+                active_pack_id = ""
+
+        try:
             result = agent.run(
                 {
                     "document": text,
                     "document_type": doc_type,
-                    "domain": "payment_processing",
+                    "domain_pack": active_pack_id,
                     "initiative_id": initiative_id,
                 }
             )
@@ -249,17 +288,22 @@ def create_app(
             document_ref=filename,
             document_text=text,
             initiative_id=initiative_id,
+            # Recorded on every assertion, so the vocabulary a fact was extracted
+            # under stays knowable after the Initiative is re-run under another.
+            domain_pack=active_pack_id,
         )
         merged = merge_graphs(before.graph, incoming)
         delta = compute_graph_delta(before.graph, merged)
 
         meta = dict(before.meta)
         meta["initiative_id"] = initiative_id
+        meta["domain_pack"] = active_pack_id
         meta["last_ingest"] = {
             "document": filename,
             "doc_type": doc_type,
             "run_id": run_record.id,
             "completeness": run_record.completeness,
+            "domain_pack": active_pack_id,
             "nodes": len(merged.nodes) - len(before.graph.nodes),
             "facts": len(delta.added_assertions),
             "changed": len(delta.changed_assertions),
@@ -566,13 +610,22 @@ def create_app(
         focus = request.args.get("focus", "")
         snapshot = state()
 
+        # The active domain pack is resolved from the GRAPH's provenance, not from
+        # configuration: they diverge the moment an Initiative is re-extracted under
+        # a different pack, and this page describes the vocabulary a fact was made
+        # in, not what is selected now. `pack_for_graph` returns None for a graph
+        # built with no pack, which is the common case and not an error.
+        active_pack = pack_for_graph(snapshot.graph, current_app.config["ONTOLOGY_DIR"])
+
         return render_template(
             "ontology.html",
-            view=ontology_overview(model, snapshot.graph),
+            view=ontology_overview(model, snapshot.graph, pack=active_pack),
             classes=class_rows(model, snapshot.graph, layer=layer, q=q, only=only),
             enums=enum_rows(model, layer=layer, q=q),
             detail=class_detail(model, focus, snapshot.graph) if focus else None,
             neighbourhood=class_neighbourhood(model, focus) if focus else None,
+            domain_packs=discover_domain_packs(current_app.config["ONTOLOGY_DIR"]),
+            active_pack=active_pack,
             layer=layer,
             q=q,
             only=only,

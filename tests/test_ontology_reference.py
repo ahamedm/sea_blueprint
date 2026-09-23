@@ -90,29 +90,39 @@ def test_overview_counts_instances_per_layer_when_a_graph_is_given(ontology, req
 # ============================================================================
 
 
-def test_class_rows_cover_the_schema(ontology):
-    assert len(class_rows(ontology)) == 58
+def test_class_rows_cover_the_base_schema(ontology):
+    """Base-layer classes only. Domain packs are reported separately, not counted here."""
+    assert len(class_rows(ontology)) == 61
 
 
 def test_class_rows_filter_by_layer(ontology):
     architecture = class_rows(ontology, layer="architecture")
-    assert len(architecture) == 19
+    assert len(architecture) == 21
     assert {r["layer"] for r in architecture} == {"architecture"}
 
 
 def test_class_rows_count_own_versus_inherited_and_effective(ontology):
     row = next(r for r in class_rows(ontology) if r["name"] == "NonFunctionalRequirement")
-    assert row["own_attributes"] == 7
-    assert row["effective_attributes"] == 33
+    # 9 own: the quality model gained `realizes_attribute` and `subcharacteristic`
+    # alongside the existing `quality_category`.
+    assert row["own_attributes"] == 9
+    assert row["effective_attributes"] == 35
     assert row["inherited_attributes"] == 26
     assert row["relationships"] > 0
     assert row["is_a"] == "Requirement"
 
 
 def test_search_finds_a_class_by_its_slot_name(ontology):
-    """ "Which class declares `quality_category`?" should not require grepping YAML."""
+    """ "Which class declares `quality_category`?" should not require grepping YAML.
+
+    Two classes answer now, and that is correct rather than a leak: the NFR
+    declares the quality category it *requires*, and `DesignTechnique` declares
+    the category it *targets*, so a technique can be checked against the NFR it
+    claims to realize even before the NFR itself is resolvable. Same slot name,
+    same vocabulary, opposite direction.
+    """
     rows = class_rows(ontology, q="quality_category")
-    assert [r["name"] for r in rows] == ["NonFunctionalRequirement"]
+    assert sorted(r["name"] for r in rows) == ["DesignTechnique", "NonFunctionalRequirement"]
 
 
 def test_search_matches_descriptions_too(ontology):
@@ -149,8 +159,19 @@ def test_enum_rows_carry_their_values(ontology):
         for e in enum_rows(ontology, layer="requirements")
         if e["name"] == "QualityAttributeCategory"
     )
-    assert quality["value_count"] >= 10
-    assert "REGULATORY_COMPLIANCE" in quality["values"] or quality["values"]
+    # Strictly the nine ISO/IEC 25010:2023 characteristics. `PORTABILITY` was
+    # removed in that revision and `FLEXIBILITY` added, so the count is nine and
+    # the absence of Portability is the assertion that matters.
+    # Nine ISO characteristics plus REGULATORY_COMPLIANCE, which is enterprise
+    # governance. The absence of Portability is the assertion that matters.
+    assert quality["value_count"] == 10
+    assert "FLEXIBILITY" in quality["values"]
+    assert "PORTABILITY" not in quality["values"]
+    assert quality["values"] == [
+        "FUNCTIONAL_SUITABILITY", "PERFORMANCE_EFFICIENCY", "COMPATIBILITY",
+        "INTERACTION_CAPABILITY", "RELIABILITY", "SECURITY", "MAINTAINABILITY",
+        "FLEXIBILITY", "SAFETY", "REGULATORY_COMPLIANCE",
+    ]
 
 
 # ============================================================================
@@ -254,10 +275,24 @@ def test_every_layer_root_mixes_in_identity_and_provenance(ontology):
 def test_neighbourhood_carries_slot_names_on_relationship_edges(ontology):
     view = class_neighbourhood(ontology, "NonFunctionalRequirement")
     range_edges = [link for link in view["links"] if link["kind"] == "range"]
-    assert any(link["label"] == "quality_scenario" for link in range_edges)
-    assert {link["target"] for link in range_edges} == {
+    labels = {link["label"] for link in range_edges}
+    assert "quality_scenario" in labels
+    # The attribute link is a range edge like any other, and must be drawn — it is
+    # what makes a technique's or element's claim on a quality attribute visible
+    # from the requirement side.
+    assert "realizes_attribute" in labels
+    # Every emitted edge must land on a node the view actually draws — a link to
+    # a node that is not rendered is a link the reader cannot follow. Ranges
+    # beyond MAX_ROW_NODES are truncated, and the view reports that in `hidden`,
+    # so the check is draw-plus-recounted rather than exact equality.
+    drawn = {
         n["name"] for row in view["rows"] if row["key"] == "ranges" for n in row["nodes"]
     }
+    targets = {link["target"] for link in range_edges}
+    assert targets <= drawn, f"edge to a node no row draws: {sorted(targets - drawn)}"
+    # Anything beyond the cap is reported rather than silently dropped.
+    if view["hidden"]["ranges"]:
+        assert view["hidden"]["capped_range_edges"] > 0
 
 
 def test_neighbourhood_shows_referrers_and_counts_what_it_hid(ontology):
@@ -296,7 +331,122 @@ def test_payload_is_complete_and_serialisable(ontology, req_extraction):
 
     payload = ontology_payload(ontology, req_extraction)
     assert set(payload) == {"overview", "classes", "enums", "subsets"}
-    assert len(payload["classes"]) == 58
-    assert len(payload["enums"]) == 37
+    assert len(payload["classes"]) == 61
+    assert len(payload["enums"]) == 42
     assert len(payload["subsets"]) == 13
     json.dumps(payload)  # must not contain anything a JSON encoder refuses
+
+
+# ============================================================================
+# The domain pack on the reference page
+# ============================================================================
+
+
+def test_the_pack_is_reported_separately_from_the_base_layers(ontology, ontology_dir):
+    """The distinction the whole design rests on.
+
+    A pack must never appear as a fifth chain layer: the base layers are fixed and
+    present for every Initiative, while a pack is conditional and swappable. Merging
+    them would say the base ontology depends on one domain.
+    """
+    from core.ontology import load_domain_pack
+
+    pack = load_domain_pack("payment_processing", ontology_dir)
+    view = ontology_overview(ontology, None, pack=pack)
+
+    assert [layer["key"] for layer in view["layers"]] == [
+        "common", "enterprise", "requirements", "architecture",
+    ]
+    assert view["pack"]["spec"] == "payment_processing"
+    assert view["pack"]["version"]
+    # The base class list is untouched by the pack being present.
+    assert view["stats"]["classes"] == 61
+
+
+def test_no_pack_reports_none_rather_than_an_empty_layer(ontology):
+    view = ontology_overview(ontology)
+    assert view["pack"] is None
+    assert view["pack_instances"] == {}
+    assert view["stats"]["layers"] == 4
+
+
+def test_the_coverage_census_counts_instances_of_pack_classes_only(ontology, ontology_dir):
+    """The third leg in miniature: a domain class with zero instances is the finding,
+    so the census must count exactly the pack's classes and nothing else."""
+    from core.knowledge.model import KnowledgeGraph
+    from core.ontology import load_domain_pack
+
+    graph = KnowledgeGraph()
+    graph.add_node("Payment", "Brand fee collection")
+    graph.add_node("Payment", "Refund leg")
+    graph.add_node("Cardholder", "Alice")
+    graph.add_node("Container", "payment-orchestrator")  # not a domain class
+
+    pack = load_domain_pack("payment_processing", ontology_dir)
+    view = ontology_overview(ontology, graph, pack=pack)
+
+    assert view["pack_instances"] == {"Payment": 2, "Cardholder": 1}
+    # Chargeback is declared and has no instances — the coverage gap, askable only
+    # because the vocabulary is closed.
+    assert "Chargeback" in view["pack"]["concrete_classes"]
+    assert view["pack_instances"].get("Chargeback", 0) == 0
+
+
+def test_the_pack_payload_carries_what_the_census_view_needs(ontology_dir):
+    """Class specs, not just names — otherwise the template would have to re-load
+    the pack and there would be two sources of truth for the same vocabulary."""
+    from core.ontology import load_domain_pack
+
+    as_dict = load_domain_pack("payment_processing", ontology_dir).to_dict()
+    assert "Chargeback" in as_dict["classes"]
+    assert as_dict["classes"]["Chargeback"]["subsets"]
+    assert as_dict["classes"]["Chargeback"]["description"]
+    assert "PaymentLifecycleState" in as_dict["enums"]
+    assert as_dict["subsets"]["PaymentCore"]["description"]
+
+
+def test_the_ontology_page_renders_with_and_without_a_pack():
+    """Route-level, both states. The packless state is the common one and must not
+    look like an error."""
+    import tempfile
+
+    from app import create_app
+    from core.knowledge.ingest import graph_from_extraction
+    from core.knowledge.store import RevisionStore
+    from tests.conftest import FakeExtractor
+
+    tmp = tempfile.mkdtemp()
+    app = create_app(
+        {"TESTING": True, "STORE_ROOT": tmp, "REVIEWER": "t"},
+        store_root=tmp,
+        extractor_factory=lambda _t: FakeExtractor({}),
+    )
+    client = app.test_client()
+
+    plain = client.get("/ontology").get_data(as_text=True)
+    assert "No domain pack is in force" in plain
+    assert "payment_processing" in plain, "available packs should still be listed"
+
+    payload = {
+        "triples": [
+            {
+                "subject": "Payment Gateway",
+                "predicate": "has_functional_requirement",
+                "object": "Payment Authorisation",
+                "confidence": 0.9,
+                "ontology_class": "Payment",
+            }
+        ]
+    }
+    graph, _run = graph_from_extraction(
+        payload,
+        metadata={"domain_pack": "payment_processing@0.1.0", "chunks": 1},
+        document_ref="b.md",
+        initiative_id="INIT-MVP-001",
+    )
+    RevisionStore(tmp).ensure().save_working(graph)
+
+    with_pack = client.get("/ontology").get_data(as_text=True)
+    assert "Payment Processing Domain Pack" in with_pack
+    assert "Coverage, not traceability" in with_pack
+    assert "0 — not mentioned" in with_pack

@@ -155,6 +155,40 @@ class ElementRecord(BaseModel):
     """
     description: str = Field(default="", description="What the element is, briefly.")
 
+    # --- quality attributes this element delivers ---
+    #
+    # Distinct from a requirement reference. `requirement_refs` records what the
+    # document SAYS this element answers; this records what quality property it
+    # actually provides, which is the half that survives an attribute nobody
+    # wrote an NFR for. Redundancy is worth recording even when no availability
+    # requirement exists — and that gap is what the auditor needs to see.
+    satisfies_attributes: List[str] = Field(
+        default_factory=list,
+        description=(
+            "Quality ATTRIBUTES this element delivers, named with the standard's "
+            "own terms: 'Availability', 'Time Behaviour', 'Scalability', "
+            "'Confidentiality'. Never a mechanism — 'Redundancy' and 'Replication' "
+            "are techniques that deliver Availability, not attributes. Leave empty "
+            "where the document states no quality property."
+        ),
+    )
+    quality_category: str = Field(
+        default="",
+        description=(
+            "For an element delivering a quality property: the ISO 25010:2023 "
+            "top-level characteristic, e.g. RELIABILITY, PERFORMANCE_EFFICIENCY, "
+            "SECURITY, FLEXIBILITY. Empty if not applicable."
+        ),
+    )
+    subcharacteristic: str = Field(
+        default="",
+        description=(
+            "The precise ISO 25010:2023 sub-characteristic the element delivers, "
+            "where clear — AVAILABILITY, TIME_BEHAVIOUR, SCALABILITY, "
+            "CONFIDENTIALITY. Empty if only the top-level characteristic is clear."
+        ),
+    )
+
     # Coerce rather than reject — see the enum-coercion note above. A pass is
     # worth more than the precision of one value.
     @field_validator("c4_level", mode="before")
@@ -343,12 +377,125 @@ class ArchitectureStyleRecord(BaseModel):
     adopted_by: List[str] = Field(default_factory=list)
 
 
+class DesignTechniqueRecord(BaseModel):
+    """A verifiable mechanism the architecture uses to achieve a quality attribute.
+
+    Deliberately separate from `ArchitectureStyleRecord`: a style is the coarse
+    shape of the design, a technique is the mechanism inside it. "Stateless
+    Modular Microservices" is the style; "Stateless Services" and
+    "Redundancy / Replicas" are the techniques, and they are what answers an
+    availability or scalability NFR.
+    """
+
+    name: str = Field(..., description=(
+        "The mechanism as the source states it: 'Stateless Services', "
+        "'Redundancy / Replicas', 'Active-Active Multi-DataCentre', "
+        "'Connection Pooling', 'Asynchronous Offload'. "
+        "Name the mechanism, NOT the quality attribute it targets — "
+        "'High Availability' is an NFR, not a technique."
+    ))
+    technique_category: Literal[
+        "", "STRUCTURAL", "INTEGRATION", "DATA", "RESILIENCE", "SECURITY",
+        "DEPLOYMENT", "OBSERVABILITY", "AVAILABILITY", "SCALABILITY",
+        "PERFORMANCE", "STANDARDS_CONFORMANCE",
+    ] = Field(default="", description="Which family of technique. Empty if unsure.")
+    applies_to: List[str] = Field(
+        default_factory=list,
+        description="Elements the technique is applied to. Usually several — "
+                    "statelessness and redundancy are platform-wide decisions.",
+    )
+    realizes_quality_attributes: List[str] = Field(
+        default_factory=list,
+        description="Names or ids of the NFRs this technique is the mechanism for. "
+                    "Emit the link even when the NFR is only implied.",
+    )
+    quality_category: Literal[
+        "", "FUNCTIONAL_SUITABILITY", "PERFORMANCE_EFFICIENCY", "COMPATIBILITY",
+        "INTERACTION_CAPABILITY", "RELIABILITY", "SECURITY", "MAINTAINABILITY",
+        "FLEXIBILITY", "SAFETY", "REGULATORY_COMPLIANCE",
+    ] = Field(default="", description=(
+        "ISO 25010:2023 characteristic this technique TARGETS. FLEXIBILITY, not "
+        "PORTABILITY — the 2023 revision replaced Portability with Flexibility, "
+        "and scalability lives there. Set this when the attribute cannot be named; "
+        "it is what lets the auditor check the technique is aimed at the right "
+        "family."
+    ))
+    subcharacteristic: Literal[
+        "", "FUNCTIONAL_COMPLETENESS", "FUNCTIONAL_CORRECTNESS", "FUNCTIONAL_APPROPRIATENESS",
+        "TIME_BEHAVIOUR", "RESOURCE_UTILIZATION", "CAPACITY",
+        "CO_EXISTENCE", "INTEROPERABILITY",
+        "APPROPRIATENESS_RECOGNIZABILITY", "LEARNABILITY", "OPERABILITY",
+        "USER_ERROR_PROTECTION", "USER_ENGAGEMENT", "INCLUSIVITY",
+        "USER_ASSISTANCE", "SELF_DESCRIPTIVENESS",
+        "FAULTLESSNESS", "AVAILABILITY", "FAULT_TOLERANCE", "RECOVERABILITY",
+        "CONFIDENTIALITY", "INTEGRITY", "NON_REPUDIATION", "ACCOUNTABILITY",
+        "AUTHENTICITY", "RESISTANCE",
+        "MODULARITY", "REUSABILITY", "ANALYSABILITY", "MODIFIABILITY", "TESTABILITY",
+        "ADAPTABILITY", "SCALABILITY", "INSTALLABILITY", "REPLACEABILITY",
+        "OPERATIONAL_CONSTRAINT", "RISK_IDENTIFICATION", "FAIL_SAFE",
+        "HAZARD_WARNING", "SAFE_INTEGRATION",
+    ] = Field(default="", description=(
+        "The precise sub-characteristic the technique delivers, where clear — "
+        "Redundancy is AVAILABILITY, Statelessness is SCALABILITY. Empty if only "
+        "the characteristic is clear."
+    ))
+    satisfies_attributes: List[str] = Field(
+        default_factory=list,
+        description=(
+            "Quality ATTRIBUTES this technique delivers, named as the standard "
+            "does — 'Availability', 'Scalability', 'Time Behaviour'. Distinct "
+            "from `realizes_quality_attributes`, which names the NFRs: this "
+            "survives an attribute no requirement ever stated."
+        ),
+    )
+    mechanism: str = Field(default="", description=(
+        "How it works, concretely enough to check: 'any replica serves a request; "
+        "session state is externalised to Valkey, so losing a pod loses no "
+        "session'. Not 'the services are stateless'."
+    ))
+    trade_offs: List[str] = Field(default_factory=list)
+
+
+class EngineeringConventionRecord(BaseModel):
+    """An organisation-specific rule about how things are built, named or documented.
+
+    Named conventions such as `<company>-<product>-<web>` are the highest-value
+    case: they are verifiable against element names the graph already holds.
+    """
+
+    name: str = Field(..., description="Short name, e.g. 'Container naming', 'Service naming'.")
+    convention_type: Literal[
+        "", "NAMING", "STRUCTURE", "VERSIONING", "INTERFACE", "ERROR_HANDLING",
+        "CONFIGURATION", "SECURITY", "OBSERVABILITY", "DEPLOYMENT",
+        "DOCUMENTATION", "CODE_STANDARD",
+    ] = Field(default="", description="What the convention constrains.")
+    pattern: str = Field(default="", description=(
+        "The convention as a machine-checkable template with angle-bracket "
+        "placeholders: '<company>-<product>-<web>', '<company>-<product>-<api>'. "
+        "Capture verbatim; do not invent placeholder values."
+    ))
+    examples: List[str] = Field(
+        default_factory=list,
+        description="Conforming instance names from the source, e.g. 'acme-payments-web'.",
+    )
+    applies_to: List[str] = Field(
+        default_factory=list,
+        description="Elements the convention governs, where the source names them.",
+    )
+    enforcement: Literal[
+        "", "MANDATORY", "RECOMMENDED", "ADVISORY", "TOOL_ENFORCED", "LEGACY_EXEMPT",
+    ] = Field(default="", description="How binding the convention is.")
+    rationale: str = Field(default="", description="Why the organisation adopted it.")
+
+
 class TechnologyPassResult(BaseModel):
     technology_stacks: List[TechnologyStackRecord] = Field(default_factory=list)
     architecture_styles: List[ArchitectureStyleRecord] = Field(default_factory=list)
+    design_techniques: List[DesignTechniqueRecord] = Field(default_factory=list)
+    engineering_conventions: List[EngineeringConventionRecord] = Field(default_factory=list)
     triples: List[ExtractedTriple] = Field(
         default_factory=list,
-        description="uses_technology / follows_style / deploys_on triples.",
+        description="uses_technology / follows_style / deploys_on / realizes_quality_attribute triples.",
     )
 
 
@@ -357,8 +504,10 @@ TECHNOLOGY_PASS = PassSpec(
     schema=TechnologyPassResult,
     output_keys={"technology_stacks": "technology_stacks",
                  "architecture_styles": "architecture_styles",
+                 "design_techniques": "design_techniques",
+                 "engineering_conventions": "engineering_conventions",
                  "triples": "triples"},
-    instructions="""# Task: extract technologies and architectural styles
+    instructions="""# Task: extract technologies, styles, techniques and conventions
 
 These are NOT architecture elements. They have no C4 level and no parent.
 
@@ -374,10 +523,40 @@ Modular Monolith, Microservices, Event-Driven, Layered, Serverless.
 
 Test: does it RUN, or is it USED? Things that run are elements (not your job in
 this pass). Things that are used are technology stacks. Things that SHAPE the
-design are architecture styles.
+design are architecture styles. Things that MAKE A QUALITY ATTRIBUTE HAPPEN are
+design techniques.
+
+**design_techniques** — the verifiable mechanisms the design uses to achieve a
+quality attribute: Stateless Services, Redundancy / Replicas, Active-Active
+Multi-DataCentre, Health-Checked Removal from Rotation, Connection Pooling, Read
+Replicas, Caching, Asynchronous Offload, Batching, Partitioning.
+
+A technique is NOT a style and NOT a technology:
+- "Stateless Modular Microservices" is the **style** (the shape).
+- "Stateless Services" and "Redundancy / Replicas" are the **techniques** inside
+  it (the mechanisms).
+- "Spring Boot" is a **technology** (what it is built from).
+
+For each technique, set `applies_to` (usually several elements — statelessness
+and redundancy are platform-wide), and record `realizes_quality_attributes` or at
+minimum `quality_category`. **This link is the point of the class**: a High
+Availability NFR and a description of redundancy with no edge between them is the
+gap it closes. Always capture `mechanism` — how it works, not what it achieves.
+"High Availability" is the NFR, not a technique; do not emit it as one.
+
+**engineering_conventions** — the organisation's own rules about how things are
+built, named or documented. Naming conventions are the most valuable: record the
+`pattern` with its placeholders exactly as stated
+(`<company>-<product>-<web>`, `<company>-<product>-<api>`) and every conforming
+`examples` name you can see. If the document names the convention but not the
+elements it governs, still record it — an unchecked convention is still a
+convention. Do NOT invent placeholder values that the source does not give.
 
 Emit triples: `<element> --uses_technology--> <technology>`,
-`<element> --follows_style--> <style>`, `<element> --deploys_on--> <platform>`.
+`<element> --follows_style--> <style>`, `<element> --deploys_on--> <platform>`,
+`<technique> --realizes_quality_attribute--> <nfr>`,
+`<element> --applies_technique--> <technique>`,
+`<element> --conforms_to--> <convention>`.
 
 Preserve the source's own naming. Do not genericise 'PostgreSQL' to 'Primary
 Database'.""",

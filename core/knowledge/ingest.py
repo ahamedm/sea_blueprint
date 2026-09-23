@@ -25,17 +25,22 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .model import (
     CROSS_GRAPH_PREDICATES,
+    MANAGED_REFERENCE_TYPES,
     RUN_COMPLETE,
     RUN_FAILED,
     RUN_PARTIAL,
     RUN_UNKNOWN,
     SCOPE_BASELINE,
+    SCOPE_DOCUMENT,
+    SCOPE_ENTERPRISE,
     SCOPE_INITIATIVE,
     SOURCE_EXTRACTION,
+    ExternalReference,
     ExtractionRun,
     KnowledgeGraph,
     PassRecord,
     Provenance,
+    document_reference,
     utc_now,
 )
 
@@ -59,41 +64,101 @@ def _document_hash(text: str) -> str:
 # ============================================================================
 
 def _external_refs(record: Dict[str, Any]) -> List[str]:
-    """Every stable external identifier a record carries.
+    """Every stable external identifier a record carries, as bare strings.
+
+    Kept for callers that only need the display form. Prefer
+    `_typed_external_refs`, which preserves the kind — that is what decides
+    whether an identifier may be matched on.
+    """
+    return [ref.identifier for ref in _typed_external_refs(record)]
+
+
+def _typed_external_refs(
+    record: Dict[str, Any], document_ref: str = ""
+) -> List[ExternalReference]:
+    """Identifiers from a record, WITH their kind and scope.
 
     The two profiles name this differently and one is easy to miss: the
     architecture profile emits `external_references`, while the requirements
     profile carries the document's own key as `requirement_id`. Reading only the
     former is why requirement IDs stayed out of the graph even after the extractor
-    began emitting them — the primary cause of ARC-G <-> REQ-G being unjoinable
-    (TODO item 5, root cause 1). An identifier the graph does not record cannot be
-    matched on, so reconciliation's strongest signal was unreachable.
+    began emitting them (TODO item 5, root cause 1).
+
+    WHAT CHANGED, AND WHY IT MATTERS. Identifiers used to arrive as flat strings,
+    so an enterprise CMDB key and a heading like `NFR-PS-001` were
+    indistinguishable at the point of use — and reconciliation, unable to tell
+    them apart, treated both as definitive matches. A `NFR-PS-001` read out of a
+    markdown file is a real label worth keeping, but it is DOCUMENT-scoped: two
+    documents may both number a requirement `FR-001`. Only an identifier a system
+    of record holds is granted match authority.
     """
-    refs: List[str] = []
+    refs: List[ExternalReference] = []
 
     raw = record.get("external_references") or record.get("external_refs") or []
     for r in raw:
-        value = (r.get("identifier") or r.get("id") or "") if isinstance(r, dict) else r
-        if value:
-            refs.append(str(value).strip())
+        if isinstance(r, dict):
+            value = str(r.get("identifier") or r.get("id") or "").strip()
+            if not value:
+                continue
+            system = str(r.get("system") or "").strip()
+            ref_type = str(r.get("reference_type") or r.get("type") or "").strip().upper()
+            declared_scope = str(r.get("scope") or "").strip().upper()
+            # A reference that names a system of record is enterprise-scoped even
+            # if the scope was not stated; without a system it is a document
+            # label, and claiming more would be inventing authority.
+            if not declared_scope:
+                declared_scope = (
+                    SCOPE_ENTERPRISE
+                    if system and ref_type in MANAGED_REFERENCE_TYPES
+                    else SCOPE_DOCUMENT
+                )
+            refs.append(
+                ExternalReference(
+                    identifier=value,
+                    system=system,
+                    reference_type=ref_type or "OTHER",
+                    scope=declared_scope,
+                    uri=str(r.get("uri") or ""),
+                    is_authoritative=bool(r.get("is_authoritative")),
+                    attribute_scope=list(r.get("attribute_scope") or []),
+                )
+            )
+        elif isinstance(r, str) and r.strip():
+            refs.append(document_reference(r, document_ref))
 
     for key in ("requirement_id", "external_id"):
         value = record.get(key)
         if value:
-            refs.append(str(value).strip())
+            refs.append(document_reference(str(value), document_ref))
 
-    return [r for r in refs if r]
+    deduped: List[ExternalReference] = []
+    for ref in refs:
+        if not ref.identifier:
+            continue
+        if not any(
+            existing.identifier == ref.identifier and existing.system == ref.system
+            for existing in deduped
+        ):
+            deduped.append(ref)
+    return deduped
 
 
-def _collect_declared_nodes(graph: KnowledgeGraph, output: Dict[str, Any]) -> Dict[str, str]:
+def _collect_declared_nodes(
+    graph: KnowledgeGraph, output: Dict[str, Any], document_ref: str = ""
+) -> Dict[str, str]:
     """Create nodes from explicit collections. Returns label -> node id."""
     by_label: Dict[str, str] = {}
 
-    def declare(kind: str, label: str, external_refs: Optional[List[str]] = None) -> None:
+    def declare(
+        kind: str,
+        label: str,
+        external_refs: Optional[List[str]] = None,
+        external_references: Optional[List[ExternalReference]] = None,
+    ) -> None:
         label = (label or "").strip()
         if not label:
             return
-        nid = graph.add_node(kind, label, external_refs)
+        nid = graph.add_node(kind, label, external_refs, external_references)
         by_label.setdefault(label.lower(), nid)
 
     # Architecture profile
@@ -101,7 +166,8 @@ def _collect_declared_nodes(graph: KnowledgeGraph, output: Dict[str, Any]) -> Di
         if not isinstance(e, dict):
             continue
         kind = (e.get("element_type") or e.get("ontology_class") or "Concept").strip()
-        declare(kind, e.get("name") or "", _external_refs(e))
+        declare(kind, e.get("name") or "",
+                external_references=_typed_external_refs(e, document_ref))
 
     for t in output.get("technology_stacks", []) or []:
         if isinstance(t, dict):
@@ -111,12 +177,21 @@ def _collect_declared_nodes(graph: KnowledgeGraph, output: Dict[str, Any]) -> Di
         if isinstance(s, dict):
             declare("ArchitectureStyle", s.get("name") or "")
 
+    for d in output.get("design_techniques", []) or []:
+        if isinstance(d, dict):
+            declare("DesignTechnique", d.get("name") or "")
+
+    for c in output.get("engineering_conventions", []) or []:
+        if isinstance(c, dict):
+            declare("EngineeringConvention", c.get("name") or "")
+
     # Requirements profile
     for e in output.get("entities", []) or []:
         if not isinstance(e, dict):
             continue
         kind = (e.get("ontology_class") or e.get("entity_type") or "Concept").strip()
-        declare(kind, e.get("name") or "", _external_refs(e))
+        declare(kind, e.get("name") or "",
+                external_references=_typed_external_refs(e, document_ref))
 
         # Collect Initiative nodes from entity initiative_refs
         for init_ref in e.get("initiative_refs") or []:
@@ -163,11 +238,16 @@ def graph_from_extraction(
     document_text: str = "",
     pass_records: Optional[List[PassRecord]] = None,
     initiative_id: Optional[str] = None,  # The "Living System" scoping key
+    domain_pack: str = "",                # Vocabulary in force, recorded in provenance
 ) -> Tuple[KnowledgeGraph, ExtractionRun]:
     """Build a canonical graph from one extraction result.
 
     If `initiative_id` is provided, all assertions are scoped as INITIATIVE_PROPOSAL.
     Otherwise, they are treated as SYSTEM_BASELINE or DOMAIN_TRUTH depending on context.
+
+    `domain_pack` names the domain vocabulary the extraction ran under. It defaults
+    to whatever the metadata carries, so callers that pass it through the extraction
+    output need not pass it twice; supplying it here wins.
     """
     metadata = metadata or {}
     graph = KnowledgeGraph()
@@ -190,6 +270,12 @@ def graph_from_extraction(
     # Determine default scope for this run
     default_scope = SCOPE_INITIATIVE if initiative_id else SCOPE_BASELINE
 
+    # The domain vocabulary in force for this run, recorded on every assertion it
+    # produces. The explicit argument wins over metadata so a caller can correct a
+    # stale value; defaulting to metadata means callers that already carry it
+    # through the extraction output need not pass it twice.
+    domain_pack = str(domain_pack or metadata.get("domain_pack") or "")
+
     def prov(pass_name: str = "", chunk_label: str = "") -> Provenance:
         return Provenance(
             source_type=SOURCE_EXTRACTION,
@@ -199,9 +285,10 @@ def graph_from_extraction(
             chunk_label=chunk_label,
             asserted_at=run.completed_at,
             derived_from=document_ref,
+            domain_pack=domain_pack,
         )
 
-    by_label = _collect_declared_nodes(graph, output)
+    by_label = _collect_declared_nodes(graph, output, document_ref)
 
     # ---- structural facts: description, classification, responsibilities ----
     for e in output.get("elements", []) or []:
@@ -230,6 +317,24 @@ def graph_from_extraction(
                 graph.add_assertion(nid, "responsibility", value=text,
                                     confidence=1.0, provenance=p, scope=scope, initiative_id=init_id)
 
+        # ---- quality attributes this element delivers ----
+        #
+        # Materialised as a QualityAttribute node and linked with `satisfies_attribute`,
+        # so the element points at the ATTRIBUTE rather than at a requirement that
+        # happens to state it. That is what lets "which elements deliver
+        # Availability?" be answered when no availability NFR exists.
+        for attr in e.get("satisfies_attributes") or []:
+            name = str(attr).strip()
+            if not name:
+                continue
+            aid = _resolve(graph, name, by_label, "QualityAttribute")
+            graph.add_assertion(nid, "satisfies_attribute", obj=aid,
+                                confidence=1.0, provenance=p, scope=scope, initiative_id=init_id)
+        for attr in ("quality_category", "subcharacteristic"):
+            if e.get(attr):
+                graph.add_assertion(nid, attr, value=str(e[attr]),
+                                    confidence=1.0, provenance=p, scope=scope, initiative_id=init_id)
+
     # ---- technology / style usage ----
     for t in output.get("technology_stacks", []) or []:
         if not isinstance(t, dict):
@@ -254,6 +359,74 @@ def graph_from_extraction(
         for adopter in s.get("adopted_by") or []:
             aid = _resolve(graph, adopter, by_label)
             graph.add_assertion(aid, "follows_style", obj=sid, confidence=1.0, provenance=p)
+
+    # ---- design techniques: the mechanism that realizes a quality attribute ----
+    #
+    # The technique→NFR edge is the reason this collection exists. Without it the
+    # graph can hold "High Availability is required" and "the platform is
+    # replicated" as two unrelated facts, which is exactly the gap it closes.
+    for d in output.get("design_techniques", []) or []:
+        if not isinstance(d, dict):
+            continue
+        did = _resolve(graph, d.get("name") or "", by_label, "DesignTechnique")
+        p = prov("technology")
+        if d.get("technique_category"):
+            graph.add_assertion(did, "technique_category", value=str(d["technique_category"]),
+                                confidence=1.0, provenance=p)
+        if d.get("mechanism"):
+            graph.add_assertion(did, "mechanism", value=str(d["mechanism"]),
+                                confidence=1.0, provenance=p)
+        if d.get("quality_category"):
+            graph.add_assertion(did, "quality_category", value=str(d["quality_category"]),
+                                confidence=1.0, provenance=p)
+        if d.get("subcharacteristic"):
+            graph.add_assertion(did, "subcharacteristic", value=str(d["subcharacteristic"]),
+                                confidence=1.0, provenance=p)
+        # The attribute a technique delivers, as a node. Together with the NFR
+        # literal link below this gives both directions: "what does this technique
+        # deliver?" (here) and "which techniques answer this stated NFR?"
+        # (realizes_quality_attribute). The attribute node is what makes the
+        # question answerable when no NFR states the attribute at all.
+        for attribute in d.get("satisfies_attributes") or []:
+            name = str(attribute).strip()
+            if not name:
+                continue
+            aid = _resolve(graph, name, by_label, "QualityAttribute")
+            graph.add_assertion(did, "satisfies_attribute", obj=aid,
+                                confidence=1.0, provenance=p)
+        for target in d.get("applies_to") or []:
+            eid = _resolve(graph, target, by_label)
+            graph.add_assertion(eid, "applies_technique", obj=did,
+                                confidence=1.0, provenance=p)
+        # Kept as a literal reference, like every other cross-graph link: the NFR
+        # lives in REQ-G and resolving it is reconciliation's job, not ingest's.
+        for nfr in d.get("realizes_quality_attributes") or []:
+            if str(nfr).strip():
+                graph.add_assertion(did, "realizes_quality_attribute", value=str(nfr).strip(),
+                                    confidence=1.0, provenance=p)
+
+    # ---- engineering conventions: the organisation's own rules ----
+    for c in output.get("engineering_conventions", []) or []:
+        if not isinstance(c, dict):
+            continue
+        cid = _resolve(graph, c.get("name") or "", by_label, "EngineeringConvention")
+        p = prov("technology")
+        for slot, key in (
+            ("convention_type", "convention_type"),
+            ("pattern", "pattern"),
+            ("enforcement", "enforcement"),
+            ("rationale", "rationale"),
+        ):
+            if c.get(key):
+                graph.add_assertion(cid, slot, value=str(c[key]),
+                                    confidence=1.0, provenance=p)
+        for example in c.get("examples") or []:
+            if str(example).strip():
+                graph.add_assertion(cid, "example", value=str(example).strip(),
+                                    confidence=1.0, provenance=p)
+        for governed in c.get("applies_to") or []:
+            gid = _resolve(graph, governed, by_label)
+            graph.add_assertion(gid, "conforms_to", obj=cid, confidence=1.0, provenance=p)
 
     # ---- triples ----
     for t in output.get("triples", []) or []:
@@ -330,6 +503,28 @@ def graph_from_extraction(
             iid = _resolve(graph, init_id, by_label, "Initiative")
             p = prov("triples")
             graph.add_assertion(nid, "authorised_by_initiative", obj=iid, confidence=1.0, provenance=p, scope=default_scope, initiative_id=initiative_id)
+
+        # ---- quality classification of an NFR ----
+        #
+        # `quality_category` used to be dropped here entirely: extraction had no
+        # field for it, so the ISO 25010 classification never reached the graph
+        # and every NFR was an untyped blob. `realizes_attribute` additionally
+        # materialises the attribute as a node, which is what makes "which
+        # techniques address Availability?" answerable across BOTH graphs.
+        if e.get("quality_attribute"):
+            name = str(e["quality_attribute"]).strip()
+            if name:
+                aid = _resolve(graph, name, by_label, "QualityAttribute")
+                p = prov("triples")
+                graph.add_assertion(nid, "realizes_attribute", obj=aid,
+                                    confidence=1.0, provenance=p,
+                                    scope=default_scope, initiative_id=initiative_id)
+        for attr in ("quality_category", "subcharacteristic"):
+            if e.get(attr):
+                p = prov("triples")
+                graph.add_assertion(nid, attr, value=str(e[attr]),
+                                    confidence=1.0, provenance=p,
+                                    scope=default_scope, initiative_id=initiative_id)
 
     return graph, run
 
@@ -420,7 +615,16 @@ def merge_graphs(base: KnowledgeGraph, incoming: KnowledgeGraph) -> KnowledgeGra
     merged = copy.deepcopy(base)
 
     for node in incoming.nodes.values():
-        merged.add_node(node.kind, node.label, node.external_refs)
+        # Both forms. Passing only `node.external_refs` silently discarded the
+        # typed records on every merge — the identifier survived as a string and
+        # its scope, type and system did not, so a freshly ingested enterprise key
+        # became indistinguishable from a document label the moment it merged.
+        merged.add_node(
+            node.kind,
+            node.label,
+            node.external_refs,
+            node.external_references,
+        )
 
     # Runs accumulate: each extraction stays attributable after a later one lands.
     for run in incoming.runs.values():

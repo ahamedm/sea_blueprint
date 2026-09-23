@@ -45,9 +45,11 @@ from typing import Any, Dict, FrozenSet, Iterable, List, Optional, Sequence, Tup
 
 from .model import (
     CROSS_GRAPH_PREDICATES,
+    SCOPE_DOCUMENT,
     SOURCE_HUMAN_ARCHITECT,
     STATUS_SUPERSEDED,
     STATUS_VERIFIED,
+    ExternalReference,
     KnowledgeGraph,
     Provenance,
     utc_now,
@@ -142,13 +144,44 @@ def significant_tokens(text: str) -> FrozenSet[str]:
     return frozenset(t for t in normalise(text).split() if len(t) > 1 and t not in _STOPWORDS)
 
 
+def _as_references(values: Sequence[Any]) -> List[ExternalReference]:
+    """Accept either typed references or bare strings.
+
+    Bare strings are read as DOCUMENT-scoped, never as enterprise keys — an
+    identifier whose kind we do not know must not be granted match authority.
+    """
+    out: List[ExternalReference] = []
+    for value in values or []:
+        if isinstance(value, ExternalReference):
+            out.append(value)
+        elif isinstance(value, str) and value.strip():
+            out.append(ExternalReference(identifier=value.strip(), scope=SCOPE_DOCUMENT,
+                                         reference_type="OTHER"))
+    return out
+
+
 def match_score(
-    target_text: str, label: str, external_refs: Sequence[str] = ()
+    target_text: str,
+    label: str,
+    external_refs: Sequence[Any] = (),
+    source_document: str = "",
 ) -> Tuple[float, str]:
     """Score one candidate, with the reason it scored that way.
 
     Deterministic and explainable on purpose: a reviewer accepting a proposed link
     should be able to see *why* it was proposed.
+
+    IDENTIFIERS ARE SCOPED, AND ONLY SOME MAY BE MATCHED ON. An earlier version
+    returned a definitive 1.0 for any identifier equal to the target. That is
+    right for an enterprise key and WRONG for a document-local label: two
+    documents may both number a requirement `FR-001`, and a confident wrong join
+    is worse than a missing one because it makes the audit wrong rather than
+    incomplete.
+
+    `source_document` is the document the ASSERTION making the reference came
+    from. A document-local identifier is trusted only when the reference's own
+    `system` names that same document — one source stated both, so the label
+    genuinely identifies the thing there. Otherwise it is evidence and no more.
     """
     t_norm = normalise(target_text)
     l_norm = normalise(label)
@@ -158,11 +191,32 @@ def match_score(
     if t_norm == l_norm:
         return 1.0, "exact"
 
-    refs = {normalise(r) for r in external_refs if r}
-    if t_norm in refs:
-        # The document's own stable key. This is the signal the whole
-        # reconciliation problem wants, which is why requirement IDs matter.
+    # Scan every reference before deciding, and prefer an enterprise key. A
+    # document label and a system-of-record key can carry the same identifier
+    # (both `FR-PM-001`), so returning on the first match would let list order
+    # decide the outcome — the strongest signal would be invisible depending on
+    # which reference happened to be recorded first.
+    local_hit = False
+    local_same_document = False
+    for ref in _as_references(external_refs):
+        if normalise(ref.identifier) != t_norm:
+            continue
+        if ref.is_join_key:
+            # Held in a system of record: an exact identifier match, the most
+            # reliable join available and the reason references exist at all.
+            return 1.0, "external_ref"
+        local_hit = True
+        if source_document and (ref.system or "").strip() == source_document.strip():
+            local_same_document = True
+
+    if local_hit and local_same_document:
         return 1.0, "external_ref"
+
+    if local_hit:
+        # The label matches, but it is local to a different document, so `FR-001`
+        # may well mean something else there. Reported as evidence, and
+        # deliberately below the resolve threshold.
+        return 0.6, "unscoped_ref"
 
     if t_norm in l_norm or l_norm in t_norm:
         shorter, longer = sorted((t_norm, l_norm), key=len)
@@ -282,7 +336,16 @@ def _node_table(graph: KnowledgeGraph) -> List[Tuple[Any, str, Tuple[str, ...]]]
     Scoring is O(references x nodes); normalising labels and refs inside that loop
     turns an interactive query into a noticeable pause on a large graph.
     """
-    return [(n, normalise(n.label), tuple(n.external_refs or [])) for n in graph.nodes.values()]
+    # Typed references, not the flat strings: `match_score` must be able to tell
+    # an enterprise key from a document label, and the flat list has lost that.
+    return [(n, normalise(n.label), tuple(n.external_references or ()))
+            for n in graph.nodes.values()]
+
+
+def _document_of_run(graph: KnowledgeGraph, run_id: str) -> str:
+    """Which document a run read. Empty when unknown."""
+    run = graph.runs.get(run_id) if run_id else None
+    return (run.document_ref or "") if run else ""
 
 
 def reference_candidates(
@@ -302,13 +365,14 @@ def reference_candidates(
 
         source = graph.nodes.get(a.subject)
         expected = EXPECTED_TARGET_KINDS.get(a.predicate, frozenset())
+        assertion_doc = _document_of_run(graph, a.provenance.run_id)
 
         matches: List[Candidate] = []
         near: List[Candidate] = []
         for node, _norm, refs in table:
             if node.id == a.subject:
                 continue  # a thing does not reference itself
-            score, reason = match_score(a.target, node.label, refs)
+            score, reason = match_score(a.target, node.label, refs, assertion_doc)
             if score <= 0.0:
                 continue
             in_kind = (not expected) or node.kind in expected
@@ -403,7 +467,7 @@ def resolve_reference(
             "override to bind across kinds deliberately."
         )
 
-    score, reason = match_score(a.target, node.label, node.external_refs)
+    score, reason = match_score(a.target, node.label, node.external_references)
     before = {"target": a.target, "object": None, "status": a.status, "scope": a.scope}
 
     trace = (

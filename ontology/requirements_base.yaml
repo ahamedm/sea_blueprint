@@ -84,29 +84,177 @@ enums:
 
   QualityAttributeCategory:
     description: >-
-      Quality attribute categories aligned with ISO/IEC 25010:2023
-      (Systems and software Quality Requirements and Evaluation).
+      The nine product quality CHARACTERISTICS of ISO/IEC 25010:2023 (SQuaRE).
+
+      Strictly the 2023 model: Usability was renamed Interaction Capability and
+      Portability was replaced by Flexibility, which is why `FLEXIBILITY` appears
+      here and `PORTABILITY` does not. Naming a category after a superseded
+      edition is worse than a gap — it silently classifies Scalability under a
+      characteristic the standard no longer has.
+
+      This enum is the TOP level only. The ~40 sub-characteristics live in
+      `QualitySubcharacteristic`, and both are attached to `QualityAttribute`
+      instances so a quality concern has an identity rather than being a bare
+      string on a requirement.
     permissible_values:
       FUNCTIONAL_SUITABILITY:
         description: Completeness, correctness, appropriateness of functions.
       PERFORMANCE_EFFICIENCY:
-        description: Time behaviour, resource usage, capacity.
+        description: Time behaviour, resource utilization, capacity.
       COMPATIBILITY:
-        description: Coexistence, interoperability with other systems.
+        description: Co-existence, interoperability with other systems.
       INTERACTION_CAPABILITY:
-        description: Usability, accessibility, user experience quality.
+        description: >-
+          Appropriateness recognizability, learnability, operability, user error
+          protection, user engagement, inclusivity, user assistance,
+          self-descriptiveness. Named "Usability" before the 2023 revision.
       RELIABILITY:
-        description: Availability, fault tolerance, recoverability.
+        description: Faultlessness, availability, fault tolerance, recoverability.
       SECURITY:
-        description: Confidentiality, integrity, non-repudiation, accountability.
+        description: >-
+          Confidentiality, integrity, non-repudiation, accountability,
+          authenticity, resistance.
       MAINTAINABILITY:
-        description: Modularity, reusability, analysability, modifiability.
-      PORTABILITY:
-        description: Adaptability, installability, replaceability.
+        description: Modularity, reusability, analysability, modifiability, testability.
+      FLEXIBILITY:
+        description: >-
+          Adaptability, scalability, installability, replaceability. Replaced
+          Portability in the 2023 revision — this is the home of scalability.
       SAFETY:
-        description: Risk identification, mitigation, fail-safe behaviour.
+        description: >-
+          Operational constraint, risk identification, fail safe, hazard warning,
+          safe integration.
       REGULATORY_COMPLIANCE:
-        description: Adherence to legal, industry, or contractual mandates.
+        description: >-
+          Adherence to legal, industry or contractual mandates — PCI-DSS, GDPR,
+          an internal standard, an SLA. NOT an ISO/IEC 25010 characteristic; it
+          is carried because enterprise architecture needs it, and
+          `QualityConcernClass` records that it comes from governance rather than
+          from the product quality model. Every other value here is ISO 25010.
+
+  QualitySubcharacteristic:
+    description: >-
+      ISO/IEC 25010:2023 sub-characteristics — the level the standard actually
+      classifies at, and the level at which a design decision can be justified.
+
+      Why this granularity matters: "within 500ms" and "1000 TPS with horizontal
+      scaling" are both PERFORMANCE_EFFICIENCY at the characteristic level, but
+      they are Time Behaviour and Scalability respectively — and they are
+      satisfied by entirely different techniques (caching vs. statelessness plus
+      replication). A model that stops at the top level cannot tell those apart,
+      so it cannot check that a technique is aimed at the right concern.
+
+      Values are grouped by their parent characteristic, in the same order, so
+      the enum reads as the taxonomy it is.
+    permissible_values:
+      # -- Functional Suitability --
+      FUNCTIONAL_COMPLETENESS:
+        description: Functions cover all specified tasks and intended objectives.
+      FUNCTIONAL_CORRECTNESS:
+        description: The product provides accurate results.
+      FUNCTIONAL_APPROPRIATENESS:
+        description: Functions facilitate accomplishment of specified tasks.
+      # -- Performance Efficiency --
+      TIME_BEHAVIOUR:
+        description: Response time and throughput meet requirements.
+      RESOURCE_UTILIZATION:
+        description: Amounts and types of resources used meet requirements.
+      CAPACITY:
+        description: Maximum limits of a product parameter meet requirements.
+      # -- Compatibility --
+      CO_EXISTENCE:
+        description: Performs its functions while sharing an environment without detriment.
+      INTEROPERABILITY:
+        description: Exchanges information with other products and uses what was exchanged.
+      # -- Interaction Capability --
+      APPROPRIATENESS_RECOGNIZABILITY:
+        description: Users can recognise whether the product suits their needs.
+      LEARNABILITY:
+        description: Functions can be learnt within a specified time.
+      OPERABILITY:
+        description: Attributes that make the product easy to operate and control.
+      USER_ERROR_PROTECTION:
+        description: The system prevents users from making operation errors.
+      USER_ENGAGEMENT:
+        description: The interface invites and motivates continued interaction.
+      INCLUSIVITY:
+        description: Usable by people of varied backgrounds, ages, abilities and languages.
+      USER_ASSISTANCE:
+        description: Usable across the widest range of characteristics and capabilities.
+      SELF_DESCRIPTIVENESS:
+        description: Capabilities and use are immediately obvious without excess interaction.
+      # -- Reliability --
+      FAULTLESSNESS:
+        description: Performs specified functions without fault under normal operation.
+      AVAILABILITY:
+        description: Operational and accessible when required for use.
+      FAULT_TOLERANCE:
+        description: Operates as intended despite hardware or software faults.
+      RECOVERABILITY:
+        description: Recovers affected data and re-establishes the desired state after failure.
+      # -- Security --
+      CONFIDENTIALITY:
+        description: Data accessible only to those authorised.
+      INTEGRITY:
+        description: State and data protected from unauthorised modification or deletion.
+      NON_REPUDIATION:
+        description: Actions or events can be proven to have taken place.
+      ACCOUNTABILITY:
+        description: Actions of an entity can be traced uniquely to it.
+      AUTHENTICITY:
+        description: The identity of a subject or resource can be proved.
+      RESISTANCE:
+        description: Sustains operations while under attack from a malicious actor.
+      # -- Maintainability --
+      MODULARITY:
+        description: Composed of discrete components; change has minimal impact elsewhere.
+      REUSABILITY:
+        description: Usable as an asset in more than one system.
+      ANALYSABILITY:
+        description: Impact of a change can be assessed and deficiencies diagnosed.
+      MODIFIABILITY:
+        description: Modified effectively without introducing defects.
+      TESTABILITY:
+        description: Test criteria can be established and tests performed.
+      # -- Flexibility --
+      ADAPTABILITY:
+        description: Adapted or transferred to different hardware, software or usage environments.
+      SCALABILITY:
+        description: Handles growing or shrinking workloads, or adapts capacity to variability.
+      INSTALLABILITY:
+        description: Successfully installed and/or uninstalled in a specified environment.
+      REPLACEABILITY:
+        description: Can replace another specified product for the same purpose.
+      # -- Safety --
+      OPERATIONAL_CONSTRAINT:
+        description: Constrains operation within safe parameters on encountering hazard.
+      RISK_IDENTIFICATION:
+        description: Identifies courses of events that expose life, property or environment to risk.
+      FAIL_SAFE:
+        description: Places itself in a safe mode, or reverts to a safe condition, on failure.
+      HAZARD_WARNING:
+        description: Warns of unacceptable risks in time for operators to react.
+      SAFE_INTEGRATION:
+        description: Maintains safety during and after integration with other components.
+
+  QualityConcernClass:
+    description: >-
+      Which quality model a `QualityAttributeCategory` belongs to.
+
+      Exists because one of our values is NOT from ISO 25010.
+      `REGULATORY_COMPLIANCE` is an enterprise-architecture concern we need —
+      PCI-DSS, GDPR, internal standards — but the standard does not define it,
+      and quietly folding it into an "ISO 25010" enum makes the enum's name a
+      false claim. Splitting the axis keeps both honest: every category still
+      declares which model it comes from.
+    permissible_values:
+      ISO_25010_2023:
+        description: A product quality characteristic defined by ISO/IEC 25010:2023.
+      ENTERPRISE_GOVERNANCE:
+        description: >-
+          Obligations that come from regulation, contract or internal standard
+          rather than from a product quality model. Real, auditable, and
+          deliberately not claimed as ISO 25010.
 
   ConstraintType:
     description: Category of hard constraint.
@@ -981,13 +1129,32 @@ classes:
   NonFunctionalRequirement:
     description: >-
       A requirement specifying a quality attribute the system must exhibit.
-      Aligned with ISO/IEC 25010 quality model.
+      Aligned with ISO/IEC 25010:2023.
     is_a: Requirement
     attributes:
+      realizes_attribute:
+        description: >-
+          The `QualityAttribute` this requirement is about — the primary link.
+          A requirement is a DOCUMENTED INSTANCE; the attribute is the abstract
+          concern, and pointing at the concern is what lets two NFRs about the
+          same attribute (a latency NFR and a throughput NFR, both Time
+          Behaviour) be recognised as concerning one thing, and lets a technique
+          be justified by an attribute no requirement states.
+        range: QualityAttribute
       quality_category:
-        description: ISO 25010 quality attribute category.
+        description: >-
+          ISO 25010:2023 top-level characteristic. Retained alongside
+          `realizes_attribute` so the classification survives even when the
+          specific attribute node has not been materialised — extraction can
+          always fill an enum, and only sometimes resolve a node.
         range: QualityAttributeCategory
-        required: true
+      subcharacteristic:
+        description: >-
+          The precise sub-characteristic the requirement targets. This is the
+          field that separates "within 500ms" (Time Behaviour) from "1000 TPS
+          with horizontal scaling" (Scalability), which the top-level
+          characteristic alone cannot do.
+        range: QualitySubcharacteristic
       quality_scenario:
         description: The concrete quality scenario this requirement addresses.
         range: QualityScenario
@@ -1011,6 +1178,7 @@ classes:
     in_subset:
       - Requirements
       - QualityAttributes
+      - Traceability
 
   ConstraintRequirement:
     description: >-
@@ -1159,12 +1327,136 @@ classes:
   # --------------------------------------------------------------------------
   # 5. QUALITY ATTRIBUTE MODEL
   # --------------------------------------------------------------------------
+  #
+  # The ISO/IEC 25010:2023 taxonomy, materialised as nodes.
+  #
+  # WHY A CLASS AND NOT JUST THE ENUMS. An enum value is not a thing anything can
+  # point at. Without this class, `DesignTechnique.realizes_quality_attributes`
+  # and `ArchitectureElement.satisfies_quality_attributes` had to range over
+  # `NonFunctionalRequirement` — a *documented instance* — with three costs:
+  #
+  #   1. A technique could only be justified by an attribute some requirement
+  #      happened to state. Redundancy is good practice even when nobody wrote an
+  #      availability NFR, and that coverage gap is the interesting case.
+  #   2. Two NFRs about the same attribute (a latency NFR and a throughput NFR,
+  #      both Time Behaviour) could not be recognised as concerning ONE attribute.
+  #   3. `quality_category` was a bare string with nowhere to hang a scenario,
+  #      evidence, or a verdict.
+  #
+  # A QualityAttribute is a claim about a NICE PROPERTY, explicitly NOT a
+  # mechanism ("Availability", never "Redundancy"). The mechanism is a
+  # DesignTechnique whose `realizes_quality_attributes` points here — keeping the
+  # what and the how in separate node types, which is what lets the auditor ask
+  # *which* techniques address Availability rather than reading prose.
+
+  QualityAttribute:
+    description: >-
+      A quality attribute the enterprise cares about, from the ISO/IEC 25010:2023
+      model or the enterprise-governance extension. The TOP-LEVEL
+      characteristics (Reliability) and their sub-characteristics (Availability,
+      Fault Tolerance) are both instances of this class, related by `is_a`, so
+      the taxonomy is a graph rather than a flat list.
+
+      Populate from the ISO seed catalogue rather than inventing names — a
+      quality attribute is a standard term of art, and a synonym here silently
+      splits the very taxonomy this class exists to provide.
+    attributes:
+      id:
+        identifier: true
+        range: string
+        required: true
+      name:
+        description: >-
+          The attribute as the standard names it, e.g. "Reliability",
+          "Availability", "Time Behaviour", "Scalability".
+        range: string
+        required: true
+      description:
+        range: string
+      characteristic:
+        description: The ISO 25010:2023 top-level characteristic this belongs to.
+        range: QualityAttributeCategory
+        required: true
+      subcharacteristic:
+        description: >-
+          The specific sub-characteristic, where this node is one. Empty for a
+          top-level characteristic node.
+        range: QualitySubcharacteristic
+      concern_class:
+        description: >-
+          Which quality model the characteristic comes from. Keeps the ISO claim
+          honest, since REGULATORY_COMPLIANCE is not an ISO 25010 characteristic.
+        range: QualityConcernClass
+      parent_attribute:
+        description: >-
+          The broader attribute this specialises, where `is_a` is not used.
+          Declared explicitly as well as in the class hierarchy so a project can
+          hang organisation-specific attributes under a standard one without
+          editing the ontology.
+        range: QualityAttribute
+      definition_source:
+        description: Where the definition came from — the standard clause, or the internal policy.
+        range: string
+      scenarios:
+        description: Concrete ATAM scenarios that operationalise this attribute.
+        range: QualityScenario
+        multivalued: true
+        inlined_as_list: true
+      stated_in_requirements:
+        description: >-
+          The requirements that state this attribute. Reverse of
+          `NonFunctionalRequirement.realizes_attribute`; populated at ingest or
+          reconciliation, not asserted by extraction.
+        range: NonFunctionalRequirement
+        multivalued: true
+      realized_by:
+        description: >-
+          NAMES of architecture elements that deliver this attribute — a
+          cross-graph reference into ARC-G, kept as a string because
+          `ArchitectureElement` lives in a layer ABOVE this one and a class range
+          would invert the one-way import rule. Same treatment as
+          `DesignTechnique.realised_by` in the domain pack: reconciled at the
+          graph level, not baked into the schema.
+
+          This is the attribute-level counterpart of `RequirementRealization`,
+          and the link that still works when no requirement states the attribute
+          at all.
+        range: string
+        multivalued: true
+      realized_by_techniques:
+        description: >-
+          NAMES of the mechanisms that deliver this attribute — the reverse of
+          `DesignTechnique.realizes_quality_attributes`, kept as a cross-graph
+          reference for the same layering reason. This is the slot that answers
+          "which techniques address Availability?" directly.
+        range: string
+        multivalued: true
+      covered:
+        description: >-
+          Whether anything in the graph addresses this attribute —
+          "realized", "partial", "planned", "not_addressed", "not_assessed".
+          Kept as a value rather than an enum so an unrecognised state from a
+          source survives, the same posture as extraction statuses elsewhere.
+        range: string
+      coverage_note:
+        description: Why coverage is what it is, and what is missing.
+        range: string
+    class_uri: sea-req:QualityAttribute
+    in_subset:
+      - QualityAttributes
+      - Traceability
 
   QualityScenario:
     description: >-
       A concrete quality scenario following the ATAM pattern:
       stimulus-source → stimulus → environment → artifact → response → measure.
       Used to make NFRs testable and unambiguous.
+
+      NOTE: declared but never populated. No extraction pass emits it and no
+      prompt mentions it, so every slot below is currently empty on every graph.
+      Recorded here rather than removed because the ATAM pattern is the intended
+      way to make an NFR falsifiable, and the shape is what an implementation
+      would have to produce.
     attributes:
       id:
         identifier: true
@@ -1175,6 +1467,12 @@ classes:
         required: true
       description:
         range: string
+      attribute:
+        description: >-
+          The quality attribute this scenario operationalises. Without it a
+          scenario cannot be matched to the attribute it measures, which is why
+          it is worth naming even while the class is unpopulated.
+        range: QualityAttribute
       stimulus_source:
         description: Who or what generates the stimulus (e.g., "end user", "attacker").
         range: string

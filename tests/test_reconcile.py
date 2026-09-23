@@ -27,6 +27,9 @@ from core.knowledge import (
     review_progress,
 )
 from core.knowledge.model import (
+    SCOPE_DOCUMENT,
+    SCOPE_ENTERPRISE,
+    ExternalReference,
     SOURCE_EXTRACTION,
     STATUS_SUPERSEDED,
     STATUS_VERIFIED,
@@ -47,8 +50,30 @@ def refs():
         # Right kind for the assertions below.
         "capability": graph.add_node("BusinessCapability", "Unified Payment Processing"),
         "requirement": graph.add_node("FunctionalRequirement", "Settlement Initialization"),
-        # The document's own key survived — this is the authoritative signal.
-        "keyed": graph.add_node("FunctionalRequirement", "Payment Acceptance", ["FR-PM-001"]),
+        # An identifier held in a system of record: the one scope that may be
+        # matched on globally. Typed deliberately — a bare string would be read
+        # as a document-local label and correctly refused as a join key.
+        "keyed": graph.add_node(
+            "FunctionalRequirement", "Payment Acceptance",
+            external_references=[
+                ExternalReference(
+                    identifier="FR-PM-001", system="Jira", reference_type="REQUIREMENT_KEY",
+                    scope=SCOPE_ENTERPRISE, is_authoritative=True,
+                )
+            ],
+        ),
+        # The same identifier, but stated only in a source document. Real as a
+        # label, useless as a join key: another document may number its own
+        # requirement FR-PM-001 and mean something else entirely.
+        "document_local": graph.add_node(
+            "FunctionalRequirement", "Payment Acceptance (document-local)",
+            external_references=[
+                ExternalReference(
+                    identifier="FR-PM-001", system="brief.md",
+                    reference_type="REQUIREMENT_KEY", scope=SCOPE_DOCUMENT,
+                )
+            ],
+        ),
         # Decoys of the wrong kind that score *higher* lexically.
         "concept": graph.add_node("Concept", "Card Payment Processing"),
         "domain": graph.add_node("DomainConcept", "Payment Request Validation"),
@@ -121,9 +146,45 @@ def test_exact_match_scores_one():
     assert (score, reason) == (1.0, "exact")
 
 
-def test_external_reference_scores_one_and_wins_over_wording():
-    score, reason = match_score("FR-PM-001", "Payment Acceptance", ["FR-PM-001"])
+def test_an_enterprise_reference_scores_one_and_wins_over_wording():
+    """An identifier a system of record holds is the strongest join available."""
+    score, reason = match_score(
+        "FR-PM-001", "Payment Acceptance",
+        [ExternalReference(identifier="FR-PM-001", system="Jira",
+                           reference_type="REQUIREMENT_KEY", scope=SCOPE_ENTERPRISE)],
+    )
     assert (score, reason) == (1.0, "external_ref")
+
+
+def test_a_document_local_reference_cannot_win_on_identity_alone():
+    """The distinction that makes scoping worth modelling.
+
+    Two documents may both number a requirement `FR-PM-001` and mean different
+    things. Treating the label as a definitive match produces a confident wrong
+    join, which is worse than a missing one — it makes the audit wrong rather
+    than incomplete. So a document-scoped identifier is evidence, reported as
+    such, but it has to be beaten or confirmed, not trusted.
+    """
+    score, reason = match_score(
+        "FR-PM-001", "Payment Acceptance",
+        [ExternalReference(identifier="FR-PM-001", system="brief.md",
+                           reference_type="REQUIREMENT_KEY", scope=SCOPE_DOCUMENT)],
+    )
+    assert reason == "unscoped_ref"
+    assert score < 1.0
+
+    # And an untyped string is read the same way, never as an enterprise key.
+    string_score, string_reason = match_score("FR-PM-001", "Payment Acceptance", ["FR-PM-001"])
+    assert (string_score, string_reason) == (score, reason)
+
+
+def test_an_enterprise_reference_outranks_a_document_label():
+    """Two nodes carrying the same identifier: only one may be matched on."""
+    refs = [
+        ExternalReference(identifier="FR-PM-001", system="brief.md", scope=SCOPE_DOCUMENT),
+        ExternalReference(identifier="FR-PM-001", system="Jira", scope=SCOPE_ENTERPRISE),
+    ]
+    assert match_score("FR-PM-001", "Something Else", refs) == (1.0, "external_ref")
 
 
 def test_containment_scores_below_exact_but_above_tokens():
@@ -183,9 +244,18 @@ def test_requirement_ids_are_recorded_as_external_references():
     assert graph.nodes["nonfunctionalrequirement:latency_budget"].external_refs == ["NFR-PE-004"]
 
 
-def test_a_preserved_id_joins_two_documents_end_to_end():
-    """The whole reconciliation problem in miniature: the architecture names a
-    requirement by its document key, and the key survived extraction."""
+def test_a_document_local_id_does_NOT_join_two_documents():
+    """The defect this scoping exists to prevent.
+
+    An earlier version treated ANY identifier equal to the target as a definitive
+    match, so `FR-PM-001` from a requirements document silently bound to
+    `FR-PM-001` in an architecture document. Those may be different requirements —
+    each document numbers its own — and a confident wrong join is worse than a
+    missing one, because it makes the audit wrong rather than incomplete.
+
+    The identifier is still reported, as sub-threshold evidence a human can see
+    and accept deliberately.
+    """
     requirements = {
         "entities": [
             {
@@ -213,17 +283,103 @@ def test_a_preserved_id_joins_two_documents_end_to_end():
 
     proposals = reference_candidates(merged)
     assert len(proposals) == 1
-    assert proposals[0].best.reason == "external_ref"
-    assert proposals[0].best.score == 1.0
-    assert proposals[0].best.node_id == "functionalrequirement:payment_acceptance"
+    proposal = proposals[0]
+    # Reported, not hidden — a human can still see why it was proposed.
+    assert proposal.best is not None
+    assert proposal.best.reason == "unscoped_ref"
+    assert proposal.best.score < 1.0
+    # But not resolvable without a deliberate decision.
+    assert proposal.status() == "below_threshold"
 
     log = ReviewLog()
     result = bulk_resolve(merged, log, actor="tester")
+    assert result.resolved == []
+    assert len(merged.unresolved_references()) == 1
+
+
+def test_a_document_local_id_joins_within_its_own_document():
+    """The case the requirement-id path was actually built for.
+
+    One document states both the requirement and its identifier, so the label
+    genuinely identifies that requirement. Scoping must not throw this away — it
+    is the strongest signal available when the source is consistent with itself.
+    """
+    single = {
+        "entities": [
+            {
+                "name": "Payment Acceptance",
+                "ontology_class": "FunctionalRequirement",
+                "requirement_id": "FR-PM-001",
+            }
+        ],
+        "elements": [{"name": "Payment Orchestrator", "element_type": "Container"}],
+        "triples": [
+            {
+                "subject": "Payment Orchestrator",
+                "predicate": "implements_requirement",
+                "object": "FR-PM-001",
+                "confidence": 0.6,
+            }
+        ],
+    }
+    graph, _ = graph_from_extraction(single, document_ref="both.md")
+
+    proposals = reference_candidates(graph)
+    assert len(proposals) == 1
+    assert proposals[0].best.reason == "external_ref"
+    assert proposals[0].best.score == 1.0
+    assert proposals[0].best.node_id == "functionalrequirement:payment_acceptance"
+    assert proposals[0].status() == "resolvable"
+
+    log = ReviewLog()
+    result = bulk_resolve(graph, log, actor="tester")
     assert len(result.resolved) == 1
-    assert merged.unresolved_references() == []
+    assert graph.unresolved_references() == []
     assert (
-        merged.assertions[log.entries[0].replacement_id].ontology_class == "RequirementRealization"
+        graph.assertions[log.entries[0].replacement_id].ontology_class
+        == "RequirementRealization"
     )
+
+
+def test_an_enterprise_reference_joins_across_documents():
+    """A key held in a system of record IS safe to match globally — that is the
+    distinction, and this is the case it must not break."""
+    requirements = {
+        "entities": [
+            {
+                "name": "Payment Acceptance",
+                "ontology_class": "FunctionalRequirement",
+                "external_references": [
+                    {
+                        "identifier": "PAY-142",
+                        "system": "Jira",
+                        "reference_type": "REQUIREMENT_KEY",
+                    }
+                ],
+            }
+        ],
+        "triples": [],
+    }
+    architecture = {
+        "elements": [{"name": "Payment Orchestrator", "element_type": "Container"}],
+        "triples": [
+            {
+                "subject": "Payment Orchestrator",
+                "predicate": "implements_requirement",
+                "object": "PAY-142",
+                "confidence": 0.6,
+            }
+        ],
+    }
+    req_graph, _ = graph_from_extraction(requirements, document_ref="req.md")
+    arch_graph, _ = graph_from_extraction(architecture, document_ref="arch.md")
+    merged = merge_graphs(req_graph, arch_graph)
+
+    proposals = reference_candidates(merged)
+    assert len(proposals) == 1
+    assert proposals[0].best.reason == "external_ref"
+    assert proposals[0].best.score == 1.0
+    assert proposals[0].status() == "resolvable"
 
 
 def test_scoping_picks_the_right_kind_over_the_closer_string(reference_best):

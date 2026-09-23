@@ -121,6 +121,10 @@ CROSS_GRAPH_PREDICATES = frozenset({
     "traces_to_capabilities", "traces_to_process", "traces_to_processes",
     "satisfies_quality_attribute", "supports_capability", "supports_business_capability",
     "delivers_initiative", "governed_by_rule", "governed_by_rules", "addresses_goal",
+    # A design technique naming the NFR it is the mechanism for. The NFR lives in
+    # REQ-G, so this is a cross-graph link like the rest — and it is the one that
+    # makes an NFR realization checkable rather than merely asserted.
+    "realizes_quality_attribute", "realizes_quality_attributes",
 })
 
 
@@ -136,6 +140,14 @@ class Provenance:
 
     `run_id` is what makes re-extraction auditable: assertions from an earlier
     run remain attributable after a newer run supersedes them.
+
+    `domain_pack` is the vocabulary that was in force when the assertion was made
+    (`payment_processing@0.1.0`, or empty for the base vocabulary). Recorded per
+    assertion rather than read from configuration, because those diverge the moment
+    an Initiative is re-extracted under a different pack — and the question an
+    auditor asks is which vocabulary produced *this* fact, not which pack is
+    selected now. Without it, a vocabulary change is indistinguishable from a
+    content change.
     """
 
     source_type: str = SOURCE_EXTRACTION
@@ -147,6 +159,7 @@ class Provenance:
     asserted_by: str = ""
     derived_from: str = ""
     correction_note: str = ""
+    domain_pack: str = ""
 
     @property
     def is_human(self) -> bool:
@@ -280,6 +293,102 @@ class ExtractionRun:
 # Node and graph
 # ============================================================================
 
+# Identity scope — how far an identifier's authority extends, and therefore
+# whether it may be used as a JOIN KEY. Mirrors `IdentityScope` in sea_common.
+#
+# The distinction that matters: `NFR-PS-001` read out of a markdown file is a
+# real label and worth keeping, but it is not an enterprise identity. Two
+# documents may both number a requirement `FR-001`. Matching on such a label
+# globally produces confident WRONG joins — worse than missing joins, because it
+# makes the audit wrong rather than incomplete.
+SCOPE_ENTERPRISE = "ENTERPRISE"
+SCOPE_INITIATIVE = "INITIATIVE"
+SCOPE_DOCUMENT = "DOCUMENT"
+SCOPE_RUN = "RUN"
+
+# Scopes whose identifiers are unique beyond the document that stated them, and
+# so are safe to match on. DOCUMENT and RUN are deliberately excluded.
+GLOBALLY_MATCHABLE_SCOPES = frozenset({SCOPE_ENTERPRISE})
+
+# Reference types that denote a system of record rather than a source document.
+# An identifier read out of a document is given the document as its `system`.
+#
+# REQUIREMENT_KEY is in here deliberately, and it is the subtle one: a
+# requirements-tooling key (Jira, Azure DevOps, DOORS) IS an enterprise identity,
+# while `NFR-PS-001` typed as a heading in a markdown file is not. The type alone
+# cannot separate them — the `system` does — so a document label is typed `OTHER`
+# rather than REQUIREMENT_KEY, and REQUIREMENT_KEY plus a named tooling system is
+# unambiguously the managed case.
+MANAGED_REFERENCE_TYPES = frozenset({
+    "CMDB_CI", "EA_REPOSITORY_ID", "ASSET_ID", "CLOUD_RESOURCE_ID", "PPM_ID",
+    "REQUIREMENT_KEY", "TECH_REGISTRY_ID", "CATALOG_ENTRY",
+})
+
+
+@dataclass
+class ExternalReference:
+    """One identifier a construct is known by, WITH its kind.
+
+    Recorded as a structure rather than a bare string because the string throws
+    away exactly what decides how the identifier may be used:
+
+    - `reference_type` — a CMDB CI and a document heading are not the same claim
+    - `system` — which system of record holds it (the source document, for a label)
+    - `scope` — whether it may be matched on at all
+    - `is_authoritative` — which of several identifiers is the source of truth
+
+    Flattening these to `List[str]` was the previous design, and it made two
+    identifiers of different kinds indistinguishable at the point of use — which
+    is why reconciliation could not tell an enterprise key from a document label
+    and treated both as definitive.
+    """
+
+    identifier: str
+    system: str = ""
+    reference_type: str = "OTHER"
+    scope: str = SCOPE_DOCUMENT
+    uri: str = ""
+    is_authoritative: bool = False
+    attribute_scope: List[str] = field(default_factory=list)
+    notes: str = ""
+
+    @property
+    def key(self) -> str:
+        """Canonical display form. `identifier` alone is ambiguous across systems."""
+        if not self.system:
+            return self.identifier
+        return f"{self.system}:{self.identifier}"
+
+    @property
+    def is_join_key(self) -> bool:
+        """Whether reconciliation may match on this identifier."""
+        return self.scope in GLOBALLY_MATCHABLE_SCOPES
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {k: v for k, v in asdict(self).items() if v not in ("", None, [], False)}
+
+
+def document_reference(identifier: str, document_ref: str = "", scope: str = SCOPE_DOCUMENT) -> ExternalReference:
+    """A label read out of a source document.
+
+    Typed `OTHER`, NOT `REQUIREMENT_KEY`, and the distinction is load-bearing:
+    `REQUIREMENT_KEY` means an identifier in requirements tooling (Jira, DOORS),
+    which is an enterprise identity. A heading in a markdown file is not. Typing
+    both the same would make `reference_type` useless for telling them apart, and
+    the type is half of what decides match authority.
+
+    `system` is the document, so the label stays traceable to where it came from
+    without being promoted into an identity it never had.
+    """
+    return ExternalReference(
+        identifier=str(identifier).strip(),
+        system=document_ref or "",
+        reference_type="OTHER",
+        scope=scope,
+        is_authoritative=True,
+    )
+
+
 @dataclass
 class Node:
     """Identity only. Every fact about it is an assertion."""
@@ -287,10 +396,76 @@ class Node:
     id: str
     kind: str
     label: str
+    # Typed identifiers. Prefer this.
+    external_references: List[ExternalReference] = field(default_factory=list)
+    # Flat identifier strings, kept in sync for display and for code that only
+    # needs "what is this thing called elsewhere?" (a C4 table, a search box).
+    # Derived from `external_references` on write, so the two cannot disagree;
+    # it carries NO scope, so never match on it — see `matchable_refs`.
     external_refs: List[str] = field(default_factory=list)
 
+    def add_external_reference(self, ref: ExternalReference) -> None:
+        """Merge a reference, keyed on system+identifier.
+
+        Folding rather than appending: re-extraction must not accumulate
+        duplicate identifiers for the same construct. An existing entry gains
+        anything the new one knows (a scope, a type, authority) without losing
+        what it already had.
+        """
+        if not ref.identifier:
+            return
+        for existing in self.external_references:
+            if existing.identifier != ref.identifier:
+                continue
+            # Same identifier. An unknown system (empty) matches anything, since
+            # "we do not know where this came from" is not evidence that it came
+            # from somewhere else — folding lets the better-informed reference
+            # fill in what the first one could not.
+            existing_system = (existing.system or "").lower()
+            new_system = (ref.system or "").lower()
+            if existing_system and new_system and existing_system != new_system:
+                continue
+            if existing.reference_type in ("", "OTHER") and ref.reference_type:
+                existing.reference_type = ref.reference_type
+            if existing.scope in ("", SCOPE_DOCUMENT) and ref.scope:
+                existing.scope = ref.scope
+            if not existing.system and ref.system:
+                existing.system = ref.system
+            existing.is_authoritative = existing.is_authoritative or ref.is_authoritative
+            if not existing.uri and ref.uri:
+                existing.uri = ref.uri
+            self._sync_flat_refs()
+            return
+        self.external_references.append(ref)
+        self._sync_flat_refs()
+
+    def _sync_flat_refs(self) -> None:
+        # Prefer the bare identifier: it is what a human searches for and what
+        # the UI already renders. `key` (system:identifier) is available on the
+        # typed record for callers that need to disambiguate.
+        flat = [r.identifier for r in self.external_references if r.identifier]
+        for value in self.external_refs:
+            if value not in flat:
+                # Never drop a ref that arrived as a plain string; it may predate
+                # the typed field or come from a source we cannot type.
+                flat.append(value)
+        self.external_refs = flat
+
+    def matchable_refs(self) -> Tuple[str, ...]:
+        """Only the identifiers reconciliation may match on.
+
+        The whole point of typing them. A document-local `FR-001` is a
+        legitimate label and a terrible join key.
+        """
+        return tuple(r.identifier for r in self.external_references if r.is_join_key)
+
     def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        # `external_references` needs the manual form: `asdict` would recurse the
+        # dataclass but cannot drop empties, and the typed records are the ones
+        # that most need keeping small in a stored revision.
+        data = asdict(self)
+        data["external_references"] = [r.to_dict() for r in self.external_references]
+        return data
 
 
 @dataclass
@@ -308,17 +483,41 @@ class KnowledgeGraph:
 
     # -- construction ------------------------------------------------------
 
-    def add_node(self, kind: str, label: str, external_refs: Optional[List[str]] = None) -> str:
-        """Add or merge a node. Merging never overwrites a non-empty field."""
+    def add_node(
+        self,
+        kind: str,
+        label: str,
+        external_refs: Optional[List[str]] = None,
+        external_references: Optional[List[ExternalReference]] = None,
+    ) -> str:
+        """Add or merge a node. Merging never overwrites a non-empty field.
+
+        Both identifier forms are accepted. A bare string is a reference whose
+        kind we do not know, so it is typed as a document-local label rather than
+        assumed to be an enterprise key — assuming the stronger claim is how a
+        `FR-001` from one document ends up matched against `FR-001` from another.
+        """
         nid = make_node_id(kind, label)
         existing = self.nodes.get(nid)
         if existing is None:
-            self.nodes[nid] = Node(id=nid, kind=kind, label=label,
-                                   external_refs=list(external_refs or []))
-        elif external_refs:
-            for ref in external_refs:
-                if ref and ref not in existing.external_refs:
-                    existing.external_refs.append(ref)
+            existing = Node(id=nid, kind=kind, label=label)
+            self.nodes[nid] = existing
+
+        for ref in external_references or []:
+            existing.add_external_reference(ref)
+
+        for value in external_refs or []:
+            if not value:
+                continue
+            text = str(value).strip()
+            if text and text not in existing.external_refs:
+                # Deliberately NO typed record here. A bare string is an
+                # identifier whose kind we do not know, and synthesising a typed
+                # entry for it would fabricate a claim (a system, a scope) that
+                # the caller never made — and would then collide with the real
+                # typed record when one arrives. Left untyped, it contributes
+                # nothing to `matchable_refs`, which is the conservative reading.
+                existing.external_refs.append(text)
         return nid
 
     def add_assertion(

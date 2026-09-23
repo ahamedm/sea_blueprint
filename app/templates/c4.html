@@ -58,7 +58,17 @@
           <tr>
             <td>{{ e.label }}</td>
             <td><span class="kind">{{ e.kind }}</span></td>
-            <td class="small muted">{{ e.external_refs|join(', ') or '—' }}</td>
+            <td class="small muted">
+              {%- if e.external_references -%}
+                {%- for r in e.external_references -%}
+                  <code>{{ r.identifier }}</code>
+                  <span class="hint">{% if r.system %}{{ r.system }} · {% endif %}{{ r.reference_type }}{% if not r.is_join_key %} · {{ r.scope|lower }}-scoped{% endif %}</span>
+                  {%- if not loop.last %}<br>{% endif -%}
+                {%- endfor -%}
+              {%- else -%}
+                —
+              {%- endif -%}
+            </td>
             <td style="text-align:right;">
               <a href="{{ url_for('review') }}?q={{ e.label }}">{{ e.facts }}</a>
             </td>

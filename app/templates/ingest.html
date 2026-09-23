@@ -65,6 +65,42 @@
       uses the ARC-G profile (structure / connection / technology / traceability passes).
       The old form accepted the type and then ignored it.
     </p>
+
+    <div class="inline" style="margin-top:10px;">
+      <label class="field" style="min-width:340px;">
+        <span>Domain ontology for this Initiative</span>
+        <select name="domain_pack">
+          <option value=""{% if not active_domain_pack %} selected{% endif %}>
+            None — base vocabulary only
+          </option>
+          {% for pack in domain_packs %}
+            <option value="{{ pack.spec }}"
+                    {% if not pack.loadable %}disabled{% endif %}
+                    {% if active_domain_pack == pack.spec %}selected{% endif %}>
+              {{ pack.title }}{% if pack.version %} v{{ pack.version }}{% endif %}
+              {%- if pack.class_count %} · {{ pack.class_count }} classes{% endif %}
+              {%- if not pack.loadable %} · unavailable{% endif %}
+            </option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+    <p class="hint" style="margin-top:2px;">
+      The <strong>subject matter</strong> this document is about — Payment Processing, HR,
+      Learning Management. The base ontologies (requirements, architecture) describe the
+      artifact and are fixed; only the domain pack is chosen, and it is recorded on every
+      assertion so a later reader can tell which vocabulary produced a fact.
+      <strong>None</strong> is a supported choice, not a degraded one.
+      {% if active_domain_pack %}
+        <br>Currently in force in this graph: <code>{{ active_domain_pack }}</code>.
+      {% endif %}
+    </p>
+    {% for pack in domain_packs if not pack.loadable %}
+      <p class="hint error" style="margin-top:2px;">
+        <code>{{ pack.spec }}</code> could not be read: {{ pack.error }}
+      </p>
+    {% endfor %}
+
     <button class="btn btn-primary" type="submit" style="margin-top:6px;">Extract &amp; ingest</button>
   </div>
 </form>

@@ -199,6 +199,76 @@ enums:
       SECURITY: { description: "Zero trust, secrets management, tokenization." }
       DEPLOYMENT: { description: "Blue/green, canary, sidecar, service mesh." }
       OBSERVABILITY: { description: "Distributed tracing, structured logging, metrics." }
+      AVAILABILITY:
+        description: >-
+          Removing single points of failure and surviving loss of a node, zone
+          or data centre — redundancy, replication, active-active, failover,
+          health-checked removal from rotation.
+      SCALABILITY:
+        description: >-
+          Adding capacity without redesign — horizontal scaling, statelessness,
+          partitioning, sharding, autoscaling, queue-based load levelling.
+      PERFORMANCE:
+        description: >-
+          Meeting a latency or throughput target — caching, read replicas,
+          connection pooling, batching, precomputation, asynchronous offload.
+      STANDARDS_CONFORMANCE:
+        description: >-
+          Conformance to a named external standard or model the organisation did
+          not invent — ISO 8583 messaging, PCI-DSS segmentation, ISO 20022,
+          scheme rulebooks.
+
+  ConventionType:
+    description: >-
+      What KIND of engineering convention this is. The type determines what the
+      convention constrains, and therefore how conformance is checked: a NAMING
+      convention is verified against an element's name, a STRUCTURE convention
+      against its containment, and so on.
+    permissible_values:
+      NAMING:
+        description: >-
+          How things are named — "<company>-<product>-<api>", "<env>-<region>-
+          <service>". Verified against element names and external references.
+      STRUCTURE:
+        description: Required internal shape — package layout, module boundaries, layer set.
+      VERSIONING:
+        description: How versions and compatibility are expressed — semver, URI versioning, deprecation windows.
+      INTERFACE:
+        description: API contract conventions — resource naming, verb semantics, pagination, error envelope.
+      ERROR_HANDLING:
+        description: Error taxonomy, correlation ids, retry and idempotency conventions.
+      CONFIGURATION:
+        description: How configuration and secrets are supplied — env vars, config maps, vault paths.
+      SECURITY:
+        description: Authentication, authorisation and secret-handling conventions beyond a formal control.
+      OBSERVABILITY:
+        description: Logging format, metric naming, trace propagation, health endpoints.
+      DEPLOYMENT:
+        description: Image tagging, manifest layout, environment promotion conventions.
+      DOCUMENTATION:
+        description: Required documentation artefacts — ADRs, runbooks, API descriptions.
+      CODE_STANDARD:
+        description: Language-level style and static-analysis rules.
+
+  ConventionEnforcement:
+    description: >-
+      How binding a convention is, and how it is checked. Deliberately distinct
+      from conformance: a MANDATORY convention that elements violate is a
+      finding, while an ADVISORY one they ignore is not.
+    permissible_values:
+      MANDATORY:
+        description: Binding; deviation is a defect. Checked in review or by tooling.
+      RECOMMENDED:
+        description: Expected default; deviation needs a stated reason.
+      ADVISORY:
+        description: Suggested practice; no conformance expectation.
+      TOOL_ENFORCED:
+        description: >-
+          Binding AND machine-checked — a lint rule, a CI gate, a policy engine.
+          Structurally the strongest form, because conformance is not a matter
+          of human judgement.
+      LEGACY_EXEMPT:
+        description: Applies to new work only; pre-existing elements are exempt.
 
   ArchitectureDecisionStatus:
     description: ADR lifecycle state.
@@ -672,6 +742,17 @@ classes:
       satisfies_quality_attributes:
         description: NFRs this element is specifically responsible for.
         range: NonFunctionalRequirement
+        multivalued: true
+      satisfies_attributes:
+        description: >-
+          The quality ATTRIBUTES this element delivers, as opposed to the NFRs
+          that state them. Both links are kept because they answer different
+          questions: `satisfies_quality_attributes` answers "which stated
+          requirement does this element answer?" and is only as complete as the
+          requirements document, while this answers "what quality property does
+          this element provide?" and survives an attribute nobody wrote down.
+          That difference is the coverage gap the auditor cares about.
+        range: QualityAttribute
         multivalued: true
       addresses_goals:
         description: Business goals this element contributes to.
@@ -1328,8 +1409,260 @@ classes:
           auditor verify a mandated pattern is actually present.
         range: Requirement
         multivalued: true
+      realizes_quality_attributes:
+        description: >-
+          NFRs this pattern exists to satisfy. The link that makes an NFR
+          VERIFIABLE rather than merely asserted: it turns "High Availability is
+          required" plus "the platform is replicated" into a stated mechanism
+          the auditor can check ("Redundancy realizes High Availability") instead
+          of two facts with no edge between them.
+        range: NonFunctionalRequirement
+        multivalued: true
+      mechanism:
+        description: >-
+          HOW the pattern delivers the quality attribute, in one clause
+          ("active-active replicas across 2 data centres with health-checked
+          removal from rotation"). Rationale explains why it was chosen;
+          mechanism explains how it works — and only the mechanism can be
+          checked against the quality scenario's response measure.
+        range: string
     class_uri: sea-arc:ArchitecturePattern
     in_subset:
+      - ArchitectureRationale
+
+  DesignTechnique:
+    description: >-
+      A specific, verifiable WAY an architecture achieves a quality attribute —
+      "Stateless Services", "Redundancy / Replicas", "Connection Pooling",
+      "Read Replicas", "Asynchronous Offload".
+      
+      WHY THIS IS NOT AN ArchitectureStyle. Style is the coarse SHAPE of the
+      design ("Stateless Modular Microservices") and is comparable across
+      systems. A technique is the mechanism INSIDE that shape, it attaches to
+      individual elements, and it is justified by a quality attribute rather
+      than by shape preference. Widening `ArchitectureStyleName` to hold
+      "Redundancy" would destroy the one property that enum has: a comparable
+      taxonomy.
+      
+      WHY THIS IS NOT AN ArchitecturePattern EITHER. A pattern is a NAMED
+      SOLUTION with a published description and known trade-offs (circuit
+      breaker, saga, CQRS) — you adopt it from a catalogue. A technique is a
+      property the architecture exhibits, often unnamed as a pattern, and
+      usually justified by the NFR it serves rather than by its own reputation.
+      They share the quality-attribute link and nothing else.
+      
+      THE GAP THIS CLOSES. "Stateless Services" and "2 replicas across 2 data
+      centres" were previously unrepresentable as first-class facts: they lived
+      only in prose, in an element's `description`, or folded into a style name.
+      The consequence was that a design could state a High Availability NFR and
+      describe redundancy with NO edge between them, so the auditor could not
+      answer "is this NFR realized, and by what?" — the core question the
+      platform exists to answer.
+    attributes:
+      id:
+        identifier: true
+        range: string
+        required: true
+      name:
+        description: >-
+          The technique as stated, e.g. "Stateless Services",
+          "Redundancy / Replicas", "Active-Active Multi-DataCentre".
+          Name the mechanism, not the outcome — "High Availability" is the
+          quality attribute, not the technique.
+        range: string
+        required: true
+      description:
+        range: string
+      technique_category:
+        description: >-
+          Which family of technique this is. Reuses `PatternCategory` because the
+          families are the same (availability, scalability, performance,
+          resilience); a separate enum would be a second axis to keep aligned
+          with no gain.
+        range: PatternCategory
+      applies_to:
+        description: >-
+          Elements the technique is applied to. Multivalued because a technique
+          such as statelessness or redundancy is typically a platform-wide
+          decision across many containers, not a property of one.
+        range: ArchitectureElement
+        multivalued: true
+      realizes_quality_attributes:
+        description: >-
+          The NFRs this technique is the mechanism for. This is the slot that
+          makes NFR realization checkable: it supplies the missing edge between
+          a required quality attribute and the design that claims to deliver it.
+        range: NonFunctionalRequirement
+        multivalued: true
+      quality_category:
+        description: >-
+          The ISO 25010 category this technique targets, captured at extraction
+          time when the NFR itself is not yet resolvable. Lets the auditor flag
+          a technique pointed at the wrong family — e.g. a technique recorded as
+          PERFORMANCE_EFFICIENCY that is being claimed as the answer to an
+          availability requirement.
+        range: QualityAttributeCategory
+      mechanism:
+        description: >-
+          How it actually works, concretely enough to check against a quality
+          scenario's response measure — "requests are served by any replica;
+          session state is externalised to Valkey, so losing a pod loses no
+          session" rather than "the services are stateless".
+        range: string
+      evidence:
+        description: >-
+          Where in the design this is observable — the configuration, decision or
+          element that demonstrates the technique is genuinely in force rather
+          than asserted.
+        range: string
+        multivalued: true
+      rationale:
+        description: Why this technique was chosen over the alternatives.
+        range: string
+      trade_offs:
+        description: >-
+          Costs accepted with it — "distributed debugging", "external session
+          store becomes a dependency", "operational overhead of a second region".
+        range: string
+        multivalued: true
+      mandated_by:
+        description: >-
+          The requirement that mandates this technique, when one does. Capture
+          the NFR here only when it *requires* the technique; use
+          `realizes_quality_attributes` when the technique *answers* it. A
+          mandated technique that is absent is a compliance gap; a realizing
+          technique that is absent is a coverage gap.
+        range: Requirement
+        multivalued: true
+    class_uri: sea-arc:DesignTechnique
+    in_subset:
+      - ArchitectureStructure
+      - ArchitectureRationale
+      - ArchitectureTraceability
+
+  # --------------------------------------------------------------------------
+  # 8b. ENGINEERING CONVENTIONS — the organisation's own standards
+  # --------------------------------------------------------------------------
+
+  EngineeringConvention:
+    description: >-
+      An organisation-specific rule about HOW things are built, named or
+      documented — "<company>-<product>-<web>" for a UI container,
+      "<company>-<product>-<api>" for a service, semver with a two-release
+      deprecation window, one bounded context per package.
+      
+      WHY THIS IS A SEPARATE CLASS AND NOT A DESIGN TECHNIQUE. They look similar
+      (both cross-cutting, both mandated, both attached to elements) but they
+      answer different questions and fail differently:
+      
+        * A technique is JUSTIFIED BY a quality attribute and explains HOW an NFR
+          is met. A convention is not justified by a quality attribute — it is
+          justified by consistency, and it is written down rather than discovered.
+        * A technique is judged by whether the quality attribute follows. A
+          convention is judged by CONFORMANCE: does this element's name, shape or
+          configuration match the rule?
+      
+      That second difference is why it needs its own class: conformance is
+      mechanically checkable against data already in the graph (element names,
+      containment, technology stacks), and a convention with no conformance
+      verdict is just documentation. Folding conventions into patterns would bury
+      the one thing that makes them useful.
+      
+      NAMING CONVENTIONS ARE THE HIGHEST-VALUE CASE, because they are the only
+      ones verifiable from data the graph always has. An element named
+      "acme-payments-web" either matches "<company>-<product>-<web>" or it does
+      not, with no judgement required — which makes convention drift reportable
+      rather than a matter of opinion.
+    attributes:
+      id:
+        identifier: true
+        range: string
+        required: true
+      name:
+        description: >-
+          Short name for the convention, e.g. "Container naming",
+          "Service naming", "Semantic versioning".
+        range: string
+        required: true
+      convention_type:
+        range: ConventionType
+      description:
+        description: The convention stated in prose, as the source states it.
+        range: string
+      pattern:
+        description: >-
+          The convention as a MACHINE-CHECKABLE template, using angle-bracket
+          placeholders — "<company>-<product>-<web>", "<company>-<product>-<api>",
+          "<env>-<region>-<service>". This is the slot that makes conformance
+          decidable; prose alone is not. Capture verbatim where the source gives
+          it, and do not normalise the placeholders to invented values.
+        range: string
+      examples:
+        description: >-
+          Named instances that conform, taken from the source —
+          "acme-payments-web", "acme-payments-api". Two purposes: they let a
+          reader infer the placeholder values (<company>=acme,
+          <product>=payments) without being told, and they give the conformance
+          check a worked reference.
+        range: string
+        multivalued: true
+      counter_examples:
+        description: >-
+          Named instances that do NOT conform, where the source flags them.
+          Usually absent — a document rarely advertises its own drift — which is
+          exactly why the convention is worth modelling: the graph can find
+          violations the document never mentions.
+        range: string
+        multivalued: true
+      applies_to:
+        description: >-
+          Elements the convention governs. May be empty when the convention is
+          organisation-wide and no specific element has been checked against it —
+          an unchecked convention is still worth recording.
+        range: ArchitectureElement
+        multivalued: true
+      applies_to_level:
+        description: >-
+          The C4 level the convention targets, when it is level-scoped rather
+          than element-scoped ("all Containers"). Capture this when the source
+          states a scope but the document does not enumerate the elements.
+        range: C4Level
+      enforcement:
+        description: >-
+          How binding the convention is. Distinct from conformance by design:
+          this says what is EXPECTED of every element in scope, while
+          `conformance` records what was OBSERVED on each one. A MANDATORY
+          convention with a NON_CONFORMANT element is a finding; an ADVISORY one
+          is not.
+        range: ConventionEnforcement
+      conformance:
+        description: >-
+          Observed state on the attached element(s): "conformant",
+          "non_conformant", "partial", "not_checked". Kept as a value rather than
+          an enum so an unrecognised state from a source is preserved instead of
+          rejected — the same posture as extraction statuses elsewhere.
+        range: string
+      violation_note:
+        description: >-
+          Why the element deviates, where known — "predates the naming standard",
+          "acquired service, rename deferred". Separates active drift from
+          acknowledged history, which is the difference between a defect and a
+          known exception.
+        range: string
+      rationale:
+        description: Why the organisation adopted the convention — consistency, discoverability, automation.
+        range: string
+      mandated_by:
+        description: >-
+          The requirement, standard or decision that puts the convention in
+          force. Conventions are frequently mandated by a ConstraintRequirement
+          (an internal standard) rather than by an NFR, which is another reason
+          they are not modelled as techniques.
+        range: Requirement
+        multivalued: true
+    class_uri: sea-arc:EngineeringConvention
+    in_subset:
+      - ArchitectureStructure
       - ArchitectureRationale
 
   ArchitectureDecision:

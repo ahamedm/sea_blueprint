@@ -63,6 +63,16 @@ class EnvironmentConfig(BaseModel):
     
     # Paths
     ontology_path: str = Field(default="ontology/requirements_base.yaml")
+    ontology_dir: str = Field(default="ontology", alias="SEA_ONTOLOGY_DIR")
+    domain_pack: str = Field(
+        default="",
+        alias="SEA_DOMAIN_PACK",
+        description=(
+            "Default domain pack for runs that do not name one. Empty means no pack — "
+            "a supported state, not a degraded one. Per-Initiative selection "
+            "overrides this; the env var is only the fallback."
+        ),
+    )
     data_dir: str = Field(default="data")
     output_dir: str = Field(default="data/output")
     
@@ -110,6 +120,8 @@ def load_environment() -> EnvironmentConfig:
         "default_model_provider": os.getenv("DEFAULT_MODEL_PROVIDER", "anthropic"),
         "default_model_id": os.getenv("DEFAULT_MODEL_ID", "claude-3-5-sonnet-20241022"),
         "ontology_path": os.getenv("ONTOLOGY_PATH", "ontology/requirements_base.yaml"),
+        "ontology_dir": os.getenv("SEA_ONTOLOGY_DIR", "ontology"),
+        "domain_pack": os.getenv("SEA_DOMAIN_PACK", ""),
         "data_dir": os.getenv("DATA_DIR", "data"),
         "output_dir": os.getenv("OUTPUT_DIR", "data/output"),
         "deepeval_api_key": os.getenv("DEEPEVAL_API_KEY", ""),
@@ -315,8 +327,26 @@ architecture the document does not describe.""",
         "max_structured_turns": env_config.max_structured_turns,
         "structured_timeout_seconds": env_config.structured_timeout_seconds,
         "request_timeout_seconds": env_config.request_timeout_seconds,
+        # The ontology root, so `imports:` resolve and packs are found regardless of
+        # the entry schema an agent names.
+        "ontology_dir": env_config.ontology_dir,
     }
     for cfg in configs.values():
         cfg.update(shared)
-    
+
+    # The domain pack is a per-Initiative choice, so it is applied to the two
+    # EXTRACTION agents (which turn documents into graph nodes and therefore need
+    # the vocabulary) and deliberately NOT baked into the others. The Domain
+    # Context Agent is excluded on purpose: its job is to propose a domain
+    # vocabulary, and handing it the answer would defeat that.
+    #
+    # NOTE the loop variable is deliberately NOT called `agent_name`: that shadows
+    # the function parameter, so the `return` below hands back whichever agent the
+    # loop finished on. It did — every `knowledge_extraction` request received the
+    # Architecture Extraction Agent's config, so REQ-G extraction ran under the
+    # ARC-G system prompt. Silent, and it made requirements runs reason about
+    # containers and deployment.
+    for extraction_agent in ("knowledge_extraction", "architecture_extraction"):
+        configs[extraction_agent]["domain_pack"] = env_config.domain_pack or None
+
     return configs.get(agent_name, {})

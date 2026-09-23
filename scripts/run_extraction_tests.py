@@ -18,6 +18,7 @@ Usage:
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -109,6 +110,24 @@ _TECH_LEAK = {
     "spring boot", "spring boot / java 21", "java 21", "docker", "tls 1.2+",
     "alpinejs", "rbac", "stateless modular microservices", "active-active",
     "rest api", "grpc", "aes-256",
+    # The Settlement Job Orchestrator embeds a scheduler and runs a batch
+    # pattern. Both are USED, not RUN, and must not surface as elements —
+    # `Quartz Job Scheduler` in particular reads like a component name.
+    "quartz", "quartz job scheduler", "quartz scheduler",
+}
+
+# Names that belong to a non-element CLASS and must never become an element.
+# Kept separate from `_TECH_LEAK` because the failure is different in kind: a
+# technique emitted as an element does not merely mislabel a thing, it discards
+# the `realizes_quality_attribute` edge that is the reason the class exists.
+# A convention emitted as an element discards its checkable `pattern`.
+_TECHNIQUE_OR_CONVENTION_LEAK = {
+    "stateless services", "stateless service", "redundancy / replicas",
+    "redundancy", "replicas", "health-checked removal from rotation",
+    "bounded batch processing with checkpoints", "idempotent job execution",
+    "asynchronous offload of payment state transitions",
+    "container naming", "service naming", "environment naming",
+    "semantic versioning", "package structure",
 }
 
 
@@ -242,6 +261,48 @@ def inv_responsibility_present(res, out):
     return _ok(len(held) >= 1, f"{len(held)} elements carry responsibilities")
 
 
+def inv_techniques_populated(res, out):
+    """Design techniques must be captured as techniques, not as elements.
+
+    `Stateless Services` and `Redundancy / Replicas` read like component names,
+    so this is the same class of regression as the technology leak — and the
+    guard matters more here, because a technique recorded as an element loses the
+    `realizes_quality_attributes` edge that is the entire point of the class.
+
+    The technique list itself is *expected* to contain these names; only their
+    appearance as ELEMENTS is the defect.
+    """
+    techniques = out.get("design_techniques", [])
+    if not techniques:
+        return _ok(False, "no design_techniques captured (the fixture names several)")
+    as_elements = [e["name"] for e in out.get("elements", [])
+                   if e["name"].strip().lower() in _TECHNIQUE_OR_CONVENTION_LEAK]
+    linked = [t for t in techniques
+              if t.get("realizes_quality_attributes") or t.get("quality_category")]
+    return _ok(
+        not as_elements and len(linked) >= 1,
+        f"{len(techniques)} techniques, {len(linked)} aimed at a quality attribute"
+        + (f" — LEAKED AS ELEMENTS: {as_elements}" if as_elements else ""),
+    )
+
+
+def inv_conventions_populated(res, out):
+    """A convention with no checkable `pattern` is prose, not a convention."""
+    conventions = out.get("engineering_conventions", [])
+    if not conventions:
+        return _ok(False, "no engineering_conventions captured (the fixture names several)")
+    as_elements = [e["name"] for e in out.get("elements", [])
+                   if e["name"].strip().lower() in _TECHNIQUE_OR_CONVENTION_LEAK]
+    named = [c for c in conventions if c.get("convention_type") == "NAMING"]
+    with_pattern = [c for c in named if c.get("pattern")]
+    return _ok(
+        len(with_pattern) >= 1 and not as_elements,
+        f"{len(conventions)} conventions, {len(named)} naming, "
+        f"{len(with_pattern)} with a checkable pattern"
+        + (f" — LEAKED AS ELEMENTS: {as_elements}" if as_elements else ""),
+    )
+
+
 # ----------------------------------------------------------------------------
 # Cases
 # ----------------------------------------------------------------------------
@@ -252,6 +313,9 @@ CASES: List[Dict[str, Any]] = [
         "agent": "knowledge_extraction",
         "input": "test_data/prd/sample_requirements.md",
         "output": "data/output/test_req_sample.json",
+        # Payment Processing is the MVP domain, so these cases select its pack.
+        # Another domain adds a case with its own pack; nothing else changes.
+        "domain_pack": "payment_processing",
         "invariants": [inv_success, inv_triples_present, inv_contract_ratio,
                        inv_ontology_class_coverage, inv_confidence_varies],
     },
@@ -260,6 +324,7 @@ CASES: List[Dict[str, Any]] = [
         "agent": "knowledge_extraction",
         "input": "test_data/prd/payment_platform_brief.md",
         "output": "data/output/test_req_prd.json",
+        "domain_pack": "payment_processing",
         "invariants": [inv_success, inv_triples_present, inv_contract_ratio,
                        inv_ontology_class_coverage, inv_confidence_varies,
                        inv_requirement_ids, inv_traceability_predicates],
@@ -269,17 +334,23 @@ CASES: List[Dict[str, Any]] = [
         "agent": "architecture_extraction",
         "input": "test_data/arch/payment_platform_arch.md",
         "output": "data/output/test_arch.json",
+        "domain_pack": "payment_processing",
         "expected": [
             "Payment Orchestrator", "Payment Routing Decision Engine",
             "PAN-Card Encryption Service", "Storefront Management Service",
             "Payment UI Service", "PostgreSQL", "Valkey",
             "Mastercard", "Elavon", "CCnet",
+            # Added with the batch/scheduling container. Its jobs are Components
+            # inside it, so the container must survive as a Container element and
+            # Quartz must stay a technology (see `_TECH_LEAK`).
+            "Settlement Job Orchestrator",
         ],
         "invariants": [inv_success, inv_triples_present, inv_elements_present,
                        inv_no_tech_leak, inv_containment_present, inv_part_of_edges,
                        inv_valid_element_types, inv_deployment_nodes_unlevelled,
                        inv_responsibilities_populated, inv_software_systems_classified,
                        inv_datastores_typed, inv_technology_captured,
+                       inv_techniques_populated, inv_conventions_populated,
                        inv_schema_ontology_consistency, inv_expected_present],
     },
 ]
@@ -290,13 +361,24 @@ def run_case(case: Dict[str, Any]) -> Dict[str, Any]:
              if case["agent"] == "knowledge_extraction"
              else create_architecture_extraction_agent())
 
+    # Ground the run in a domain vocabulary when one is named. Selected BEFORE
+    # `run`, not passed through `input_data`, because the pack is compiled into the
+    # system prompt at selection time. The `"domain": "payment_processing"` that
+    # used to sit in this dict was read, logged, and never reached a prompt or a
+    # schema — the inert-layer defect the domain pack replaces.
+    pack_spec = case.get("domain_pack") or os.getenv("SEA_DOMAIN_PACK", "")
+    if pack_spec:
+        agent.use_domain_pack(pack_spec)
+    if agent.active_domain_pack_id():
+        print(f"  domain pack: {agent.active_domain_pack_id()}")
+
     document = Path(case["input"]).read_text()
 
     t0 = time.time()
     result = agent.run({
         "document": document,
         "document_type": "requirements" if case["agent"] == "knowledge_extraction" else "architecture",
-        "domain": "payment_processing",
+        "domain_pack": agent.active_domain_pack_id(),
     })
     elapsed = time.time() - t0
 

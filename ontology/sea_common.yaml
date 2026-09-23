@@ -62,6 +62,36 @@ imports:
 
 enums:
 
+  IdentityScope:
+    description: >-
+      How far an identifier's authority extends. This is the axis that decides
+      whether an identifier may be used as a JOIN KEY.
+
+      A document-local label like `NFR-PS-001` is real and worth keeping — it is
+      how a human finds the requirement in its source — but it is not an
+      enterprise identity. Two documents in the same Initiative may both number a
+      requirement `FR-001`, and across Initiatives they very often will. Treating
+      such a label as a global match key produces confident, WRONG joins, which is
+      worse than missing joins because it makes the audit wrong rather than
+      incomplete.
+    permissible_values:
+      ENTERPRISE:
+        description: >-
+          Authoritative throughout the enterprise, held in a system of record.
+          The only scope that may be matched globally.
+      INITIATIVE:
+        description: >-
+          Unique within one Initiative. Safe for joining documents that belong to
+          that Initiative; not safe across Initiatives.
+      DOCUMENT:
+        description: >-
+          Local to one source document — a label for humans reading it, not an
+          identity for the graph to match on.
+      RUN:
+        description: >-
+          Local to one extraction run. An artefact of how the document was
+          processed rather than anything the document itself states.
+
   ExternalReferenceType:
     description: >-
       The kind of external system of record an identifier belongs to. The
@@ -162,6 +192,12 @@ classes:
       attributes back in. It is also the most reliable path for cross-graph
       linkage between REQ-G and ARC-G — an exact identifier match, rather than
       the semantic guesswork required when documents paraphrase each other.
+
+      SCOPE IS WHAT MAKES THAT CLAIM TRUE. The class holds document-local labels
+      as well as enterprise keys, and the two must not be treated alike: a label
+      is recorded so a reader can find the thing in its source, while a key is
+      recorded so the graph can JOIN on it. `scope` says which, and every
+      consumer that matches on an identifier must respect it.
     attributes:
       id:
         identifier: true
@@ -170,7 +206,10 @@ classes:
       system:
         description: >-
           The system of record, as named by the enterprise
-          (e.g. "ServiceNow CMDB", "LeanIX", "AWS").
+          (e.g. "ServiceNow CMDB", "LeanIX", "AWS"). For a document-local label,
+          name the SOURCE DOCUMENT here — that is the only "system" that holds
+          it, and naming it is what makes the label traceable without pretending
+          it is an enterprise key.
         range: string
         required: true
       reference_type:
@@ -178,10 +217,18 @@ classes:
         required: true
       identifier:
         description: >-
-          The value as held by that system, verbatim (e.g. "CI0004872").
-          Never normalise or reformat it — it must round-trip exactly.
+          The value as held by that system, verbatim (e.g. "CI0004872",
+          "NFR-PS-001"). Never normalise or reformat it — it must round-trip
+          exactly.
         range: string
         required: true
+      scope:
+        description: >-
+          How far this identifier's authority extends, and therefore whether it
+          may be matched on. Defaults in practice to ENTERPRISE for identifiers
+          from a named system of record and DOCUMENT for labels read out of a
+          source document.
+        range: IdentityScope
       uri:
         description: Optional resolvable link to the record.
         range: string
@@ -190,6 +237,10 @@ classes:
           Whether this is THE source of truth for the construct. A construct may
           carry several references while only one is authoritative; without this
           flag, resolution is ambiguous.
+
+          Note this is a different question from `scope`: a document-local label
+          can be authoritative for what that document says while still being
+          useless as a join key elsewhere.
         range: boolean
       attribute_scope:
         description: >-

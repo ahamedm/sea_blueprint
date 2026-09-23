@@ -416,6 +416,20 @@ def project_node_index(graph, kind: Optional[str] = None) -> List[Dict[str, Any]
                 "label": n.label,
                 "facts": counts.get(n.id, 0),
                 "external_refs": list(n.external_refs),
+                # Typed identifiers, so the view can show WHICH system holds an
+                # identifier and how far its authority reaches. A CMDB CI and a
+                # heading in a markdown file look identical as bare strings, and
+                # that difference is the whole reason references are typed.
+                "external_references": [
+                    {
+                        "identifier": r.identifier,
+                        "system": r.system,
+                        "reference_type": r.reference_type,
+                        "scope": r.scope,
+                        "is_join_key": r.is_join_key,
+                    }
+                    for r in (n.external_references or [])
+                ],
             }
         )
     return sorted(rows, key=lambda r: (-r["facts"], r["label"].lower()))

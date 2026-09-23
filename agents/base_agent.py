@@ -14,6 +14,18 @@ import yaml
 from pydantic import BaseModel, Field
 from rich.console import Console
 
+from core.ontology import (
+    CORE_ROUTED_PREDICATES,
+    DomainPack,
+    OntologyError,
+    ROUTING_ALIASES,
+    load_domain_pack,
+    load_ontology,
+    quality_attribute_catalog,
+    quality_model_findings,
+    relationship_predicates,
+)
+
 console = Console()
 
 
@@ -38,6 +50,22 @@ class AgentConfig(BaseModel):
     system_prompt: str = Field(default="", description="System prompt for the agent")
     tools: List[str] = Field(default_factory=list, description="List of tool names to enable")
     ontology_path: Optional[str] = Field(default=None, description="Path to ontology YAML")
+    ontology_dir: str = Field(
+        default="ontology",
+        description=(
+            "Root of the layered ontology, used to resolve `imports:` and to find "
+            "domain packs. `ontology_path` names the entry schema; this says where "
+            "the rest of the vocabulary lives."
+        ),
+    )
+    domain_pack: Optional[str] = Field(
+        default=None,
+        description=(
+            "Domain pack selected for this run — the vocabulary of the SUBJECT "
+            "MATTER (e.g. a payments pack), overlaid on the base ontology. Empty "
+            "means no pack, which is a supported state and not a degraded one."
+        ),
+    )
     
     # --- Structured output controls ---
     use_structured_output: bool = Field(
@@ -128,6 +156,23 @@ class SEABaseAgent:
         self.ontology = None
         if config.ontology_path:
             self.ontology = self._load_ontology(config.ontology_path)
+
+        # Load the domain pack, if one is selected. Separate from the base
+        # ontology on purpose: a pack is an overlay chosen per Initiative, not a
+        # fifth base layer. An empty selection is legitimate — the agent simply
+        # runs with the base vocabulary — so a *missing* pack must fail while an
+        # *absent* one must not.
+        self.domain_pack: Optional[DomainPack] = None
+        if config.domain_pack:
+            self.domain_pack = load_domain_pack(config.domain_pack, config.ontology_dir)
+            if self.domain_pack is not None:
+                self.log(
+                    f"  ✓ Domain pack loaded: {self.domain_pack.title} "
+                    f"v{self.domain_pack.version} "
+                    f"({self.domain_pack.class_count} classes, "
+                    f"{self.domain_pack.enum_count} enums)",
+                    level="success",
+                )
         
         # Initialize Strands agent
         self.agent = self._create_strands_agent()
@@ -237,8 +282,10 @@ class SEABaseAgent:
         """Build the system prompt for this agent."""
         base_prompt = self.config.system_prompt
         
-        # Add ontology context if available
-        if self.ontology:
+        # Add ontology context if available. A domain pack alone is enough — it is
+        # a complete vocabulary, and requiring a base schema as well would make
+        # pack-only agents silently ungrounded.
+        if self.ontology or self.domain_pack:
             ontology_context = self._format_ontology_context()
             base_prompt += f"\n\n## Ontology Context\n{ontology_context}"
         
@@ -246,12 +293,19 @@ class SEABaseAgent:
     
     def _format_ontology_context(self) -> str:
         """Format ontology for inclusion in system prompt.
-        
+
         Resolves local `imports:` so the model sees inherited classes too. This
         matters for layered ontologies: architecture_base imports
         enterprise_structure and requirements_base, and the architecture agent
         needs to know that Requirement / System / Application / BusinessGoal
         exist in order to emit traceability edges.
+
+        When a domain pack is selected, its vocabulary is added as a **separate**
+        block. Separate rather than merged because the two answer different
+        questions — the base classes say what KIND of fact to emit, the pack says
+        which entity names the subject matter actually consists of. Merging them
+        would let the model file a business entity as `BusinessCapability` and
+        leave no way to tell the mistake from a legitimate choice.
         """
         if not self.ontology:
             return ""
@@ -260,52 +314,211 @@ class SEABaseAgent:
         
         context = f"Available classes: {', '.join(classes)}\n"
         context += f"Available enums: {', '.join(enums)}\n"
+
+        predicates = self._predicate_vocabulary_context()
+        if predicates:
+            context += predicates
+
+        quality = self._quality_model_context()
+        if quality:
+            context += quality
+
+        if self.domain_pack is not None:
+            pack = self.domain_pack
+            context += (
+                f"\n### Domain vocabulary in force: {pack.title} v{pack.version}\n"
+                f"This Initiative selected the `{pack.spec}` domain pack. Business "
+                f"entities in the document MUST be mapped to one of these domain "
+                f"classes rather than to the generic `DomainConcept`, which is a "
+                f"last resort for a genuine entity that has no class here.\n"
+                f"Domain classes: {', '.join(pack.concrete_classes)}\n"
+                f"Domain enums: {', '.join(sorted(pack.enums))}\n"
+            )
+            if pack.description:
+                context += f"Scope of this domain pack: {pack.description}\n"
         
         return context
-    
+
+    def _predicate_vocabulary_context(self) -> str:
+        """The relationship names the ontology declares, with what they may point at.
+
+        THE AXIS THAT WAS MISSING. `_collect_ontology_names` injects CLASS and ENUM
+        names; the predicate of a triple is free text on the schema, and nothing
+        ever sent the declared relationship names. Live runs confirm the
+        consequence — 15 of 16 predicates invented, and only 2 routed to
+        reconciliation, because `CROSS_GRAPH_PREDICATES` recognises only the names
+        it lists. The rest became local edges no consumer reads.
+
+        The names existed all along as relationship slots. They were simply never
+        sent, which is the same inert-layer pattern as the old `domain` field.
+
+        Targets are included because a predicate whose range is known is checkable,
+        and the reconciler already refuses a link to the wrong kind of thing —
+        telling the model the allowed target is cheaper than correcting it later.
+        """
+        try:
+            model = load_ontology(self.config.ontology_dir or "ontology")
+        except OntologyError:
+            return ""
+
+        vocabulary = relationship_predicates(model)
+        if not vocabulary:
+            return ""
+
+        # Compact on purpose. The full name -> targets list costs ~1,540 chars and
+        # pushed the extraction prompt past the 2.5:1 scaffolding-to-document
+        # ratio that TODO item 7 already flags as the thing making every other
+        # prompt fix unreliable. Names alone cost ~830, so the targets are kept —
+        # they are what makes a predicate checkable — but the block is kept tight
+        # and the per-name pattern is shown once rather than on 47 lines.
+        core = [
+            name for name in vocabulary
+            if name in CORE_ROUTED_PREDICATES
+        ]
+        rest = [name for name in vocabulary if name not in CORE_ROUTED_PREDICATES]
+
+        lines = ["\n### Relationship predicates — use these names verbatim"]
+        lines.append(
+            "Declared relationships, with the class each may point at as `name -> Target`. "
+            "Prefer them: the graph routes on these names, and an unrecognised one becomes "
+            "an edge nothing reads. Copy the spelling exactly — some routing predicates "
+            "also accept the singular, but not all do."
+        )
+        # The predicates the graph actually routes on, spelled out with targets.
+        for name in core:
+            targets = ", ".join(vocabulary[name])
+            aliases = ROUTING_ALIASES.get(name, ())
+            suffix = f" (or {', '.join(f'`{a}`' for a in aliases)})" if aliases else ""
+            lines.append(f"- `{name}` -> {targets}{suffix}")
+        if rest:
+            lines.append("- Also declared: " + ", ".join(f"`{n}`" for n in rest))
+        lines.append(
+            "Invent a name only when none fits; keep it snake_case and verb-like. An "
+            "invented predicate is surfaced for review rather than silently dropped."
+        )
+        return "\n".join(lines) + "\n"
+
+    def _quality_model_context(self) -> str:
+        """The ISO/IEC 25010:2023 taxonomy, as the model needs it.
+
+        The names of the two enums were already listed in `Available enums`, but a
+        bare enum name carries no grouping — the model cannot know that
+        `SCALABILITY` sits under `FLEXIBILITY` and `TIME_BEHAVIOUR` under
+        `PERFORMANCE_EFFICIENCY`. Without the grouping it either stops at the
+        top-level characteristic (losing the distinction that matters) or invents
+        a placement. This prints the taxonomy once instead of leaving it implied.
+
+        Read from `core.ontology`, so the grouping has exactly one definition and
+        cannot drift from the enums it describes.
+        """
+        try:
+            model = load_ontology(self.config.ontology_dir or "ontology")
+        except OntologyError:
+            return ""
+
+        findings = quality_model_findings(model)
+        if findings:
+            # Drift here silently mis-groups quality concerns, so say so rather
+            # than hand the model a taxonomy we know is inconsistent.
+            self.log(
+                f"  ISO 25010 model inconsistent: {'; '.join(findings)}", level="warning"
+            )
+
+        lines = ["\n### ISO/IEC 25010:2023 quality model (use for NonFunctionalRequirements)"]
+        for entry in quality_attribute_catalog(model):
+            subs = ", ".join(entry["subcharacteristics"]) or "(no sub-characteristics)"
+            suffix = "" if entry["concern_class"] == "ISO_25010_2023" else "  [NOT ISO 25010 — enterprise governance]"
+            lines.append(f"- {entry['characteristic']}: {subs}{suffix}")
+        lines.append(
+            "Classify an NFR with `quality_category` (the characteristic) and, when "
+            "the source is specific, `subcharacteristic` and `quality_attribute`. "
+            "Name the ATTRIBUTE, never a mechanism: 'Availability' is an attribute, "
+            "'Redundancy' is a technique that delivers it."
+        )
+        return "\n".join(lines) + "\n"
+
     def _collect_ontology_names(self) -> tuple:
-        """Collect class and enum names from this ontology plus local imports.
-        
-        Only local (same-directory) imports are resolved; linkml:* is skipped.
-        Cycles are guarded against by tracking visited files.
+        """Collect class and enum names from the base chain plus any domain pack.
+
+        Resolution is delegated to `core.ontology` rather than re-walking the YAML
+        here. The previous implementation resolved `imports:` relative to the
+        *importing file's* directory and skipped an import it could not find with a
+        bare `continue` — so a schema one directory down (every domain pack, by
+        construction) silently inherited nothing and the model was handed a
+        truncated vocabulary with no error anywhere. One resolver, shared, is the
+        only way that stays fixed.
         """
         classes: List[str] = []
         enums: List[str] = []
-        visited = set()
-        
-        def absorb(schema: Dict[str, Any], base_dir: Path) -> None:
-            for name in (schema.get("classes") or {}):
-                if name not in classes:
-                    classes.append(name)
-            for name in (schema.get("enums") or {}):
-                if name not in enums:
-                    enums.append(name)
-            
-            for imp in (schema.get("imports") or []):
-                if isinstance(imp, str) and imp.startswith("linkml:"):
-                    continue
-                candidate = base_dir / f"{imp}.yaml"
-                if not candidate.exists():
-                    continue
-                key = candidate.resolve()
-                if key in visited:
-                    continue
-                visited.add(key)
-                try:
-                    with open(candidate, "r") as fh:
-                        absorb(yaml.safe_load(fh) or {}, candidate.parent)
-                except Exception:
-                    continue
-        
-        # Seed `visited` with the root ontology so a cycle back to it is ignored.
-        root = self.config.ontology_path
+
+        ontology_dir = self.config.ontology_dir or "ontology"
+        root = self.config.ontology_path or ""
         if root and Path(root).exists():
-            visited.add(Path(root).resolve())
-        base_dir = Path(root).parent if root else Path(".")
-        absorb(self.ontology, base_dir)
-        
-        return classes, enums
+            # Load from the file's own directory so `imports:` resolve against the
+            # schema's home, which is what a schema author means by them.
+            model = load_ontology(Path(root).resolve().parent)
+            classes.extend(model.classes.keys())
+            enums.extend(model.enums.keys())
+        else:
+            # No entry schema: fall back to the flat YAML the caller supplied.
+            classes.extend((self.ontology or {}).get("classes") or {})
+            enums.extend((self.ontology or {}).get("enums") or {})
+
+        if not classes and not enums and ontology_dir:
+            model = load_ontology(ontology_dir)
+            classes.extend(model.classes.keys())
+            enums.extend(model.enums.keys())
+
+        if self.domain_pack is not None:
+            classes.extend(self.domain_pack.classes.keys())
+            enums.extend(self.domain_pack.enums.keys())
+
+        # Stable, deduplicated: a pack may legitimately re-declare nothing, but a
+        # caller may select two packs, and an unstable order makes prompt diffs
+        # unreadable between runs.
+        return sorted(set(classes)), sorted(set(enums))
     
+    def use_domain_pack(self, spec: Optional[str]) -> Optional[DomainPack]:
+        """Select the domain pack for this agent, for the runs that follow.
+
+        The pack is an Initiative-level choice made at ingest time, which is later
+        than agent construction — so it has to be settable per run. It is NOT
+        injected via `input_data` directly because the vocabulary is baked into
+        the system prompt when the Strands agent is constructed, and a prompt the
+        agent never re-reads is exactly the inert-parameter bug this mechanism
+        exists to remove.
+
+        Passing an empty spec clears the pack, which is a supported state: the
+        agent falls back to the base vocabulary. Passing a spec that does not
+        resolve raises.
+        """
+        if self.config.ontology_path and not self.config.ontology_dir:
+            self.config.ontology_dir = str(Path(self.config.ontology_path).parent)
+
+        pack = load_domain_pack(spec, self.config.ontology_dir) if spec else None
+        self.domain_pack = pack
+
+        # Rebuild the agent so the new vocabulary actually reaches the prompt.
+        self.agent = self._create_strands_agent()
+        if pack is not None:
+            self.log(
+                f"  ✓ Domain pack in force: {pack.title} v{pack.version} "
+                f"({pack.class_count} classes)",
+                level="success",
+            )
+        return pack
+
+    def active_domain_pack_id(self) -> str:
+        """The pack reference to record in provenance. Empty when none is in force.
+
+        `schema_id`+`version` rather than the bare stem: the point of recording it
+        is to answer "which vocabulary produced this fact?" after the file has been
+        edited, and a stem alone cannot answer that.
+        """
+        if self.domain_pack is None:
+            return ""
+        return f"{self.domain_pack.spec}@{self.domain_pack.version}"
+
     def invoke(self, prompt: str, structured_output_model=None) -> Any:
         """
         Invoke the Strands agent with a prompt.
@@ -444,16 +657,31 @@ class SEABaseAgent:
             self.console.log(f"[red]{self.config.name}[/red]: {message}")
     
     def get_ontology_class(self, class_name: str) -> Optional[Dict[str, Any]]:
-        """Get a specific class definition from the ontology."""
-        if not self.ontology:
-            return None
-        return self.ontology.get('classes', {}).get(class_name)
+        """Get a specific class definition from the base ontology or the domain pack.
+
+        Callers ask "is this a real class?" without caring which file declared it,
+        so the pack is consulted before giving up — otherwise every domain class
+        would read as unknown to anything validating extraction output.
+        """
+        from_base = (self.ontology or {}).get('classes', {}).get(class_name)
+        if from_base is not None:
+            return from_base
+        if self.domain_pack is not None:
+            spec = self.domain_pack.get(class_name)
+            if spec is not None:
+                return spec.to_dict()
+        return None
     
     def get_ontology_enum(self, enum_name: str) -> Optional[Dict[str, Any]]:
-        """Get a specific enum definition from the ontology."""
-        if not self.ontology:
-            return None
-        return self.ontology.get('enums', {}).get(enum_name)
+        """Get a specific enum definition from the base ontology or the domain pack."""
+        from_base = (self.ontology or {}).get('enums', {}).get(enum_name)
+        if from_base is not None:
+            return from_base
+        if self.domain_pack is not None:
+            spec = self.domain_pack.enums.get(enum_name)
+            if spec is not None:
+                return spec.to_dict()
+        return None
 
 
 class AgentResult(BaseModel):

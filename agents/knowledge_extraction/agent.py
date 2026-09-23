@@ -10,7 +10,7 @@ Uses Strands structured output for type-safe, validated extraction results.
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field, field_validator
 from ..base_agent import SEABaseAgent, AgentConfig, AgentResult
-
+from ..extraction.quality import enrich_entities
 
 # ============================================================================
 # Structured Output Models
@@ -28,6 +28,63 @@ from ..base_agent import SEABaseAgent, AgentConfig, AgentResult
 # The goal is: the model's *content* is judged, not its formatting discipline.
 # Formatting variance should be normalised by validators, not rejected.
 # ============================================================================
+
+# The worked example used when no domain pack supplies one.
+#
+# It was previously a payment example embedded in the base prompt, which meant
+# every extraction run — whatever the subject — was primed with payments. A pack
+# may override it via its `worked_example` annotation; this default is
+# deliberately subject-neutral, because what the example has to teach is the
+# *shape* of a good triple, and that is the one part no domain should restate.
+#
+# NOTE: kept as a plain (non-f) string, so JSON braces here are literal and the
+# example reaches the model exactly as written.
+_GENERIC_WORKED_EXAMPLE = '''\
+Source: *"The Fulfilment Platform shall dispatch confirmed orders within the
+promised window. Each order must be assigned to a single Stock Location.
+Dispatch criteria shall include Destination, Service Level, and Item Weight."*
+
+WRONG — clause objects, comma-joined list, headings as entities:
+```json
+{
+  "triples": [
+    {"subject": "Fulfilment Platform", "predicate": "has_functional_requirement",
+      "object": "Dispatch confirmed orders within the promised window", "confidence": 1.0},
+    {"subject": "Dispatch Criteria", "predicate": "has_criteria",
+      "object": "Destination, Service Level, Item Weight", "confidence": 1.0},
+    {"subject": "Performance Requirements", "predicate": "has_nfr",
+      "object": "Complete within 500 milliseconds", "confidence": 1.0}
+  ]
+}
+```
+
+RIGHT — named concepts, one triple per item, no headings:
+```json
+{
+  "triples": [
+    {"subject": "Fulfilment Platform", "predicate": "has_functional_requirement",
+      "object": "Order Dispatch", "confidence": 1.0,
+      "ontology_class": "FunctionalRequirement"},
+    {"subject": "Order", "predicate": "assigned_to",
+      "object": "Stock Location", "confidence": 1.0,
+      "ontology_class": "DomainConcept"},
+    {"subject": "Dispatch Criteria", "predicate": "is_determined_by",
+      "object": "Destination", "confidence": 1.0,
+      "ontology_class": "ConceptAttribute"},
+    {"subject": "Dispatch Criteria", "predicate": "is_determined_by",
+      "object": "Service Level", "confidence": 1.0,
+      "ontology_class": "ConceptAttribute"},
+    {"subject": "Dispatch Criteria", "predicate": "is_determined_by",
+      "object": "Item Weight", "confidence": 1.0,
+      "ontology_class": "ConceptAttribute"}
+  ]
+}
+```
+
+Note the trade: the RIGHT version has **more** triples from the same source. Splitting
+lists into separate triples is not losing information — it is making each criterion
+independently queryable, which is the entire point of the graph.'''
+
 
 class ExtractedTriple(BaseModel):
     """A single extracted knowledge triple with ontology mapping.
@@ -148,6 +205,46 @@ class ExtractedEntity(BaseModel):
             "associates with this entity, e.g. 'INIT-2026-014'. Verbatim."
         ),
     )
+    # --- quality classification (only for non-functional requirements) ---
+    #
+    # Two levels, because the ISO 25010 characteristic alone cannot separate
+    # concerns that are met by entirely different designs: "within 500ms" and
+    # "1000 TPS with horizontal scaling" are both PERFORMANCE_EFFICIENCY, but
+    # they are TIME_BEHAVIOUR and SCALABILITY, and one is answered by caching
+    # while the other needs statelessness plus replication.
+    quality_category: str = Field(
+        default="",
+        description=(
+            "For a NonFunctionalRequirement ONLY: the ISO 25010:2023 top-level "
+            "characteristic — one of FUNCTIONAL_SUITABILITY, "
+            "PERFORMANCE_EFFICIENCY, COMPATIBILITY, INTERACTION_CAPABILITY, "
+            "RELIABILITY, SECURITY, MAINTAINABILITY, FLEXIBILITY, SAFETY. "
+            "REGULATORY_COMPLIANCE is available for legal/contractual obligations, "
+            "which are not an ISO 25010 characteristic. Empty for anything that is "
+            "not an NFR."
+        ),
+    )
+    subcharacteristic: str = Field(
+        default="",
+        description=(
+            "For a NonFunctionalRequirement ONLY: the precise ISO 25010:2023 "
+            "sub-characteristic the requirement targets, when the source makes it "
+            "clear. Examples: 'within 500 milliseconds' -> TIME_BEHAVIOUR; "
+            "'1000 TPS with horizontal scaling' -> SCALABILITY; 'must be encrypted' "
+            "-> CONFIDENTIALITY; 'must be available 99.9%' -> AVAILABILITY. "
+            "Empty if only the top-level characteristic is clear."
+        ),
+    )
+    quality_attribute: str = Field(
+        default="",
+        description=(
+            "For a NonFunctionalRequirement ONLY: the quality ATTRIBUTE this "
+            "requirement is about, as a name — 'Time Behaviour', 'Scalability', "
+            "'Availability', 'Confidentiality'. Use the standard's own term, never "
+            "a mechanism: 'Redundancy' is how availability is delivered, not the "
+            "attribute. Empty if the requirement states no clear quality concern."
+        ),
+    )
 
 
 class ExtractedRelationship(BaseModel):
@@ -265,6 +362,11 @@ class KnowledgeExtractionAgent(SEABaseAgent):
             document = input_data.get("document", "")
             document_type = input_data.get("document_type", "requirements")
             domain = input_data.get("domain", "generic")
+            # The vocabulary in force. Read from the agent rather than from
+            # `input_data`, because the pack is compiled into the system prompt at
+            # selection time — a value passed in here would be metadata that
+            # describes nothing, which is precisely what the old `domain` field was.
+            domain_pack = self.active_domain_pack_id()
             force_text = bool(input_data.get("force_text_parsing", False))
             
             if not document:
@@ -342,6 +444,33 @@ class KnowledgeExtractionAgent(SEABaseAgent):
                     f"  Derived {len(relationships)} relationships from triple predicates",
                     level="info"
                 )
+
+            # ---- Deterministic quality classification ----
+            #
+            # Runs AFTER both paths, on whatever entities exist, so it also reaches
+            # the entities derived from triples — which is the only kind the text
+            # path produces. Measured: the model leaves `quality_category`,
+            # `subcharacteristic` and `quality_attribute` empty on every NFR even
+            # with the ISO taxonomy in the prompt, and invents its own attribute
+            # names instead. Mapping wording onto a closed taxonomy is a mechanical
+            # task, so it is done here rather than asked for.
+            #
+            # Fills only what the model left blank; its answer wins where it
+            # committed to one.
+            if entities:
+                classified = enrich_entities([e.model_dump() for e in entities], document)
+                gained = sum(
+                    1
+                    for before, after in zip(entities, classified)
+                    if not before.quality_category and after.get("quality_category")
+                )
+                if gained:
+                    self.log(
+                        f"  Classified {gained} requirement(s) against ISO/IEC 25010 "
+                        f"(deterministic keyword pass)",
+                        level="info",
+                    )
+                entities = [type(e)(**item) for e, item in zip(entities, classified)]
             
             # Separate low-confidence items
             low_confidence = [
@@ -402,6 +531,7 @@ class KnowledgeExtractionAgent(SEABaseAgent):
                 metadata={
                     "document_type": document_type,
                     "domain": domain,
+                    "domain_pack": domain_pack,
                     "extraction_path": path,
                     "structured_output_error": structured_error,
                     "total_triples": len(triples),
@@ -428,10 +558,18 @@ class KnowledgeExtractionAgent(SEABaseAgent):
     ) -> str:
         """Build the extraction prompt for the LLM with ontology context."""
         
-        # Get ontology context
+        # Get ontology context. Gated on `or self.domain_pack` as well as the base
+        # schema: a pack is a complete, self-sufficient vocabulary, and gating on
+        # `self.ontology` alone would silently drop it whenever an agent is run
+        # with a pack but no explicit `ontology_path`.
         ontology_context = ""
-        if self.ontology:
+        if self.ontology or self.domain_pack:
             ontology_context = self._format_ontology_context()
+
+        # Interpolated rather than called inside the template: the example is JSON,
+        # so its braces would otherwise have to be doubled throughout, and a domain
+        # pack could not supply its own without the pack author knowing that.
+        worked_example = self._worked_example()
         
         prompt = f"""Extract structured Enterprise Architecture knowledge from the following {document_type} document.
 
@@ -494,22 +632,21 @@ nothing can link to and nothing can query — it is effectively lost.
 
 | | |
 |---|---|
-| **DO** name things | `Payment Request Validation`, `Cardholder Data`, `TLS 1.2+`, `Settlement Process`, `Country of Transaction` |
-| **DO NOT** write clauses | ~~`Accept and validate incoming payment requests`~~, ~~`Complete within 500ms`~~, ~~`Implement fallback strategy for PGSP routing`~~ |
+| **DO** name things | `Dispatch Schedule`, `Operator Credential`, `Return Window`, `Stock Location` |
+| **DO NOT** write clauses | ~~`Dispatch every order within 24 hours`~~, ~~`Complete within 500ms`~~, ~~`Implement a fallback strategy for routing`~~ |
 
 Rules:
 
 1. **2–5 words.** If it needs more, it is a clause — name the concept instead.
-2. **No verbs leading the phrase.** `Accept and validate...` is behaviour.
-   Name it: `Payment Request Validation`.
+2. **No verbs leading the phrase.** `Dispatch every order...` is behaviour.
+   Name it: `Dispatch Schedule`.
 3. **No commas in a subject or object.** If the source names several things,
    emit **one triple per thing** — do not join them.
-   - Source: *"criteria include Country, Currency, and Payment Method"*
-   - WRONG: one triple with object `"Country, Currency, Payment Method"`
-   - RIGHT: three triples, objects `Country of Transaction`, `Transaction Currency`,
-     `Payment Method Preference`
+   - Source: *"criteria include Destination, Service Level, and Item Weight"*
+   - WRONG: one triple with object `"Destination, Service Level, Item Weight"`
+   - RIGHT: three triples, objects `Destination`, `Service Level`, `Item Weight`
 4. **Ignore document structure.** Section headings (`Security Requirements`,
-   `Performance Requirements`, `Transaction Routing`) are scaffolding, not domain
+   `Performance Requirements`, `Routing Rules`) are scaffolding, not domain
    concepts. Do not emit them as entities unless they name a real thing in the
    system being described.
 5. **Qualifiers are allowed in parentheses** when they are part of the name:
@@ -518,52 +655,7 @@ Rules:
 
 ### 6. Worked example
 
-Source: *"The Payment Gateway Platform shall accept and validate incoming payment
-requests from B2C and B2E storefronts. Each request must be mapped to a unique
-tenancy identifier. Routing criteria shall include Country of Transaction,
-Transaction Currency, and Payment Method preference."*
-
-WRONG — clause objects, comma-joined list, headings as entities:
-```json
-{{
-  "triples": [
-    {{"subject": "Payment Gateway Platform", "predicate": "has_functional_requirement",
-      "object": "Accept and validate incoming payment requests", "confidence": 1.0}},
-    {{"subject": "Transaction Routing", "predicate": "has_criteria",
-      "object": "Country of Transaction, Transaction Currency, Payment Method preference",
-      "confidence": 1.0}},
-    {{"subject": "Security Requirements", "predicate": "has_nfr",
-      "object": "Complete within 500 milliseconds", "confidence": 1.0}}
-  ]
-}}
-```
-
-RIGHT — named concepts, one triple per item, no headings:
-```json
-{{
-  "triples": [
-    {{"subject": "Payment Gateway Platform", "predicate": "has_functional_requirement",
-      "object": "Payment Request Validation", "confidence": 1.0,
-      "ontology_class": "FunctionalRequirement"}},
-    {{"subject": "Payment Request", "predicate": "requires_mapping_to",
-      "object": "Tenancy Identifier", "confidence": 1.0,
-      "ontology_class": "DomainConcept"}},
-    {{"subject": "Transaction Routing", "predicate": "is_determined_by",
-      "object": "Country of Transaction", "confidence": 1.0,
-      "ontology_class": "ConceptAttribute"}},
-    {{"subject": "Transaction Routing", "predicate": "is_determined_by",
-      "object": "Transaction Currency", "confidence": 1.0,
-      "ontology_class": "ConceptAttribute"}},
-    {{"subject": "Transaction Routing", "predicate": "is_determined_by",
-      "object": "Payment Method Preference", "confidence": 1.0,
-      "ontology_class": "ConceptAttribute"}}
-  ]
-}}
-```
-
-Note the trade: the RIGHT version has **more** triples from the same source. Splitting
-lists into separate triples is not losing information — it is making each criterion
-independently queryable, which is the entire point of the graph.
+{worked_example}
 
 ### 7. Confidence Guidelines
 - 0.9-1.0: Explicitly stated, unambiguous
@@ -595,6 +687,26 @@ than an imperfectly-worded description.
 If the source provides no identifier, leave the field empty. **Do not invent one.**
 """
         return prompt
+
+    def _worked_example(self) -> str:
+        """The worked example shown to the model.
+
+        Deliberately split from the prompt body. The example was previously
+        payment-specific inside a base prompt, which made every extraction run —
+        HR, learning management, anything — read as if the subject were payments.
+        A domain vocabulary now supplies its own example through the pack's
+        `worked_example` annotation, and the default below is subject-neutral.
+
+        The example teaches the object contract, so it is kept generic on purpose:
+        what it demonstrates is the *shape* of a good triple, not what the
+        business is about. That is exactly the part no domain should have to
+        restate.
+        """
+        if self.domain_pack is not None:
+            example = self.domain_pack.annotations.get("worked_example", "")
+            if example:
+                return example
+        return _GENERIC_WORKED_EXAMPLE
     
     def _extract_named_list(self, text: str, *names: str) -> List[Any]:
         """Find a named list anywhere the model might have put it.

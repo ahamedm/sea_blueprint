@@ -25,7 +25,9 @@ import json
 from typing import Any, Dict
 
 from .model import (
+    SCOPE_DOCUMENT,
     Assertion,
+    ExternalReference,
     ExtractionRun,
     KnowledgeGraph,
     Node,
@@ -35,6 +37,11 @@ from .model import (
 
 # Bumped when the on-disk shape changes incompatibly, so a future loader can
 # refuse rather than silently mis-read an older snapshot.
+#
+# Still 1 after typed identifiers were added, deliberately: the change is
+# additive. `external_refs` remains and is still written, so a v1 reader is not
+# broken, and `node_from_dict` reads a v1 node (no `external_references`) as
+# document-scoped references rather than failing.
 SCHEMA_VERSION = 1
 
 
@@ -59,16 +66,59 @@ def node_to_dict(n: Node) -> Dict[str, Any]:
         "kind": n.kind,
         "label": n.label,
         "external_refs": list(n.external_refs or []),
+        # Typed identifiers, alongside the flat list rather than replacing it, so
+        # an older reader still finds something and the two cannot drift.
+        "external_references": [r.to_dict() for r in n.external_references or []],
     }
 
 
 def node_from_dict(data: Dict[str, Any]) -> Node:
-    return Node(
+    """Rebuild a node, tolerating revisions written before identifiers were typed.
+
+    A saved revision is immutable, so its nodes carry only `external_refs` as
+    bare strings. Those are read back as DOCUMENT-scoped references rather than
+    dropped or assumed to be enterprise keys — the conservative reading, and the
+    one that keeps an old revision from silently gaining match authority it was
+    never granted.
+    """
+    node = Node(
         id=data["id"],
         kind=data.get("kind") or "",
         label=data.get("label") or "",
         external_refs=list(data.get("external_refs") or []),
     )
+    for raw in data.get("external_references") or []:
+        if isinstance(raw, dict) and raw.get("identifier"):
+            node.external_references.append(
+                ExternalReference(
+                    identifier=str(raw["identifier"]),
+                    system=str(raw.get("system") or ""),
+                    reference_type=str(raw.get("reference_type") or "OTHER"),
+                    scope=str(raw.get("scope") or SCOPE_DOCUMENT),
+                    uri=str(raw.get("uri") or ""),
+                    is_authoritative=bool(raw.get("is_authoritative")),
+                    attribute_scope=list(raw.get("attribute_scope") or []),
+                    notes=str(raw.get("notes") or ""),
+                )
+            )
+        elif isinstance(raw, str) and raw.strip():
+            node.external_references.append(
+                ExternalReference(identifier=raw.strip(), scope=SCOPE_DOCUMENT,
+                                  reference_type="OTHER")
+            )
+
+    # A node with flat refs but no typed records is a revision written before
+    # identifiers were typed. Re-express them as DOCUMENT-scoped references so
+    # the typed axis is populated for every node — without granting match
+    # authority the original never carried. No-op for a current revision, where
+    # every flat ref already has its typed record.
+    if node.external_refs and not node.external_references:
+        node.external_references = [
+            ExternalReference(identifier=text, scope=SCOPE_DOCUMENT, reference_type="OTHER")
+            for text in node.external_refs
+            if text
+        ]
+    return node
 
 
 def pass_record_to_dict(p: PassRecord) -> Dict[str, Any]:

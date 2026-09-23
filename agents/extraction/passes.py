@@ -117,8 +117,11 @@ def _text_fallback(spec: PassSpec, text: str, agent) -> Optional[Any]:
         kwargs["elements"] = agent._parse_entities_from_text(text)
     if "connections" in declared:
         kwargs["connections"] = agent._parse_relationships_from_text(text)
-    # technology_stacks / architecture_styles / references have no reliable text
-    # parser — they stay empty, and the run is marked as a partial fallback.
+    # technology_stacks / architecture_styles / design_techniques /
+    # engineering_conventions / references have no reliable text parser — they
+    # stay empty, and the run is marked as a partial fallback. Triples still
+    # carry the technique and convention links, so a text-mode run loses the
+    # richer records but not the traceability.
 
     if not any(kwargs.values()):
         return None

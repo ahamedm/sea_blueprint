@@ -32,9 +32,21 @@ def test_layer_filenames_match_the_directory(ontology_dir):
 
 
 def test_totals(ontology):
+    """Exact counts, deliberately brittle.
+
+    A schema change should have to be acknowledged here rather than flowing
+    through silently. An added class or enum is never an accident worth missing —
+    it changes what extraction is told to look for, and therefore what the whole
+    graph can contain.
+
+    Current counts include the design-technique and convention layer
+    (+2 classes: `DesignTechnique`, `EngineeringConvention`; +2 enums:
+    `ConventionType`, `ConventionEnforcement`) and four new `PatternCategory`
+    values, which do not change the enum count.
+    """
     stats = ontology.stats()
-    assert stats["classes"] == 58
-    assert stats["enums"] == 37
+    assert stats["classes"] == 61
+    assert stats["enums"] == 42
     assert stats["subsets"] == 13
     assert stats["layers"] == 4
     assert stats["abstract"] == 3
@@ -45,13 +57,15 @@ def test_classes_are_attributed_to_the_layer_that_declares_them(ontology):
     assert ontology.stats()["classes_per_layer"] == {
         "common": 4,
         "enterprise": 7,
-        "requirements": 28,
-        "architecture": 19,
+        "requirements": 29,
+        "architecture": 21,
     }
     assert ontology.get("Provenance").layer == "common"
     assert ontology.get("Product").layer == "enterprise"
     assert ontology.get("NonFunctionalRequirement").layer == "requirements"
     assert ontology.get("Container").layer == "architecture"
+    assert ontology.get("DesignTechnique").layer == "architecture"
+    assert ontology.get("EngineeringConvention").layer == "architecture"
 
 
 def test_imports_point_only_downward(ontology):
@@ -146,7 +160,10 @@ def test_effective_attributes_are_own_plus_inherited_without_duplicates(ontology
     effective = [s.name for s in ontology.effective_attributes("NonFunctionalRequirement")]
 
     assert own == [
+        # The quality model first: what it is about, then how it is classified.
+        "realizes_attribute",
         "quality_category",
+        "subcharacteristic",
         "quality_scenario",
         "measurable",
         "target_value",
@@ -169,10 +186,23 @@ def test_slot_metadata_is_preserved(ontology):
         for s in ontology.own_attributes("NonFunctionalRequirement")
         if s.name == "quality_category"
     )
-    assert quality_category.required is True
     assert quality_category.range == "QualityAttributeCategory"
     assert quality_category.range_kind == "enum"
     assert quality_category.range_layer == "requirements"
+    # Deliberately NOT required any more. It was, which meant a model that could
+    # not classify an NFR failed schema validation and retried to the turn cap,
+    # losing the whole pass over a classification field. The primary quality link
+    # is now `realizes_attribute`, with the enum as the always-fillable fallback.
+    assert quality_category.required is False
+
+    realizes = next(
+        s
+        for s in ontology.own_attributes("NonFunctionalRequirement")
+        if s.name == "realizes_attribute"
+    )
+    assert realizes.range == "QualityAttribute"
+    assert realizes.range_kind == "class"
+    assert realizes.range_layer == "requirements"
 
 
 def test_identifier_slots_are_recognised(ontology):
@@ -287,3 +317,205 @@ def test_resolution_matches_linkml(ontology, ontology_dir):
 
     assert ancestor_mismatches == []
     assert slot_mismatches == []
+
+
+# ============================================================================
+# Design techniques and engineering conventions
+# ============================================================================
+
+
+def test_the_three_kinds_of_design_choice_are_distinct(ontology):
+    """Style, technique, pattern and convention are four different questions.
+
+    The temptation is to widen one enum and hold them all — which would destroy
+    the property that makes `ArchitectureStyleName` useful (a comparable
+    taxonomy). Each class is asserted to exist separately so a future merge has
+    to be deliberate.
+    """
+    for name in ("ArchitectureStyle", "ArchitecturePattern", "DesignTechnique",
+                 "EngineeringConvention"):
+        assert ontology.get(name) is not None, name
+        assert ontology.get(name).layer == "architecture"
+
+
+def test_a_technique_realizes_an_nfr_across_the_layer_boundary(ontology):
+    """The load-bearing link. It points from ARCH-G into REQ-G, which the one-way
+    import rule permits (architecture imports requirements) and which is what
+    makes an NFR realization checkable rather than merely asserted."""
+    slot = next(
+        s for s in ontology.get("DesignTechnique").attributes
+        if s.name == "realizes_quality_attributes"
+    )
+    assert slot.range == "NonFunctionalRequirement"
+    assert slot.range_kind == "class"
+    assert slot.range_layer == "requirements"
+    assert slot.multivalued
+
+
+def test_both_patterns_and_techniques_claim_quality_attributes(ontology):
+    """A pattern is adopted from a catalogue and a technique is a property the
+    design exhibits, but both answer an NFR, so both carry the link."""
+    for cls in ("ArchitecturePattern", "DesignTechnique"):
+        names = {s.name for s in ontology.get(cls).attributes}
+        assert "realizes_quality_attributes" in names, cls
+        assert "mechanism" in names, cls
+
+
+def test_a_technique_targets_a_quality_category_without_the_nfr(ontology):
+    """At extraction time the NFR often is not resolvable, so the technique must
+    be able to record the category it aims at — that is what lets the auditor
+    flag a technique aimed at the wrong family."""
+    slot = next(
+        s for s in ontology.get("DesignTechnique").attributes if s.name == "quality_category"
+    )
+    assert slot.range == "QualityAttributeCategory"
+    assert slot.range_layer == "requirements"
+
+
+def test_a_convention_is_verifiable_where_a_technique_is_not(ontology):
+    """The distinction that justifies a separate class: a convention has a
+    machine-checkable `pattern`, so conformance is decidable. A technique has a
+    `mechanism`, which is prose and needs judgement."""
+    convention = {s.name for s in ontology.get("EngineeringConvention").attributes}
+    assert {"pattern", "examples", "conformance", "enforcement", "applies_to_level"} <= convention
+
+    technique = {s.name for s in ontology.get("DesignTechnique").attributes}
+    assert "pattern" not in technique, "a technique is not a naming rule"
+    assert "conformance" not in technique
+
+
+def test_enforcement_and_conformance_are_separate_axes(ontology):
+    """What is EXPECTED of every element in scope versus what was OBSERVED on
+    each one. Collapsing them would make a mandatory rule with no violations
+    indistinguishable from an advisory one nobody checked."""
+    c = ontology.get("EngineeringConvention")
+    enforcement = next(s for s in c.attributes if s.name == "enforcement")
+    conformance = next(s for s in c.attributes if s.name == "conformance")
+    assert enforcement.range == "ConventionEnforcement"
+    assert conformance.range_kind == "primitive", "kept open so an unknown source value survives"
+    assert ontology.enums["ConventionEnforcement"].values == [
+        "MANDATORY", "RECOMMENDED", "ADVISORY", "TOOL_ENFORCED", "LEGACY_EXEMPT",
+    ]
+
+
+def test_availability_and_scalability_are_pattern_categories(ontology):
+    """The categories 'Redundancy / Replicas' and 'Stateless Services' need.
+
+    Without them the nearest home was DEPLOYMENT, which describes how a release
+    is rolled out, not why a system survives a node loss.
+    """
+    values = ontology.enums["PatternCategory"].values
+    for needed in ("AVAILABILITY", "SCALABILITY", "PERFORMANCE", "STANDARDS_CONFORMANCE"):
+        assert needed in values, needed
+
+
+def test_technique_category_reuses_pattern_category(ontology):
+    """Reusing `PatternCategory` rather than adding a parallel enum: the families
+    are the same, and a second axis would need keeping aligned for no gain."""
+    slot = next(
+        s for s in ontology.get("DesignTechnique").attributes if s.name == "technique_category"
+    )
+    assert slot.range == "PatternCategory"
+    assert slot.range_kind == "enum"
+
+
+# ============================================================================
+# Predicate vocabulary — the axis that was never sent
+# ============================================================================
+
+
+def test_the_vocabulary_is_compiled_not_hand_written(ontology):
+    """It comes from the schema's own relationship slots, so it cannot drift from
+    the ontology the way a hand-maintained list does — which is exactly what the
+    prompt's older predicate examples demonstrate, naming `traces_to_goal` while
+    the schema declares `traces_to_goals`."""
+    from core.ontology import relationship_predicates
+
+    vocabulary = relationship_predicates(ontology)
+    declared = {
+        slot.name
+        for spec in ontology.classes.values()
+        for slot in spec.attributes
+        if slot.range_kind == "class"
+    }
+    assert set(vocabulary) <= declared
+    assert len(vocabulary) > 20, "the vocabulary is suspiciously small"
+
+
+def test_field_like_slots_are_excluded_from_the_vocabulary(ontology):
+    """A class-ranged slot is not automatically an edge.
+
+    `assumptions`, `applications` and `activities` are RECORD FIELDS holding lists
+    on one node, not links between nodes. Injecting them would teach the model to
+    emit `--assumptions-->`, which is noise and wrong. All three would be offered
+    by a naive filter, so this is the guard that keeps the heuristic honest.
+    """
+    from core.ontology import relationship_predicates
+
+    vocabulary = relationship_predicates(ontology)
+    for field_like in ("assumptions", "applications", "activities", "stakeholders"):
+        assert field_like not in vocabulary, f"{field_like} is a record field, not an edge"
+
+
+def test_the_vocabulary_carries_target_kinds(ontology):
+    """A predicate whose range is known is checkable — and the reconciler already
+    refuses a link to the wrong kind of thing, so telling the model the allowed
+    target is cheaper than correcting it afterwards."""
+    from core.ontology import relationship_predicates
+
+    vocabulary = relationship_predicates(ontology)
+    assert vocabulary["traces_to_goals"] == ["BusinessGoal"]
+    assert vocabulary["realizes_attribute"] == ["QualityAttribute"]
+    assert vocabulary["binds_to_system"] == ["System"]
+    assert all(targets for targets in vocabulary.values())
+
+
+def test_every_routed_predicate_named_in_the_prompt_is_actually_declared(ontology):
+    """The prompt must not promise a name the ontology does not declare.
+
+    `CORE_ROUTED_PREDICATES` is duplicated in `core/ontology.py` rather than
+    imported from the knowledge layer, because the loader must stay importable
+    without it. This is the test that stops the duplication drifting into a lie.
+    """
+    from core.ontology import CORE_ROUTED_PREDICATES, relationship_predicates
+
+    vocabulary = relationship_predicates(ontology)
+    undeclared = sorted(p for p in CORE_ROUTED_PREDICATES if p not in vocabulary)
+    assert undeclared == [], f"prompt names predicates the schema does not declare: {undeclared}"
+
+
+def test_the_core_list_covers_what_reconciliation_routes_on(ontology):
+    """Anything `CROSS_GRAPH_PREDICATES` routes must be represented in the prompt's
+    core list — by the declared name or a documented alias — or the model is never
+    told the name that would get its edge into the other graph."""
+    from core.knowledge.model import CROSS_GRAPH_PREDICATES
+    from core.ontology import CORE_ROUTED_PREDICATES, ROUTING_ALIASES
+
+    represented = set(CORE_ROUTED_PREDICATES)
+    for aliases in ROUTING_ALIASES.values():
+        represented.update(aliases)
+
+    from core.ontology import ABSORBED_DRIFT_PREDICATES
+
+    normalize = lambda s: s.rstrip("s")  # noqa: E731
+    represented_norm = {normalize(p) for p in represented}
+    uncovered = sorted(
+        p
+        for p in CROSS_GRAPH_PREDICATES
+        if normalize(p) not in represented_norm
+        and p not in ABSORBED_DRIFT_PREDICATES
+    )
+    assert uncovered == [], f"routed predicates not represented in the prompt: {uncovered}"
+
+
+def test_declared_aliases_are_ones_the_router_actually_accepts(ontology):
+    """An alias the prompt offers must be a spelling reconciliation truly accepts,
+    or the prompt teaches a name that silently becomes a local edge."""
+    from core.knowledge.model import CROSS_GRAPH_PREDICATES
+    from core.knowledge.reconcile import EXPECTED_TARGET_KINDS
+    from core.ontology import ROUTING_ALIASES
+
+    routed = set(CROSS_GRAPH_PREDICATES) | set(EXPECTED_TARGET_KINDS)
+    offered = {alias for aliases in ROUTING_ALIASES.values() for alias in aliases}
+    unsupported = sorted(a for a in offered if a not in routed)
+    assert unsupported == [], f"prompt offers aliases the router ignores: {unsupported}"
