@@ -2,25 +2,34 @@
 id: YB-024
 legacy: "24"
 title: "Graph view — cover the requirements graph, not only C4"
-status: open
+status: done
 priority: high
 area: "`app/viewpoints/`, `app/projections.py`, `app/templates/`"
 created: 2026-09-23
 updated: 2026-09-24
 design: null
-record: null
+record: docs/decisions/ADR-0014-map-replaces-c4-view.md
 superseded_by: []
-related: ["ADR-0007", "YB-025", "YB-026"]
+related: ["ADR-0007", "ADR-0014", "YB-025", "YB-026"]
 blocks: []
 blocked_by: []
 ---
 
 # YB-024 — Graph view — cover the requirements graph, not only C4
 
-> **Open work.** This file is the source of truth for this item; `TODO.md` is generated from it.
+> **Closed.** The record is
+> [`ADR-0014`](../decisions/ADR-0014-map-replaces-c4-view.md). The write-up below is
+> preserved; the section on how it was solved has been corrected in place, because
+> the item as filed proposed the wrong shape.
+>
+> **Rescoped during implementation.** This file asked for a requirements viewpoint
+> *parallel to* `c4.py`. Built as a **replacement** of it instead: the missing
+> requirement view was the symptom, and the cause was one view named after a
+> notation and then restricted to one side of the graph. A second view would have
+> left the first still claiming to be "the graph".
 
-**Legacy status:** Not started — **the current view says so on the page**
-**Legacy priority:** High (currently the requirements graph has no view at all)
+**Legacy status:** ✅ IMPLEMENTED — see ADR-0014 for the measured result
+**Legacy priority:** High (the requirements graph had no view at all)
 **Legacy area:** `app/viewpoints/`, `app/projections.py`, `app/templates/`
 
 ---
@@ -58,14 +67,23 @@ coming true in the opposite direction.
 
 ### Shape
 
-A **requirements viewpoint**, parallel to `c4.py`, not an extension of it:
+> **Corrected.** The plan was a parallel requirements viewpoint with requirement-only
+> elements/edges. What was built is one **merged** view over the whole graph —
+> "cover the requirements graph, not only C4" means the *view* covers both, not that
+> there are two views.
+
+A **knowledge map**, replacing `c4.py`:
 
 | | |
 |---|---|
-| Levels | requirement altitude — Business → Functional/NFR → Constraint, or traceability-hop shaped |
-| Elements | `BusinessGoal`, `BusinessCapability`, `BusinessProcess`, `Stakeholder`, `BusinessRequirement`, `FunctionalRequirement`, `NonFunctionalRequirement`, `ConstraintRequirement`, `DomainConcept`, `QualityAttribute` |
-| Edges | `traces_to_goals`, `traces_to_capabilities`, `traces_to_processes`, `refines`, `depends_on`, `conflicts_with`, `derives_from`, **and the unresolved cross-graph references** |
-| Must report | `excluded_kinds`, the way C4 does — a level is a deliberate reduction and "not at this level" must not read as "not in the graph" |
+| Lenses | `all` (default), `traceability`, `business`, `requirements`, `architecture` — a lens is a filter over one map, not a claim about altitudes |
+| Elements | every node kind, assigned to a layer (`business` / `requirements` / `architecture`) that the renderer colours by |
+| Edges | node-to-node relationships **plus the cross-graph references** `edge_records` cannot see: `implements_requirement`, `traces_to_goal` and friends, both resolved and unresolved |
+| Must report | `excluded_kinds` per lens, and `unclassified_kinds` for a node kind no layer names |
+
+An unresolved reference is drawn as a dashed stub rather than omitted — the
+assertion IS in the graph, and an assertion that cannot be seen is the gap this
+view exists to close.
 
 Design constraints worth fixing up front:
 
@@ -75,8 +93,10 @@ Design constraints worth fixing up front:
 - **Coverage, not decoration.** The most valuable REQ view is the one that shows an NFR
   with no realizing element and a capability with no requirement — the gaps — not just a
   tidy picture of what is present.
-- **`DomainConcept` and `QualityAttribute` nodes are currently undrawable anywhere.**
-  They are neither C4 elements nor requirements, so no view can show them today.
+- **`DomainConcept` and `QualityAttribute` nodes were undrawable anywhere.** They
+  are neither C4 elements nor requirements; the map draws them, in the
+  `requirements` layer, which is also where the extraction fallbacks (`Concept`,
+  `ExternalReference`) are placed.
 
 ### Accepted / bounded by the current data
 

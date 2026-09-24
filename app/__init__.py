@@ -64,7 +64,7 @@ from app.projections import (
     project_review_rows,
     project_review_summary,
 )
-from app.viewpoints.c4 import c4_view
+from app.viewpoints.merged import DEFAULT_LENS, merged_view
 from core.knowledge import (
     DEFAULT_MATCH_THRESHOLD,
     BaselineNotReady,
@@ -455,31 +455,45 @@ def create_app(
 
     # -- graph projection ------------------------------------------------
 
-    # -- architecture viewpoint (C4) -------------------------------------
+    # -- merged knowledge-graph viewpoint --------------------------------
     #
-    # Not the graph projection layer: this route asks a *viewpoint* to describe the
-    # architecture. `/graph` is kept as a redirect because the old name was exactly
-    # the confusion this split removes — "graph" in this project means the knowledge
-    # graph, not a diagram of the architecture.
+    # Not the graph projection layer: this route asks a *viewpoint* to draw the
+    # graph. It is labelled "Map" rather than "C4" because it is the whole
+    # knowledge graph — requirements, architecture and the references between them
+    # — and C4 is a *notation*, which this force layout is not. Rendering C4 as C4
+    # is YB-025.
+    #
+    # `/c4` and `/graph` both redirect here. `/graph` is the old name and `/c4`
+    # the old label; a bookmarked link should land on the view that replaced it
+    # rather than on a 404.
+
+    @app.route("/map")
+    def map_view():
+        snapshot = state()
+        lens = request.args.get("lens", DEFAULT_LENS)
+        return render_template(
+            "map.html",
+            view=merged_view(snapshot.graph, lens),
+            elements=project_node_index(snapshot.graph)[:200],
+            gaps=project_gap_report(snapshot.graph),
+        )
 
     @app.route("/c4")
-    def c4():
-        snapshot = state()
-        level = request.args.get("level", "context")
-        return render_template(
-            "c4.html",
-            view=c4_view(snapshot.graph, level),
-            elements=project_node_index(snapshot.graph)[:200],
-        )
+    def c4_redirect():
+        return redirect(url_for("map_view", **request.args), code=301)
 
     @app.route("/graph")
     def graph_redirect():
-        return redirect(url_for("c4", **request.args), code=301)
+        return redirect(url_for("map_view", **request.args), code=301)
+
+    @app.route("/api/map")
+    def api_map():
+        snapshot = state()
+        return jsonify(merged_view(snapshot.graph, request.args.get("lens", DEFAULT_LENS)))
 
     @app.route("/api/c4")
-    def api_c4():
-        snapshot = state()
-        return jsonify(c4_view(snapshot.graph, request.args.get("level", "context")))
+    def api_c4_redirect():
+        return redirect(url_for("api_map", **request.args), code=301)
 
     # -- gap report ------------------------------------------------------
 
@@ -622,7 +636,7 @@ def create_app(
     # -- ontology reference ----------------------------------------------
     #
     # The third kind of view: this one reads the LinkML *schemas*, not the extracted
-    # graph. `/c4` describes the architecture; this describes the vocabulary.
+    # graph. `/map` draws the graph; this describes the vocabulary.
 
     @app.route("/ontology")
     def ontology():

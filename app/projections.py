@@ -15,14 +15,14 @@ were conflated until they were split:
        project_decisions, project_reconciliation, project_dashboard
 
 2. **Architecture viewpoints** (`app.viewpoints`). Notation-specific. Decides
-   what a recognised architecture view shows — for C4, which element kinds appear
-   at which level, and what counts as a relationship versus an element's detail.
+   what a recognised view shows — for the merged knowledge map, which node kinds
+   each lens draws and what counts as a relationship versus an element's detail.
 
-       app.viewpoints.c4.c4_view
+       app.viewpoints.merged.merged_view
 
 They have different reasons to change, so they live in different modules: a new
-assertion shape or confidence band changes (1); a change in how C4 is drawn, or a
-new notation, changes (2). A viewpoint *composes* this module's primitives
+assertion shape or confidence band changes (1); a change in what the map draws, or
+a new notation, changes (2). A viewpoint *composes* this module's primitives
 (`node_records`, `edge_records`, `literal_facts`) rather than reimplementing them,
 so the dependency runs one way: viewpoints -> projections.
 

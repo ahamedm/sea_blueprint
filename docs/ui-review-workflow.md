@@ -43,7 +43,7 @@ INGEST ──▶ REVIEW ──▶ RECONCILE ──▶ COMMIT ──▶ FREEZE �
 | **Change management** | `/changes` | commit revisions, freeze a baseline, promote to baseline, read the audit trail |
 | **Diff** | `/changes/diff` | see what a run added, changed or removed before accepting it |
 | **Gaps** | `/gaps` | unresolved references, **requirements with no architectural answer**, architecture claiming what never bound, dangling assertions, completeness — and whether absence is even meaningful |
-| **C4 view** | `/c4` | the architecture as a C4 viewpoint (context / container / component) |
+| **Map** | `/map` | the whole knowledge graph — requirement and architecture concepts, the references between them, and which of those nothing answers |
 
 `/ontology` is deliberately not in that table: it is a **reference**, not a stage
 of the workflow. It describes the vocabulary rather than the work — see §8a.
@@ -261,7 +261,7 @@ review → **commit** → freeze.
 | `core/knowledge/rdf.py` | graph → RDF (plain triples + assertion resources) |
 | `core/ontology.py` | **schema reader** — LinkML to a resolved model; no graph, no Flask |
 | `app/projections.py` | **graph projection** — notation-agnostic rows, counters, edges, deltas |
-| `app/viewpoints/c4.py` | **architecture viewpoint** — C4 levels and element selection |
+| `app/viewpoints/merged.py` | **knowledge map viewpoint** — layers, lenses and the reference edges `edge_records` cannot see |
 | `app/ontology_reference.py` | **ontology reference** — the schema as a browsable structure |
 | `app/__init__.py` | routes: orchestration only, no knowledge logic |
 | `app/templates/`, `app/static/` | Jinja + HTMX + D3, no client build step |
@@ -282,18 +282,18 @@ consumer of the same decisions.
 
 All three are loosely called "a view". Two of them were fused in one module until
 they were split, and the fusion caused a real confusion: *projecting the knowledge
-graph* and *projecting the architecture as a C4 view* are different things. Adding
+graph* and *drawing a notation of the architecture* are different things. Adding
 the ontology reference makes a third, and it is the one most easily mistaken for
 one of the others, because it is also "a graph".
 
 | | Graph projection | Architecture viewpoint | Ontology reference |
 |---|---|---|---|
 | **Module** | `app/projections.py` | `app/viewpoints/` | `core/ontology.py` + `app/ontology_reference.py` |
-| **Reads** | the instance graph (ABox) | the instance graph + a notation | the LinkML schemas (TBox) |
-| **Question** | "make the graph readable and judgeable" | "describe the architecture in a recognised notation" | "what concepts exist, and how do they relate?" |
-| **Knows about** | assertions, confidence, provenance, filters, deltas | C4 levels, element kinds, element detail | classes, slots, enums, `is_a`, mixins, imports |
-| **Changes when** | the knowledge model changes | the notation, or the views offered, changes | the schema changes |
-| **Page** | `/review`, `/gaps`, `/changes` | `/c4` | `/ontology` |
+| **Reads** | the instance graph (ABox) | the instance graph + a selection | the LinkML schemas (TBox) |
+| **Question** | "make the graph readable and judgeable" | "draw the concepts and the links between them" | "what concepts exist, and how do they relate?" |
+| **Knows about** | assertions, confidence, provenance, filters, deltas | node kinds, layers, lenses, element detail | classes, slots, enums, `is_a`, mixins, imports |
+| **Changes when** | the knowledge model changes | what the map draws, or a new view, changes | the schema changes |
+| **Page** | `/review`, `/gaps`, `/changes` | `/map` | `/ontology` |
 | **Domain-specific** | no | yes | the domain *is* the schema |
 
 **The dependency direction is one way**: a viewpoint composes the projection
@@ -320,11 +320,18 @@ and is *not drawn* at that level. That omission is the viewpoint working — so 
 view reports `excluded_kinds`, and a reader should never mistake "not at this level"
 for "not in the graph".
 
-Fusing them invites the opposite mistake: treating "the graph view" and "the C4
-view" as one feature, so a change to C4 would be made by widening the projection
-module, and the next notation (deployment, data flow, a Structurizr import) would
-have no home. Calling the diagram "the graph" is the same confusion in a URL — the
-old `/graph` is now `/c4`, with `/graph` kept as a redirect.
+Fusing them invites the opposite mistake: treating "the graph view" and "the
+notation" as one feature, so a change to C4 would be made by widening the
+projection module, and the next notation (deployment, data flow, a Structurizr
+import) would have no home.
+
+That mistake was made, in both directions. `/graph` was renamed to `/c4` to stop
+calling the diagram "the graph" — and then the C4 viewpoint drew *only*
+architecture elements, so "the graph view" became "the architecture graph view"
+and a requirements-only graph had no view at all. `/map` is the correction: it
+draws every node kind, on both sides of the reconciliation, and **C4 is not this
+view**. Rendering C4 as C4 — a canonical notation with a stable artefact — is its
+own item (YB-025). `/graph` and `/c4` both redirect to `/map`.
 
 ---
 
@@ -437,7 +444,7 @@ Recorded so the gaps are choices rather than oversights.
 the suite needs no model server.
 
 ```
-.venv/bin/python -m pytest tests/ -q      # 476 tests
+.venv/bin/python -m pytest tests/ -q      # 487 tests
 ```
 
 | File | Covers |
@@ -450,7 +457,7 @@ the suite needs no model server.
 | `test_completeness_reporting.py` | a run reports its own completeness; records beat counters; a text fallback is PARTIAL, never COMPLETE |
 | `test_store.py` | working set vs revision vs baseline; the freeze gate; ordering within one second |
 | `test_projections.py` | graph projection, filters and the primitives viewpoints compose |
-| `test_viewpoint_c4.py` | C4 level selection and what the view reports it is hiding |
+| `test_viewpoint_map.py` | lens selection, both sides of the graph drawn, and unresolved references surfaced rather than dropped |
 | `test_ontology.py` | the schema loader, checked against LinkML across all 63 classes |
 | `test_ontology_reference.py` | the reference view, and the layer-boundary guards |
 | `test_app.py` | routes, HTMX partials, and the ingest→graph handoff regression |

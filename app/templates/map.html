@@ -1,0 +1,231 @@
+{% extends "base.html" %}
+{% block title %}Map · SEA{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Knowledge map</h1>
+    <p>
+      Requirement and architecture concepts in one graph, with the references that
+      join them. This is the whole knowledge graph — not the architecture alone, and
+      not a C4 diagram; a C4 rendering with a canonical layout is a separate view.
+      The cross-graph references are the point: a solid line is a link, a dashed line
+      is a reference that no node answers yet.
+    </p>
+  </div>
+  <div class="row">
+    {% for lens, label in view.lens_labels.items() %}
+      <a class="btn {{ 'btn-primary' if view.lens == lens else '' }}"
+         href="{{ url_for('map_view', lens=lens) }}">{{ label }}</a>
+    {% endfor %}
+  </div>
+</div>
+
+{% if not view.nodes %}
+  <div class="card empty">
+    <h2>Nothing to draw</h2>
+    <p>
+      The working set is empty. Ingest a requirements or an architecture document and
+      its concepts will appear here.
+    </p>
+    <p><a class="btn btn-primary" href="{{ url_for('ingest') }}">Ingest a document</a></p>
+  </div>
+{% else %}
+  <div class="grid grid-4" style="margin-bottom:18px;">
+    <div class="stat">
+      <div class="value">{{ view.nodes|length }}</div>
+      <div class="label">Concepts</div>
+      <div class="foot">
+        {% for group, n in view.group_counts.items() %}{{ group }} {{ n }}{% if not loop.last %} · {% endif %}{% endfor %}
+      </div>
+    </div>
+    <div class="stat">
+      <div class="value">{{ view.links|length }}</div>
+      <div class="label">Links</div>
+      <div class="foot">between drawn concepts</div>
+    </div>
+    <div class="stat">
+      <div class="value" style="color:{{ 'var(--warn)' if view.open_reference_count else 'var(--ok)' }}">{{ view.open_reference_count }}</div>
+      <div class="label">Open references</div>
+      <div class="foot">drawn dashed — nothing answers them yet</div>
+    </div>
+    <div class="stat">
+      <div class="value">{{ view.reference_count }}</div>
+      <div class="label">Cross-graph references</div>
+      <div class="foot">the requirement ⇄ architecture join</div>
+    </div>
+  </div>
+
+  {% if view.unclassified_kinds %}
+    <div class="banner banner-warn">
+      <strong>{{ view.unclassified_kinds|length }} node kind(s) belong to no layer this view knows.</strong>
+      They are drawn, but grouped as requirements: {{ view.unclassified_kinds|join(', ') }}.
+      The vocabulary moved and this viewpoint has not been told where they belong.
+    </div>
+  {% endif %}
+
+  <div class="card">
+    <div class="card-head">
+      <h2>{{ view.lens_label }}</h2>
+      <span class="muted small">
+        {% for kind, n in view.kind_counts.items() %}{{ kind }} {{ n }}{% if not loop.last %} · {% endif %}{% endfor %}
+      </span>
+    </div>
+    <div class="graph-canvas" id="map"></div>
+    <div class="legend" id="legend"></div>
+    <p class="hint" style="margin-top:10px;">
+      Solid lines are links the graph holds. Dashed lines are references — an
+      <code>implements_requirement</code>, <code>traces_to_goal</code> or similar whose
+      referent is text rather than a node. They are the traceability this platform
+      exists to expose, and the dashed circles labelled in grey are the open ones.
+      Layers: {% for group, n in view.group_counts.items() %}{{ group }} ({{ n }}){% if not loop.last %} · {% endif %}{% endfor %}.
+    </p>
+    {% if view.excluded_kinds %}
+      <p class="hint">
+        Not shown by this lens: {{ view.excluded_kinds|join(', ') }}.
+        <a href="{{ url_for('map_view', lens='all') }}">All concepts</a> shows everything.
+      </p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Concepts by fact count</h2>
+      <a class="small" href="{{ url_for('gaps') }}">what is missing →</a>
+    </div>
+    <table class="table-plain">
+      <thead><tr><th>Concept</th><th>Kind</th><th>External refs</th><th style="text-align:right;">Facts</th></tr></thead>
+      <tbody>
+        {% for e in elements %}
+          <tr>
+            <td>{{ e.label }}</td>
+            <td><span class="kind">{{ e.kind }}</span></td>
+            <td class="small muted">
+              {%- if e.external_references -%}
+                {%- for r in e.external_references -%}
+                  <code>{{ r.identifier }}</code>
+                  <span class="hint">{% if r.system %}{{ r.system }} · {% endif %}{{ r.reference_type }}{% if not r.is_join_key %} · {{ r.scope|lower }}-scoped{% endif %}</span>
+                  {%- if not loop.last %}<br>{% endif -%}
+                {%- endfor -%}
+              {%- else -%}
+                —
+              {%- endif -%}
+            </td>
+            <td style="text-align:right;">
+              <a href="{{ url_for('review') }}?q={{ e.label }}">{{ e.facts }}</a>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <script>
+    (function () {
+      var el = document.getElementById('map');
+      if (!el || !window.d3) { return; }
+      var data = {{ view|tojson }};
+
+      var width = el.clientWidth || 960;
+      var height = el.clientHeight || 560;
+
+      var nodes = data.nodes.map(function (n) { return Object.assign({}, n); });
+      var links = data.links.map(function (l) { return Object.assign({}, l); });
+
+      // A dashed reference whose referent is text has no node to attach to, so it
+      // gets a synthetic endpoint. Drawing it as a dangling stub is the point: the
+      // assertion IS in the graph and must not vanish from the picture.
+      var synthetic = [];
+      links.forEach(function (l) {
+        if (!l.open || synthetic.some(function (n) { return n.id === l.target; })) { return; }
+        synthetic.push({
+          id: l.target,
+          label: l.target_label,
+          kind: 'unresolved reference',
+          group: 'reference',
+          external_refs: [],
+          description: 'No node in this graph answers this reference. It is waiting for reconciliation.',
+          placeholder: true
+        });
+      });
+      synthetic.forEach(function (n) { nodes.push(n); });
+
+      var groupColor = d3.scaleOrdinal()
+        .domain(['business', 'requirements', 'architecture', 'reference'])
+        .range(['#b45309', '#2563eb', '#15803d', '#94a3b8']);
+
+      var svg = d3.select(el).append('svg')
+        .attr('viewBox', [0, 0, width, height]);
+
+      var sim = d3.forceSimulation(nodes)
+        .force('link', d3.forceLink(links).id(function (d) { return d.id; }).distance(130).strength(0.4))
+        .force('charge', d3.forceManyBody().strength(-460))
+        .force('center', d3.forceCenter(width / 2, height / 2))
+        .force('collide', d3.forceCollide(40));
+
+      var link = svg.append('g').attr('class', 'link')
+        .selectAll('line').data(links).join('line')
+        .attr('stroke-dasharray', function (d) { return d.reference ? '5,4' : null; })
+        .attr('stroke', function (d) { return d.reference ? '#94a3b8' : '#cbd5e1'; });
+
+      var linkText = svg.append('g')
+        .selectAll('text').data(links).join('text')
+        .attr('text-anchor', 'middle')
+        .attr('font-size', 9.5)
+        .attr('fill', '#94a3b8')
+        .text(function (d) { return d.label; });
+
+      var node = svg.append('g').attr('class', 'node')
+        .selectAll('g').data(nodes).join('g')
+        .call(d3.drag()
+          .on('start', function (event, d) {
+            if (!event.active) { sim.alphaTarget(0.3).restart(); }
+            d.fx = d.x; d.fy = d.y;
+          })
+          .on('drag', function (event, d) { d.fx = event.x; d.fy = event.y; })
+          .on('end', function (event, d) {
+            if (!event.active) { sim.alphaTarget(0); }
+            d.fx = null; d.fy = null;
+          }));
+
+      node.append('circle')
+        .attr('r', function (d) { return 9 + Math.min(11, (d.external_refs || []).length * 3); })
+        .attr('fill', function (d) { return d.placeholder ? '#fff' : groupColor(d.group); })
+        .attr('stroke', function (d) { return d.placeholder ? '#94a3b8' : '#fff'; })
+        .attr('stroke-dasharray', function (d) { return d.placeholder ? '3,3' : null; });
+
+      node.append('title').text(function (d) {
+        return d.kind + ': ' + d.label + (d.description ? '\n' + d.description : '');
+      });
+
+      node.append('text')
+        .attr('x', 13).attr('y', 4)
+        .attr('fill', function (d) { return d.placeholder ? '#94a3b8' : '#0f172a'; })
+        .text(function (d) { return d.label.length > 30 ? d.label.slice(0, 29) + '…' : d.label; });
+
+      sim.on('tick', function () {
+        link.attr('x1', function (d) { return d.source.x; })
+            .attr('y1', function (d) { return d.source.y; })
+            .attr('x2', function (d) { return d.target.x; })
+            .attr('y2', function (d) { return d.target.y; });
+        linkText.attr('x', function (d) { return (d.source.x + d.target.x) / 2; })
+                .attr('y', function (d) { return (d.source.y + d.target.y) / 2 - 3; });
+        node.attr('transform', function (d) { return 'translate(' + d.x + ',' + d.y + ')'; });
+      });
+
+      var legend = d3.select('#legend');
+      ['business', 'requirements', 'architecture'].forEach(function (group) {
+        var count = nodes.filter(function (n) { return n.group === group; }).length;
+        if (!count) { return; }
+        legend.append('span')
+          .html('<span class="swatch" style="background:' + groupColor(group) + '"></span>' + group + ' (' + count + ')');
+      });
+      var unresolved = nodes.filter(function (n) { return n.placeholder; }).length;
+      if (unresolved) {
+        legend.append('span')
+          .html('<span class="swatch" style="background:#fff;border:1px dashed #94a3b8"></span>unresolved reference (' + unresolved + ')');
+      }
+    })();
+  </script>
+{% endif %}
+{% endblock %}

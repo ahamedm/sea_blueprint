@@ -25,35 +25,54 @@ def store_for(app) -> RevisionStore:
 
 
 def test_every_page_renders_on_an_empty_working_set(client):
-    for path in ["/", "/ingest", "/review", "/reconcile", "/c4", "/gaps", "/changes"]:
+    for path in ["/", "/ingest", "/review", "/reconcile", "/map", "/gaps", "/changes"]:
         response = client.get(path)
         assert response.status_code == 200, f"{path} -> {response.status_code}"
 
 
 def test_viewpoint_and_gap_routes_exist(client):
     """The old nav linked to /graph and /gaps with no routes behind them (404)."""
-    assert client.get("/c4").status_code == 200
+    assert client.get("/map").status_code == 200
     assert client.get("/gaps").status_code == 200
 
 
-def test_the_old_graph_url_still_resolves(client):
-    """`/graph` named the C4 diagram, which reads as "the knowledge graph" — the
-    exact ambiguity the projection/viewpoint split removes. Kept as a redirect so
-    nothing that linked to it breaks."""
-    response = client.get("/graph?level=container")
-    assert response.status_code == 301
-    assert "/c4?level=container" in response.headers["Location"]
+def test_the_retired_view_urls_still_resolve(client):
+    """`/c4` named a notation this view is not, and `/graph` named "the graph" while
+    drawing only the architecture one. Both are kept as redirects so a bookmark or
+    an external link lands on the view that replaced them rather than on a 404."""
+    for path in ("/c4", "/graph"):
+        response = client.get(f"{path}?lens=architecture")
+        assert response.status_code == 301, path
+        assert "/map?lens=architecture" in response.headers["Location"], path
 
 
-def test_c4_page_renders_for_architecture_data(client, load_working):
-    """Exercises the populated branch of the C4 template, not just the empty state."""
+def test_map_page_renders_both_sides_of_the_graph(client, load_working):
+    """Exercises the populated branch of the map template.
+
+    The requirements fixture is the important half: the view this replaced drew
+    *only* architecture elements and came back empty for a requirements document.
+    """
     client.post("/ingest", data={"text": "architecture body", "type": "architecture"})
 
-    response = client.get("/c4?level=container")
+    response = client.get("/map?lens=all")
     assert response.status_code == 200
-    assert b'id="c4"' in response.data
+    assert b'id="map"' in response.data
     assert b"Payment Orchestrator" in response.data
-    assert b"container view" in response.data.lower()
+
+
+def test_map_page_draws_a_requirements_graph(client):
+    """The regression the map exists for.
+
+    The view this replaced returned an empty diagram for a requirements document
+    and explained that architecture extraction produces C4 elements — so step 2 of
+    the user journey, all of it, had no view at all.
+    """
+    client.post("/ingest", data={"text": "requirements body", "type": "requirements"})
+
+    response = client.get("/map")
+    assert response.status_code == 200
+    assert b"Payment Acceptance" in response.data
+    assert b"Nothing to draw" not in response.data
 
 
 def test_gap_report_page_shows_unresolved_references(seeded_client):
@@ -478,8 +497,8 @@ def test_discard_working_set(seeded_client, app):
 
 
 def test_api_endpoints_return_json(seeded_client):
-    c4 = seeded_client.get("/api/c4").get_json()
-    assert {"nodes", "links", "level"} <= set(c4)
+    mapped = seeded_client.get("/api/map").get_json()
+    assert {"nodes", "links", "lens", "lens_labels"} <= set(mapped)
 
     gaps = seeded_client.get("/api/gaps").get_json()
     assert {"unresolved_count", "dangling_count", "completeness", "is_auditable"} <= set(gaps)

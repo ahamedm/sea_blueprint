@@ -205,7 +205,7 @@ rehash of the other two:
 | View | Nodes | Edges | Question |
 |---|---|---|---|
 | REQ-G (`/review`, `/gaps`) | requirements, goals, capabilities | traces, derives, conflicts | "is the requirement set coherent?" |
-| ARC-G (`/c4`) | containers, components, datastores | containment, realization | "does the design answer the requirements?" |
+| ARC-G (`/map?lens=architecture`) | containers, components, datastores | containment, realization | "does the design answer the requirements?" |
 | **Domain pack** (`/ontology/domain`) | **concepts** | `ConceptRelationship` — named, cardinal, directional | "what does this business consist of, and what is a constituent of what?" |
 
 It is a **concept map**, not a taxonomy and not a deployment diagram. `PaymentCard —

@@ -27,11 +27,19 @@ blocked_by: []
 
 ### What is missing
 
-`/c4` is a **D3 force layout drawn from the graph**. That is good for exploring the graph
-and poor as a *specification*: a force simulation has no canonical layout, so the same
-graph draws differently between loads, arrow routing is incidental, and there is no
-stable artefact a human can review, diff, or attach to a design document. Nothing about
-it looks like a C4 diagram to an architect who expects one.
+> **Updated after YB-024.** The route this item needs is now free. The old `/c4` was
+> a D3 force layout of *architecture elements only*, and it was replaced by `/map`
+> (ADR-0014) — a map of the whole knowledge graph that deliberately does **not**
+> claim to be C4. So this item is no longer "make the existing view more C4-like";
+> it is a new view, with no conflicting claim on the name and no incentive to keep
+> the force layout as a fallback.
+
+There is currently **no C4 view at all**. `/map` is a **D3 force layout drawn from
+the graph**. That is good for exploring the graph and poor as a *specification*: a
+force simulation has no canonical layout, so the same graph draws differently
+between loads, arrow routing is incidental, and there is no stable artefact a human
+can review, diff, or attach to a design document. Nothing about it looks like a C4
+diagram to an architect who expects one.
 
 There is also **no text notation output at all**. An architecture document is
 conventionally carried as Structurizr DSL, PlantUML/C4-PlantUML, or Mermaid, and the
@@ -83,6 +91,7 @@ independent check on extraction quality.
 ### Related
 
 - **YB-012** — C4 notation as *input*. Complementary, not the same work.
-- **YB-024** — the sibling view for the requirements graph.
+- **YB-024** — closed. The map draws both sides of the graph; this item draws one
+  notation properly. `/map?lens=architecture` is the closest thing today.
 - Structurizr DSL is also the natural interchange format if YB-012 later needs a
   round-trip, which is an argument for generating it before PlantUML.

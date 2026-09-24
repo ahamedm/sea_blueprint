@@ -42,7 +42,7 @@ def test_the_reference_view_is_duck_typed_on_the_graph():
     where both sides happen to be available."""
     source = Path(reference.__file__).read_text()
     assert "from core.knowledge" not in source
-    assert "C4_LEVELS" not in source
+    assert "LENSES" not in source
     assert "project_review" not in source
 
 

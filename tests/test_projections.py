@@ -1,7 +1,7 @@
 """
 Graph projection: pure functions of (graph, log, filters). No Flask, no browser.
 
-The C4 *viewpoint* has its own test module (`test_viewpoint_c4.py`). The two are
+The map *viewpoint* has its own test module (`test_viewpoint_map.py`). The two are
 deliberately apart because they are different layers; one test module would
 re-suggest the fusion this split removed.
 """
@@ -268,15 +268,16 @@ def test_dashboard_summarises_a_loaded_graph(req_extraction):
 def test_projection_layer_does_not_own_architecture_notation():
     """The split is only real while the modules stay on their sides.
 
-    If C4 levels reappear here, the two concepts have fused again and the next
-    notation will be added by widening this module instead of adding a viewpoint.
+    If kind lists or lenses reappear here, the two concepts have fused again and
+    the next view will be added by widening this module instead of adding a
+    viewpoint.
     """
     source = Path(projections.__file__).read_text()
     # The docstring may *name* the viewpoint to explain the split; what must not
-    # appear is notation defined here, or a dependency pointing the wrong way.
-    assert "C4_LEVELS =" not in source
+    # appear is selection defined here, or a dependency pointing the wrong way.
+    assert "LENSES" not in source
     assert "from app.viewpoints" not in source
-    assert not hasattr(projections, "c4_view")
+    assert not hasattr(projections, "merged_view")
 
 
 # ============================================================================

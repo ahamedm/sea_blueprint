@@ -9,9 +9,9 @@ thing and they do not change for the same reasons.
 | | `app.projections` | `app.viewpoints` |
 |---|---|---|
 | Concern | presenting the graph | describing the architecture |
-| Knows about | assertions, confidence, provenance, filters | notations: C4 levels, element kinds |
+| Knows about | assertions, confidence, provenance, filters | node kinds, layers, lenses, notation |
 | Changes when | the knowledge model changes | the notation, or the views offered, changes |
-| Example | "give me the rows a reviewer judges" | "draw a C4 container view" |
+| Example | "give me the rows a reviewer judges" | "draw every requirement and architecture concept" |
 | Domain-specific | no | yes |
 
 Dependency direction is one way: **viewpoints compose projections.** A viewpoint
@@ -21,15 +21,20 @@ relationships, what the renderer receives. It never re-derives assertions itself
 because a second implementation of assertion flattening is a second thing to keep
 correct.
 
-A viewpoint is a *deliberate* reduction. C4's context level shows software systems
-and the people who use them; a container inside a system is real and is omitted
-anyway. That omission is the viewpoint working, not data being lost — the graph
-still holds everything, and `excluded_kinds` says what was left out.
+A viewpoint is a *deliberate* reduction. A lens shows part of the map and omits
+the rest; what it omits is real and is still in the graph. That omission is the
+viewpoint working, not data being lost — `excluded_kinds` says what was left out,
+so "not in this lens" cannot be misread as "not in the graph".
 
 Available viewpoints:
 
-    c4.c4_view(graph, level)   — C4 context / container / component
+    merged.merged_view(graph, lens)  — the whole knowledge graph, filtered by lens
 
-Candidate future occupants of this package: C4/Structurizr parsing (YB-012),
-a deployment view, a data-flow view, an initiative-vs-baseline comparison view.
+Both sides of the graph, because one that drew only architecture elements left the
+requirements graph with no view at all — the failure this package's default now
+exists to prevent.
+
+Candidate future occupants: a C4 *specification* view with a canonical notation and
+a stable artefact (YB-025), a deployment view, a data-flow view, an
+initiative-vs-baseline comparison view.
 """
