@@ -552,9 +552,9 @@ def test_ontology_focus_on_an_unknown_class_is_graceful(client):
 
 def test_api_ontology_returns_the_schema(client):
     payload = client.get("/api/ontology").get_json()
-    assert len(payload["classes"]) == 61
+    assert len(payload["classes"]) == 63
     assert len(payload["enums"]) == 42
-    assert payload["overview"]["stats"]["classes"] == 61
+    assert payload["overview"]["stats"]["classes"] == 63
     assert payload["overview"]["diagnostics"]["is_clean"] is True
 
 

@@ -355,25 +355,35 @@ the schema structurally:
 
 The focus view is laid out in **semantic rows** rather than by a force simulation —
 supertypes above, subtypes below, relationship targets and incoming references further
-out. Position therefore *means* something; a hairball of 61 classes teaches nothing,
+out. Position therefore *means* something; a hairball of 63 classes teaches nothing,
 and a physics layout teaches less because the arrangement is arbitrary.
 
 ### Measured state of the four schemas
 
 | | |
 |---|---|
-| Classes | 61 (4 common, 7 enterprise, 29 requirements, 21 architecture) |
+| Classes | 63 (4 common, 7 enterprise, 31 requirements, 21 architecture) |
 | Enums | 42 |
 | Subsets | 13 |
-| Slots declared | 504 |
+| Slots declared | 508 |
 | Slots whose range is another class | 162 |
 | Abstract / mixin classes | 3 / 2 |
 | Unresolved supertypes, unresolved ranges, duplicate names | 0 / 0 / 0 |
 
 The loader's own resolution is checked against **LinkML's authoritative parser** for
-every one of the 61 classes — ancestors and effective slot sets
+every one of the 63 classes — ancestors and effective slot sets
 (`test_resolution_matches_linkml`). Asserting against hand-written expectations would
 only prove the loader is consistently wrong.
+
+`Regulation` and `Standard` are the newest two classes, and they close a gap that
+was showing up as noise rather than as a finding: a document naming GDPR, PCI-DSS
+v4.0 or HIPAA had no class to map them to, so they landed in `Concept` — the
+graph's own marker for "a referent no pass classified". That made a legal
+obligation indistinguishable from a vocabulary slip in the very census meant to
+report on it. They are domain constructs rather than requirements
+(`ConstraintRequirement` states the obligation; these are what it names), and they
+sit in the base layer because regulations and standards are not domain-specific —
+declaring them in a domain pack would shape the base ontology around one domain.
 
 ---
 
@@ -440,6 +450,6 @@ the suite needs no model server.
 | `test_store.py` | working set vs revision vs baseline; the freeze gate; ordering within one second |
 | `test_projections.py` | graph projection, filters and the primitives viewpoints compose |
 | `test_viewpoint_c4.py` | C4 level selection and what the view reports it is hiding |
-| `test_ontology.py` | the schema loader, checked against LinkML across all 61 classes |
+| `test_ontology.py` | the schema loader, checked against LinkML across all 63 classes |
 | `test_ontology_reference.py` | the reference view, and the layer-boundary guards |
 | `test_app.py` | routes, HTMX partials, and the ingest→graph handoff regression |

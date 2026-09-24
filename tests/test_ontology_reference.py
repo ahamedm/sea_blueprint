@@ -92,7 +92,7 @@ def test_overview_counts_instances_per_layer_when_a_graph_is_given(ontology, req
 
 def test_class_rows_cover_the_base_schema(ontology):
     """Base-layer classes only. Domain packs are reported separately, not counted here."""
-    assert len(class_rows(ontology)) == 61
+    assert len(class_rows(ontology)) == 63
 
 
 def test_class_rows_filter_by_layer(ontology):
@@ -331,7 +331,7 @@ def test_payload_is_complete_and_serialisable(ontology, req_extraction):
 
     payload = ontology_payload(ontology, req_extraction)
     assert set(payload) == {"overview", "classes", "enums", "subsets"}
-    assert len(payload["classes"]) == 61
+    assert len(payload["classes"]) == 63
     assert len(payload["enums"]) == 42
     assert len(payload["subsets"]) == 13
     json.dumps(payload)  # must not contain anything a JSON encoder refuses
@@ -360,7 +360,7 @@ def test_the_pack_is_reported_separately_from_the_base_layers(ontology, ontology
     assert view["pack"]["spec"] == "payment_processing"
     assert view["pack"]["version"]
     # The base class list is untouched by the pack being present.
-    assert view["stats"]["classes"] == 61
+    assert view["stats"]["classes"] == 63
 
 
 def test_no_pack_reports_none_rather_than_an_empty_layer(ontology):

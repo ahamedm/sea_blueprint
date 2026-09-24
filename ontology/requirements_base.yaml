@@ -846,6 +846,79 @@ classes:
     in_subset:
       - BusinessContext
 
+  # --------------------------------------------------------------------------
+  # 3a. EXTERNAL OBLIGATIONS — the named instruments a requirement answers to
+  # --------------------------------------------------------------------------
+  # Before these two classes existed, a document naming a law or an industry
+  # standard had nowhere to put it: the model fell back to `Concept`, which is
+  # the graph's own last resort for an unclassified referent. That is worse than
+  # an empty answer, because `Concept` is indistinguishable from genuinely
+  # unclassified content — a coverage census that counts these as concepts
+  # reports the opposite of the truth, and a legal obligation vanishes into the
+  # same bucket as a vocabulary slip.
+  #
+  # Both are domain entities, not requirements: GDPR and PCI-DSS v4.0 are named,
+  # identifiable, versioned things OUTSIDE the system that requirements answer
+  # to. `ConstraintRequirement.regulation_or_standard` states the obligation;
+  # these are the thing it names.
+  # --------------------------------------------------------------------------
+
+  Regulation:
+    description: >-
+      A named law, regulation, directive, or treaty that the system is obliged to
+      comply with — "GDPR", "HIPAA", "PCI-DSS v4.0", "PSD2". Use this for the
+      instrument the document names, not for the requirement that answers it
+      (`ConstraintRequirement` states the obligation; this is what it refers to).
+
+      Prefer this over `Concept` whenever the document names a legal instrument,
+      because the difference is what the compliance audit reads: obligations
+      traceable to a named regulation can be checked for coverage, and the same
+      names sitting in `Concept` cannot be told apart from unclassified content.
+    is_a: DomainConcept
+    attributes:
+      jurisdiction:
+        description: >-
+          Legal or geographic scope the instrument applies in, as the document
+          states it ("EU", "US", "EEA + UK"). Free text on purpose: jurisdictions
+          are named by the sources in more ways than an enum can hold.
+        range: string
+      version:
+        description: >-
+          The version or revision the requirement is written against ("v4.0",
+          "2018", "Article 17"). Omitted when the source does not say — an
+          obligation without a stated version is still an obligation.
+        range: string
+    class_uri: sea-req:Regulation
+    in_subset:
+      - BusinessContext
+
+  Standard:
+    description: >-
+      A named industry, technical, or internal standard the system must conform
+      to — "ISO/IEC 27001", "ISO 8583", "ISO/IEC 25010", "PCI-DSS", "Open Banking
+      read/write API specifications". Use this for the standard the document
+      names, not for the requirement that answers it.
+
+      Overlaps `Regulation` on purpose and the distinction is worth keeping: a
+      regulation is a legal instrument, a standard is a conformance target, and
+      plenty of systems must meet one without the other. Where a document treats
+      an instrument as binding law, `Regulation` is the better read.
+    is_a: DomainConcept
+    attributes:
+      issuing_body:
+        description: >-
+          Who publishes and maintains the standard ("ISO", "IETF", "PCI SSC",
+          the organisation's own architecture board).
+        range: string
+      version:
+        description: >-
+          The version, revision, or part the requirement is written against
+          ("2022", "v4.0", "part 3").
+        range: string
+    class_uri: sea-req:Standard
+    in_subset:
+      - BusinessContext
+
   ConceptAttribute:
     description: A property or field of a domain concept.
     attributes:

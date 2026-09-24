@@ -60,7 +60,7 @@ def test_the_base_chain_is_still_exactly_four_layers(ontology):
         "architecture",
     ]
     assert ontology.stats()["layers"] == 4
-    assert ontology.stats()["classes"] == 61
+    assert ontology.stats()["classes"] == 63
 
 
 def test_no_base_layer_declares_a_domain_class(ontology, pack):
@@ -561,6 +561,38 @@ def test_the_generic_prompt_still_teaches_the_object_contract(ontology_dir):
     assert "WRONG" in prompt and "RIGHT" in prompt
     # A domain-neutral worked example, present and usable.
     assert "Fulfilment Platform" in prompt
+
+
+def test_named_instruments_are_offered_as_classes_not_left_to_Concept(ontology_dir):
+    """A named law or standard has to be a class, or the model has nowhere to put it.
+
+    `Concept` is this graph's marker for "a referent no pass classified", so an
+    obligation landing there is indistinguishable from a vocabulary slip — the
+    compliance census reads it as an ontology gap while the audit reads it as
+    nothing at all. Offering the two classes is the whole fix, and it is
+    end-to-end: the vocabulary reaches the prompt on the generic path, with no
+    domain pack selected.
+    """
+    agent = _RecordingAgent.make(None, ontology_dir, None)
+    prompt = agent._build_extraction_prompt("body", "requirements", "anything")
+
+    assert "Regulation" in prompt
+    assert "Standard" in prompt
+
+
+def test_the_instruments_are_not_a_domain_pack_concern(ontology_dir, pack):
+    """They belong in the base requirements layer, and this is the guard on that.
+
+    GDPR, HIPAA and ISO/IEC 27001 are not payment vocabulary. Declaring them in
+    the pack would shape the base ontology around one domain — and every other
+    domain would inherit the payment model, which is the failure the layer split
+    exists to prevent.
+    """
+    from core.ontology import load_ontology
+
+    base = load_ontology(ontology_dir)
+    assert "Regulation" in base.classes and "Standard" in base.classes
+    assert "Regulation" not in pack.classes and "Standard" not in pack.classes
 
 
 def test_a_pack_supplies_its_own_worked_example(ontology_dir):

@@ -43,9 +43,15 @@ def test_totals(ontology):
     (+2 classes: `DesignTechnique`, `EngineeringConvention`; +2 enums:
     `ConventionType`, `ConventionEnforcement`) and four new `PatternCategory`
     values, which do not change the enum count.
+
+    `Regulation` and `Standard` are the newest two, and they add no enum: their
+    slots are free text on purpose, because jurisdictions and issuing bodies are
+    named by sources in more ways than a closed list can hold. Without them a
+    document naming GDPR or PCI-DSS v4.0 had nowhere to put the instrument but
+    `Concept` — the graph's own marker for "unclassified".
     """
     stats = ontology.stats()
-    assert stats["classes"] == 61
+    assert stats["classes"] == 63
     assert stats["enums"] == 42
     assert stats["subsets"] == 13
     assert stats["layers"] == 4
@@ -57,12 +63,18 @@ def test_classes_are_attributed_to_the_layer_that_declares_them(ontology):
     assert ontology.stats()["classes_per_layer"] == {
         "common": 4,
         "enterprise": 7,
-        "requirements": 29,
+        "requirements": 31,
         "architecture": 21,
     }
     assert ontology.get("Provenance").layer == "common"
     assert ontology.get("Product").layer == "enterprise"
     assert ontology.get("NonFunctionalRequirement").layer == "requirements"
+    # The named instruments a requirement answers to are generic enough to sit in
+    # the base requirements layer: GDPR, ISO 27001 and PCI-DSS are not payment
+    # vocabulary, and putting them in a domain pack would shape the base ontology
+    # around one domain — the failure the layer split exists to prevent.
+    assert ontology.get("Regulation").layer == "requirements"
+    assert ontology.get("Standard").layer == "requirements"
     assert ontology.get("Container").layer == "architecture"
     assert ontology.get("DesignTechnique").layer == "architecture"
     assert ontology.get("EngineeringConvention").layer == "architecture"

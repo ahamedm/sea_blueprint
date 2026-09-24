@@ -179,7 +179,7 @@ and **swappable**. It gets a separate, clearly-labelled region:
 ```
 ┌─ Foundational ontologies (fixed, enterprise-wide) ────────────────┐
 │  Common → Enterprise → Business Requirements → Architecture      │
-│  61 classes · 42 enums · same for every Initiative               │
+│  63 classes · 42 enums · same for every Initiative               │
 └──────────────────────────────────────────────────────────────────┘
 ┌─ Active domain pack (per Initiative) ────────────  [ Change ▾ ] ──┐
 │  payments 0.1.0 · 24 classes · extends DomainConcept             │
