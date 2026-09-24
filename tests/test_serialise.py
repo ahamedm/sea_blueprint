@@ -96,3 +96,43 @@ def test_superseded_lineage_survives_merge_and_reload(req_extraction):
     merged = merge_graphs(KnowledgeGraph(), req_extraction)
     assert merged.assertions[first].superseded_by == "a_deadbeef"
     assert graph_from_dict(graph_to_dict(merged)).assertions[first].superseded_by == "a_deadbeef"
+
+
+def test_the_document_type_and_side_survive_a_round_trip():
+    """Both are load-bearing for cross-graph ordering, so a snapshot that drops
+    them silently re-ranks every candidate after the next save."""
+    from core.knowledge import graph_from_extraction, merge_graphs
+
+    requirements = {
+        "entities": [{"name": "Payment Acceptance", "ontology_class": "FunctionalRequirement"}],
+        "triples": [],
+    }
+    req_graph, _ = graph_from_extraction(
+        requirements, {"document_type": "requirements"}, document_ref="req.md"
+    )
+    arch_graph, _ = graph_from_extraction(
+        {"elements": [{"name": "Payment Orchestrator", "element_type": "Container"}]},
+        {"document_type": "architecture"},
+        document_ref="arch.md",
+    )
+    merged = merge_graphs(req_graph, arch_graph)
+
+    assert set(merged.declared_by.values()) == {"requirements", "architecture"}
+    assert {r.document_type for r in merged.runs.values()} == {"requirements", "architecture"}
+
+    restored = graph_from_dict(json.loads(json.dumps(graph_to_dict(merged))))
+    assert restored.declared_by == merged.declared_by
+    assert {r.document_type for r in restored.runs.values()} == {"requirements", "architecture"}
+
+
+def test_a_revision_without_a_recorded_side_reads_as_unknown(req_extraction):
+    """Older snapshots have neither field. Empty is the conservative reading:
+    unknown scope must not re-rank candidates, and must not fail the load."""
+    data = graph_to_dict(req_extraction)
+    data.pop("declared_by", None)
+    for run in data["runs"].values():
+        run.pop("document_type", None)
+
+    restored = graph_from_dict(data)
+    assert restored.declared_by == {}
+    assert all(r.document_type == "" for r in restored.runs.values())

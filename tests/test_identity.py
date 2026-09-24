@@ -30,6 +30,7 @@ from core.knowledge.model import (
     KnowledgeGraph,
     document_reference,
 )
+from core.knowledge.realization import realization_edges
 from core.knowledge.reconcile import match_score, reference_candidates
 from core.knowledge.serialise import node_from_dict, node_to_dict
 
@@ -275,8 +276,19 @@ def test_an_enterprise_key_is_preferred_over_a_document_label_of_the_same_name()
     )
 
 
-def test_the_cross_document_join_is_refused_end_to_end():
-    """The defect, as a user would hit it."""
+def test_the_requirements_key_joins_end_to_end():
+    """The fix, as a user would hit it.
+
+    The requirements document numbers `FR-PM-001`; the architecture document
+    cites it. The citation IS the claim `implements_requirement` makes, so it is a
+    link rather than a sub-threshold suggestion a reviewer has to confirm.
+    Refusing this join was the deepest form of the defect — even a
+    verbatim-preserved requirement id could not join across documents.
+
+    What survives is narrower: an identifier the architecture profile recorded as
+    a plain document label (`OTHER`) still cannot bind, which the companion test
+    below covers.
+    """
     requirements = {
         "entities": [
             {"name": "Payment Acceptance", "ontology_class": "FunctionalRequirement",
@@ -291,10 +303,56 @@ def test_the_cross_document_join_is_refused_end_to_end():
              "object": "FR-PM-001", "confidence": 0.6}
         ],
     }
+    req_graph, _ = graph_from_extraction(
+        requirements, {"document_type": "requirements"}, document_ref="req.md"
+    )
+    arch_graph, _ = graph_from_extraction(
+        architecture, {"document_type": "architecture"}, document_ref="arch.md"
+    )
+    merged = merge_graphs(req_graph, arch_graph)
+
+    assert reference_candidates(merged) == []
+    assert merged.unresolved_references() == []
+    linked = [
+        a for a in merged.active()
+        if a.predicate == "implements_requirement" and a.value == "FR-PM-001"
+    ]
+    assert len(linked) == 1
+    assert linked[0].confidence == 0.6
+    assert linked[0] not in merged.unresolved_references()
+    assert ["%s" % n.id for _a, n in realization_edges(merged)] == [
+        "functionalrequirement:payment_acceptance"
+    ]
+
+
+def test_a_document_local_identifier_is_not_a_join_key():
+    """The distinction the typed reference exists for, end to end.
+
+    A label the requirements document states as `OTHER` — a heading, not a
+    `requirement_id` — is not an identity. Two documents may use the same words,
+    so the reference stays a proposal a human must accept.
+    """
+    requirements = {
+        "entities": [
+            {"name": "High Availability", "ontology_class": "NonFunctionalRequirement",
+             "external_references": [{"identifier": "Availability", "system": "req.md"}]}
+        ],
+        "triples": [],
+    }
+    architecture = {
+        "elements": [{"name": "Payment Orchestrator", "element_type": "Container"}],
+        "triples": [
+            {"subject": "Payment Orchestrator", "predicate": "traces_to_goal",
+             "object": "Availability", "confidence": 0.6}
+        ],
+    }
     req_graph, _ = graph_from_extraction(requirements, document_ref="req.md")
     arch_graph, _ = graph_from_extraction(architecture, document_ref="arch.md")
     merged = merge_graphs(req_graph, arch_graph)
 
+    # A bare label is recognised only by its match quality, never by identity:
+    # the requirement is a NEAR MISS of the wrong kind, so nothing binds.
     proposal = reference_candidates(merged)[0]
-    assert proposal.status() == "below_threshold"
-    assert proposal.best.reason == "unscoped_ref"
+    assert proposal.best is None
+    assert proposal.best_near_miss is not None
+    assert proposal.best_near_miss.score < 1.0

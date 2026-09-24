@@ -59,6 +59,7 @@ from app.projections import (
     project_delta,
     project_gap_report,
     project_node_index,
+    project_realization,
     project_reconciliation,
     project_review_rows,
     project_review_summary,
@@ -280,6 +281,11 @@ def create_app(
         # `triples`/`elements` keys and every ingest produced an empty graph.
         output = result.output if isinstance(result.output, dict) else {}
         metadata = dict(result.metadata or {})
+        # Which document this run read. Reconciliation needs it to tell the two
+        # sides apart — a cross-graph predicate claims its referent is in the
+        # OTHER graph — and it is not recoverable after ingest, so it travels with
+        # the run rather than being re-derived from a filename.
+        metadata.setdefault("document_type", doc_type)
 
         before = state()
         incoming, run_record = graph_from_extraction(
@@ -487,6 +493,13 @@ def create_app(
         snapshot = state()
         return jsonify(project_gap_report(snapshot.graph))
 
+    @app.route("/api/realization")
+    def api_realization():
+        """Both directions of the audit as JSON — a machine-readable answer to
+        "which requirements have no architectural answer?"."""
+        snapshot = state()
+        return jsonify(project_realization(snapshot.graph))
+
     # -- reconciliation --------------------------------------------------
 
     def _threshold(default: float = DEFAULT_MATCH_THRESHOLD) -> float:
@@ -510,6 +523,7 @@ def create_app(
         return render_template(
             "reconcile.html",
             view=project_reconciliation(snapshot.graph, threshold),
+            coverage=project_realization(snapshot.graph),
             threshold=threshold,
             empty=not snapshot.graph.nodes,
         )
@@ -563,6 +577,19 @@ def create_app(
                 "the page was stale.",
                 "warning",
             )
+        # Computed once, after the pass: the realization state is a fresh query
+        # over the graph the pass just changed.
+        coverage = project_realization(snapshot.graph)["summary"]
+        flash(
+            f"Requirements with an architectural answer: "
+            f"{coverage['realized']} of {coverage['requirements']}."
+            + (
+                f" {coverage['unrealized']} still unanswered."
+                if coverage["unrealized"]
+                else ""
+            ),
+            "message",
+        )
         return redirect(url_for("reconcile"))
 
     @app.route("/reconcile/<assertion_id>/resolve", methods=["POST"])

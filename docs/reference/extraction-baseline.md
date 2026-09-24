@@ -12,7 +12,7 @@ Input: `test_data/prd/sample_requirements.md` (REQ) / `test_data/arch/payment_pl
 | Triples | 68 | 61 |
 | Nodes | 53 entities (16 with requirement ids) | 21 elements ⚠ |
 | Edges | — | 26 connections, 6 `part_of` |
-| Traceability to the other graph | — | captured as refs, not yet resolved (YB-005) |
+| Traceability to the other graph | — | 13 refs; 2 requirements realized by wording coincidence, 9 unreachable lexically (ADR-0012) |
 
 ⚠ 21 elements includes 7 technologies/patterns that regressed into elements —
 see YB-007. The genuine architecture element count is 14, all correctly classified.

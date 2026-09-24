@@ -45,6 +45,8 @@ from typing import Any, Dict, FrozenSet, Iterable, List, Optional, Sequence, Tup
 
 from .model import (
     CROSS_GRAPH_PREDICATES,
+    IDENTITY_BY_CITATION_PREDICATES,
+    REQUIREMENT_KINDS as _REQUIREMENT_KINDS,
     SCOPE_DOCUMENT,
     SOURCE_HUMAN_ARCHITECT,
     STATUS_SUPERSEDED,
@@ -61,22 +63,36 @@ class ReconcileError(Exception):
     """A resolution that could not be applied (unknown reference, bad target)."""
 
 
+# Re-exported: this is the one definition of "what is a requirement", shared by
+# the matcher, ingest's classification gate and the realization report.
+REQUIREMENT_KINDS = _REQUIREMENT_KINDS
+
 # Default acceptance threshold. Deliberately conservative: on the real fixture the
 # defensible matches score 0.90+ while plausible-but-weak ones sit at 0.43-0.59,
 # and accepting a wrong traceability link is worse than leaving it for a human.
 DEFAULT_MATCH_THRESHOLD = 0.75
 
-
-_REQUIREMENT_KINDS: FrozenSet[str] = frozenset(
+# What a cross-graph predicate is allowed to point at, plus the kinds that are
+# merely *mechanically possible*. The two differ on purpose:
+#
+# - `EXPECTED_TARGET_KINDS` gates binding. A candidate outside it can never be
+#   bound by bulk and needs an explicit human override.
+# - `PLAUSIBLE_TARGET_KINDS` only decides what is worth OFFERING as a near miss.
+#   A container is not a requirement, but a reviewer who knows the shape of the
+#   data should still be able to override deliberately rather than find the
+#   target missing from the list entirely. `Concept` and `DomainConcept` are in
+#   it because prose extraction lands architecture referents there when no pass
+#   classified them — the same fallback `ingest._resolve` uses.
+PLAUSIBLE_TARGET_KINDS: FrozenSet[str] = frozenset(
     {
-        "Requirement",
-        "BusinessRequirement",
-        "FunctionalRequirement",
-        "NonFunctionalRequirement",
-        "ConstraintRequirement",
-        "PlatformExtensibilityRequirement",
-        "PlatformMultiTenancyRequirement",
+        "Requirement", "BusinessRequirement", "FunctionalRequirement",
+        "NonFunctionalRequirement", "ConstraintRequirement",
+        "PlatformExtensibilityRequirement", "PlatformMultiTenancyRequirement",
         "PlatformCompatibilityRequirement",
+        "BusinessGoal", "BusinessCapability", "BusinessProcess", "BusinessRule",
+        "QualityAttribute", "QualityScenario", "Initiative", "ExternalReference",
+        "Constraint", "Regulation", "Policy", "Standard",
+        "Concept", "DomainConcept",
     }
 )
 
@@ -165,6 +181,7 @@ def match_score(
     label: str,
     external_refs: Sequence[Any] = (),
     source_document: str = "",
+    predicate: str = "",
 ) -> Tuple[float, str]:
     """Score one candidate, with the reason it scored that way.
 
@@ -182,6 +199,15 @@ def match_score(
     from. A document-local identifier is trusted only when the reference's own
     `system` names that same document — one source stated both, so the label
     genuinely identifies the thing there. Otherwise it is evidence and no more.
+
+    EXCEPT `implements_*`, WHERE CITING THE DOCUMENT'S OWN KEY IS THE CLAIM.
+    A requirements document numbers its requirements; an architecture document
+    that cites `FR-PM-001` is quoting that key, not inventing one. For those
+    predicates a matching document-local identifier IS identity, and treating it
+    as mere evidence is what left a verbatim-preserved requirement id unable to
+    join across documents — the deepest form of the defect this item was opened
+    for. Every other predicate keeps the strictly-scoped reading, because a
+    shared heading like "Payment Processing" in two documents means two things.
     """
     t_norm = normalise(target_text)
     l_norm = normalise(label)
@@ -196,6 +222,7 @@ def match_score(
     # (both `FR-PM-001`), so returning on the first match would let list order
     # decide the outcome — the strongest signal would be invisible depending on
     # which reference happened to be recorded first.
+    cites_requirement = predicate in IDENTITY_BY_CITATION_PREDICATES
     local_hit = False
     local_same_document = False
     for ref in _as_references(external_refs):
@@ -211,6 +238,9 @@ def match_score(
 
     if local_hit and local_same_document:
         return 1.0, "external_ref"
+
+    if local_hit and cites_requirement:
+        return 1.0, "citing_document_key"
 
     if local_hit:
         # The label matches, but it is local to a different document, so `FR-001`
@@ -242,6 +272,14 @@ class Candidate:
     score: float
     reason: str
     in_expected_kind: bool
+    # Both are ORDERING signals, never score changes and never gates: the score
+    # still has to clear the threshold on its own merit. They exist because
+    # lexical similarity alone cannot tell "the same Initiative" or "the graph
+    # this predicate claims to point into" from wording, and both are knowable
+    # deterministically — from `delivers_initiative` / `authorised_by_initiative`
+    # and from which document the candidate's run read.
+    same_initiative: bool = False
+    other_side: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -252,6 +290,8 @@ class Candidate:
             "score_pct": int(round(self.score * 100)),
             "reason": self.reason,
             "in_expected_kind": self.in_expected_kind,
+            "same_initiative": self.same_initiative,
+            "other_side": self.other_side,
         }
 
 
@@ -270,6 +310,8 @@ class ReferenceCandidates:
     expected_kinds: List[str]
     candidates: List[Candidate] = field(default_factory=list)  # expected kind only
     near_misses: List[Candidate] = field(default_factory=list)  # other kinds
+    source_initiative: str = ""
+    source_side: str = ""
 
     @property
     def best(self) -> Optional[Candidate]:
@@ -319,6 +361,9 @@ class ReferenceCandidates:
             "confidence": self.confidence,
             "source_text": self.source_text,
             "expected_kinds": self.expected_kinds,
+            "source_initiative": self.source_initiative,
+            "source_side": self.source_side,
+            "same_initiative_candidates": sum(1 for c in self.candidates if c.same_initiative),
             "candidates": [c.to_dict() for c in self.candidates],
             "near_misses": [c.to_dict() for c in self.near_misses],
             "best": best.to_dict() if best else None,
@@ -348,6 +393,115 @@ def _document_of_run(graph: KnowledgeGraph, run_id: str) -> str:
     return (run.document_ref or "") if run else ""
 
 
+# What a run's document says about which side of the reconciliation its nodes
+# are on. The values match `ExtractionRun.document_type`.
+SIDE_REQUIREMENTS = "requirements"
+SIDE_ARCHITECTURE = "architecture"
+
+
+def _node_sides(graph: KnowledgeGraph) -> Dict[str, str]:
+    """Which side each node came from — the document that DECLARED it, or failing
+    that, the runs that asserted things about it.
+
+    A node's side is not a property of the node: it is where it was read from.
+    That is why it is derived from the ingest rather than declared, and why
+    `declared_by` is consulted first — a requirement extracted with no triples has
+    no assertion to infer from, and it is precisely the requirement whose absence
+    of claims the audit is about.
+
+    Disagreement (a node named by runs from both documents, or declared by one and
+    asserted by the other) or an unrecorded document yields an empty string —
+    "unknown" — and unknown never influences an ordering. Guessing a side would
+    re-rank candidates on evidence that is not there.
+    """
+    from_declaration = {
+        nid: side for nid, side in graph.declared_by.items() if (side or "").strip()
+    }
+    sides: Dict[str, set] = {}
+    for a in graph.active():
+        run = graph.runs.get(a.provenance.run_id) if a.provenance.run_id else None
+        side = (run.document_type if run else "") or ""
+        if not side:
+            continue
+        for nid in (a.subject, a.object):
+            if nid:
+                sides.setdefault(nid, set()).add(side)
+
+    resolved: Dict[str, str] = {}
+    for nid in set(from_declaration) | set(sides):
+        declared = from_declaration.get(nid, "")
+        asserted = sides.get(nid, set())
+        if declared and not asserted:
+            resolved[nid] = declared
+        elif not declared and len(asserted) == 1:
+            resolved[nid] = next(iter(asserted))
+        elif declared and asserted == {declared}:
+            resolved[nid] = declared
+    return resolved
+
+
+def _initiative_of(graph: KnowledgeGraph) -> Dict[str, str]:
+    """Which Initiative each node belongs to, from the scoping edges ingest writes.
+
+    `delivers_initiative` (architecture elements) and `authorised_by_initiative`
+    (requirements) are the two directions of the same anchor. The assertion's
+    claim scope `initiative_id` is the fallback: a run ingested under an
+    Initiative scopes its facts to it even when no `initiative_ref` was
+    extracted, and on `data/` that fallback is the only signal that exists.
+
+    One Initiative per node; disagreement resolves to unknown rather than to
+    whichever happened to be asserted first.
+    """
+    found: Dict[str, set] = {}
+
+    def note(node_id: str, initiative: str) -> None:
+        text = (initiative or "").strip()
+        if node_id and text:
+            found.setdefault(node_id, set()).add(text)
+
+    for a in graph.active():
+        if a.predicate in ("delivers_initiative", "authorised_by_initiative"):
+            target = graph.nodes.get(a.object) if a.object else None
+            note(a.subject, target.label if target else (a.value or ""))
+        else:
+            note(a.subject, a.initiative_id or "")
+    # A node's own `initiative_id` is a claim about the node, so it is read off
+    # any active assertion naming it — including resolved links, whose claim
+    # scope is carried from the reference they replaced.
+    return {nid: next(iter(values)) for nid, values in found.items() if len(values) == 1}
+
+
+def _preference(c: Candidate) -> Tuple[int, int, float, str]:
+    """Same Initiative, then the other graph, then score, then label."""
+    return (0 if c.same_initiative else 1, 0 if c.other_side else 1, -c.score, c.label.lower())
+
+
+def _candidate_order(
+    candidates: List[Candidate], threshold: float
+) -> List[Candidate]:
+    """Rank candidates: acceptable ones first, then Initiative, then side, then score.
+
+    THE THRESHOLD IS PART OF THE ORDER, not applied after it. Preferring the same
+    Initiative is only useful among candidates that would actually be *bound*: if
+    the candidate this element delivers scores 0.5 and another scores 0.9, ranking
+    the weak one first would block a defensible link to honour a signal that is
+    weaker than the match itself. Grouping by acceptability first means a wrong
+    Initiative never displaces a good match, and among equally acceptable ones the
+    Initiative decides.
+
+    Within a group:
+      - the same Initiative wins, because it is the strongest deterministic anchor
+        available when requirement identifiers are missing or paraphrased (YB-005)
+      - then the other graph, because a cross-graph predicate *claims* its referent
+        lives there, so a candidate from the source's own document is the weaker
+        reading of the same words
+      - then the score, then the label, so the order is total and stable
+    """
+    acceptable = [c for c in candidates if c.score >= threshold]
+    rest = [c for c in candidates if c.score < threshold]
+    return sorted(acceptable, key=_preference) + sorted(rest, key=_preference)
+
+
 def reference_candidates(
     graph: KnowledgeGraph,
     assertion_ids: Optional[Iterable[str]] = None,
@@ -357,6 +511,8 @@ def reference_candidates(
     """Propose target nodes for each unresolved cross-graph reference."""
     wanted = set(assertion_ids) if assertion_ids is not None else None
     table = _node_table(graph)
+    sides = _node_sides(graph)
+    initiatives = _initiative_of(graph)
 
     out: List[ReferenceCandidates] = []
     for a in graph.unresolved_references():
@@ -366,16 +522,27 @@ def reference_candidates(
         source = graph.nodes.get(a.subject)
         expected = EXPECTED_TARGET_KINDS.get(a.predicate, frozenset())
         assertion_doc = _document_of_run(graph, a.provenance.run_id)
+        source_side = sides.get(a.subject, "")
+        source_initiative = initiatives.get(a.subject, "") or (a.initiative_id or "")
 
         matches: List[Candidate] = []
         near: List[Candidate] = []
         for node, _norm, refs in table:
             if node.id == a.subject:
                 continue  # a thing does not reference itself
-            score, reason = match_score(a.target, node.label, refs, assertion_doc)
+            score, reason = match_score(a.target, node.label, refs, assertion_doc, a.predicate)
             if score <= 0.0:
                 continue
             in_kind = (not expected) or node.kind in expected
+            # A candidate of neither the expected kind nor a kind a cross-graph
+            # predicate could sensibly point at is lexical noise — a
+            # `TechnologyStack` scoring 0.7 against "Performance" is not a
+            # proposal, it is an unrelated node that shares a word. Kind scoping
+            # filters those out of the option list rather than letting them pad
+            # it; a genuinely wrong-kind but plausible node stays reportable.
+            plausible = (not expected) or in_kind or node.kind in PLAUSIBLE_TARGET_KINDS
+            if not plausible:
+                continue
             candidate = Candidate(
                 node_id=node.id,
                 label=node.label,
@@ -383,11 +550,15 @@ def reference_candidates(
                 score=score,
                 reason=reason,
                 in_expected_kind=in_kind,
+                same_initiative=bool(
+                    source_initiative and initiatives.get(node.id, "") == source_initiative
+                ),
+                other_side=bool(source_side and sides.get(node.id, "") not in ("", source_side)),
             )
             (matches if in_kind else near).append(candidate)
 
-        matches.sort(key=lambda c: (-c.score, c.label.lower()))
-        near.sort(key=lambda c: (-c.score, c.label.lower()))
+        matches = _candidate_order(matches, DEFAULT_MATCH_THRESHOLD)
+        near = _candidate_order(near, DEFAULT_MATCH_THRESHOLD)
 
         out.append(
             ReferenceCandidates(
@@ -402,6 +573,8 @@ def reference_candidates(
                 expected_kinds=sorted(expected),
                 candidates=matches[:limit],
                 near_misses=near[:near_miss_limit],
+                source_initiative=source_initiative,
+                source_side=source_side,
             )
         )
 
@@ -435,6 +608,35 @@ def _require_reference(graph: KnowledgeGraph, assertion_id: str):
     return a
 
 
+# Reasons that ARE identity rather than resemblance. A document's own stable key,
+# or wording that matches verbatim, leaves no room for the link to be wrong about
+# *which* thing it points at.
+_IDENTITY_REASONS = frozenset({"exact", "external_ref", "citing_document_key"})
+
+
+def _link_confidence(
+    proposed: Optional[float], computed: float, reason: str
+) -> float:
+    """How sure the link is, as a band rather than a constant.
+
+    A resolved link used to arrive at confidence 1.0 unconditionally, which
+    claimed more than the evidence supported: the human accepted a *proposal*,
+    and the proposal's own strength is what says how much of a risk that was.
+    The band keeps that evidence on the link:
+
+      - exact wording or an enterprise identifier -> 1.0 (identity, not similarity)
+      - a lexical proposal -> half its distance from a perfect score, so a match
+        at the acceptance threshold keeps 0.75 and a near-perfect one keeps ~0.95
+      - a target the reviewer picked without a proposal -> 1.0 (their own claim)
+
+    `status=VERIFIED` with human provenance remains the separate authority claim:
+    a low-confidence band means "review the reasoning", not "an agent guessed".
+    """
+    if proposed is None or reason in _IDENTITY_REASONS:
+        return 1.0
+    return round(0.5 + max(0.0, min(1.0, computed)) / 2, 3)
+
+
 def resolve_reference(
     graph: KnowledgeGraph,
     log: ReviewLog,
@@ -443,12 +645,20 @@ def resolve_reference(
     actor: str = "",
     note: str = "",
     allow_kind_override: bool = False,
+    proposed_score: Optional[float] = None,
+    match_reason: str = "",
 ) -> Decision:
     """Bind one unresolved reference to an existing node.
 
     Never invents the target: resolution asserts that the referent was already
     extracted and merely not joined. Creating the node would be a different act
     with different consequences, so it is not offered as a side effect here.
+
+    `proposed_score`/`match_reason` carry WHY this target was proposed, when a
+    proposal produced it (`reference_candidates`, `bulk_resolve`). They set the
+    link's confidence as a band — see `_link_confidence` — instead of asserting
+    1.0 merely because a machine proposed the link. Omitted (a target typed into
+    the form by hand), the link is the reviewer's own claim and scores 1.0.
     """
     a = _require_reference(graph, assertion_id)
 
@@ -467,7 +677,14 @@ def resolve_reference(
             "override to bind across kinds deliberately."
         )
 
-    score, reason = match_score(a.target, node.label, node.external_references)
+    if proposed_score is not None:
+        # A proposal already scored this pair under its own predicate; re-scoring
+        # here would drop the predicate and could contradict the reason the
+        # reviewer was shown (an identifier citation is the case in point: the
+        # citation rule makes it identity, and a bare re-score does not know that).
+        score, reason = proposed_score, (match_reason or reason)
+    else:
+        score, reason = match_score(a.target, node.label, node.external_references, "", a.predicate)
     before = {"target": a.target, "object": None, "status": a.status, "scope": a.scope}
 
     trace = (
@@ -491,10 +708,7 @@ def resolve_reference(
         a.predicate,
         obj=node.id,
         value=None,
-        # A human established this link, so it is human-authoritative. The lexical
-        # evidence lives in the note and the audit entry rather than being smuggled
-        # into `confidence`, which means "how sure was the source".
-        confidence=1.0,
+        confidence=_link_confidence(proposed_score, score, reason),
         source_text=a.source_text,
         ontology_class=ontology_class,
         provenance=Provenance(
@@ -546,6 +760,15 @@ class BulkResolveResult:
     no_candidate: List[str] = field(default_factory=list)
     unknown_ids: List[str] = field(default_factory=list)
     threshold: float = DEFAULT_MATCH_THRESHOLD
+    # assertion id -> replacement assertion id, so a caller can look at what the
+    # binding actually produced (its confidence band, its target kind) without
+    # re-deriving it from the audit log.
+    bound: List[Tuple[str, str]] = field(default_factory=list)
+    # Requirements still without an architectural answer AFTER the pass. A
+    # resolution run that binds links but leaves the requirement side untouched
+    # should be able to say so in the same breath — that gap is the thing the
+    # whole exercise exists to find.
+    unrealized_requirements: int = 0
 
     @property
     def considered(self) -> int:
@@ -559,6 +782,7 @@ class BulkResolveResult:
             "unknown_ids": len(self.unknown_ids),
             "considered": self.considered,
             "threshold": self.threshold,
+            "unrealized_requirements": self.unrealized_requirements,
         }
 
 
@@ -602,7 +826,7 @@ def bulk_resolve(
         if best.score < min_score:
             result.below_threshold.append((assertion_id, best.score))
             continue
-        resolve_reference(
+        decision = resolve_reference(
             graph,
             log,
             assertion_id,
@@ -610,7 +834,24 @@ def bulk_resolve(
             actor=actor,
             note=note,
             allow_kind_override=False,
+            proposed_score=best.score,
+            match_reason=best.reason,
         )
         result.resolved.append(assertion_id)
+        result.bound.append((assertion_id, decision.replacement_id))
 
+    result.unrealized_requirements = _unrealized_count(graph)
     return result
+
+
+def _unrealized_count(graph: KnowledgeGraph) -> int:
+    """Requirements with no bound realization edge. Imported lazily.
+
+    `realization` imports this module for `REQUIREMENT_KINDS` and the node
+    helpers, so a top-level import here would be a cycle. Importing inside the
+    call keeps the dependency one-way (realization -> reconcile) and costs
+    nothing: this runs once per bulk pass, not per candidate.
+    """
+    from .realization import unrealized_requirements
+
+    return len(unrealized_requirements(graph))

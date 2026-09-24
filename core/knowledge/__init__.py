@@ -9,12 +9,13 @@ were previously unowned, so five representations cannot drift apart.
   ingest.py     — extraction output -> canonical graph, and graph -> graph merge
   review.py     — human review decisions and the audit trail they produce
   reconcile.py  — unresolved cross-graph reference -> bound link
+  realization.py— which requirements have an architectural answer, both directions
   store.py      — working set, immutable revisions, baseline freezing
   rdf.py        — canonical graph -> RDF (plain triples + assertion resources)
 
 The dependency direction is one-way: model knows nothing, serialise/review know
-model, reconcile knows review, store knows serialise + review. Nothing here
-imports the web layer.
+model, reconcile knows review, realization knows model (+ reconcile's vocabulary),
+store knows serialise + review. Nothing here imports the web layer.
 """
 
 from .ingest import (
@@ -31,16 +32,37 @@ from .model import (
     Node,
     PassRecord,
     Provenance,
+    REQUIREMENT_KINDS,
     apply_delta,
     compute_graph_delta,
     make_assertion_id,
     make_node_id,
+    ontology_class_for_predicate,
     slugify,
 )
 from .rdf import QUERIES, run_query, to_jsonld, to_rdf, to_turtle
+from .realization import (
+    COVERAGE_FULL,
+    COVERAGE_NONE,
+    COVERAGE_PARTIAL,
+    COVERAGE_UNRESOLVED,
+    REALIZATION_PREDICATES,
+    RequirementRealization,
+    realization_coverage,
+    realization_edges,
+    realization_report,
+    realization_state,
+    requirement_nodes,
+    unbound_claims,
+    unmet_obligations,
+    unrealized_requirements,
+)
 from .reconcile import (
     DEFAULT_MATCH_THRESHOLD,
     EXPECTED_TARGET_KINDS,
+    PLAUSIBLE_TARGET_KINDS,
+    SIDE_ARCHITECTURE,
+    SIDE_REQUIREMENTS,
     BulkResolveResult,
     Candidate,
     ReconcileError,
@@ -103,6 +125,8 @@ __all__ = [
     "merge_graphs",
     "completeness_note",
     "CROSS_GRAPH_PREDICATES",
+    "REQUIREMENT_KINDS",
+    "ontology_class_for_predicate",
     # serialisation
     "graph_to_dict",
     "graph_from_dict",
@@ -139,6 +163,25 @@ __all__ = [
     "ReconcileError",
     "DEFAULT_MATCH_THRESHOLD",
     "EXPECTED_TARGET_KINDS",
+    "PLAUSIBLE_TARGET_KINDS",
+    "REQUIREMENT_KINDS",
+    "SIDE_REQUIREMENTS",
+    "SIDE_ARCHITECTURE",
+    # realization
+    "realization_edges",
+    "realization_state",
+    "realization_report",
+    "realization_coverage",
+    "requirement_nodes",
+    "unrealized_requirements",
+    "unbound_claims",
+    "unmet_obligations",
+    "RequirementRealization",
+    "REALIZATION_PREDICATES",
+    "COVERAGE_NONE",
+    "COVERAGE_UNRESOLVED",
+    "COVERAGE_PARTIAL",
+    "COVERAGE_FULL",
     # store
     "RevisionStore",
     "Revision",

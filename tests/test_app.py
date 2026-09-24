@@ -6,6 +6,9 @@ extractor, so they cover the wiring that the projections unit-test cannot: the
 handoff from agent result to canonical graph, which is where the MVP was broken.
 """
 
+import json
+from pathlib import Path
+
 import pytest
 
 from core.knowledge import RevisionStore, graph_from_extraction
@@ -61,6 +64,76 @@ def test_gap_report_page_shows_unresolved_references(seeded_client):
     # but nothing has been reviewed, so the audit gate must still be shut.
     assert b"Not auditable yet" in response.data
     assert b"are outstanding" in response.data
+
+
+def test_gap_report_answers_both_directions(seeded_client):
+    """The acceptance criteria of YB-005, as rendered.
+
+    "A requirement with no architecture can be listed" and "an architecture element
+    answering no requirement can be listed" are the two halves, and the page has to
+    carry both headings whether or not either list is empty — a missing heading
+    reads as "no finding" rather than "not reported".
+    """
+    response = seeded_client.get("/gaps")
+    assert b"Requirements with no architectural answer" in response.data
+    assert b"Architecture claiming a requirement that never bound" in response.data
+    assert b"Unanswered requirements" in response.data
+
+
+def test_the_two_lists_are_populated_from_the_same_report(seed_both_documents):
+    """Both directions on one graph, through the API AND the page.
+
+    A count and a label list are different promises: the earlier fixture produced
+    the numbers while the page rendered the empty branch, which is exactly the kind
+    of gap a summary-only assertion misses.
+    """
+    payload = seed_both_documents.get("/api/gaps").get_json()
+    realization = payload["realization"]
+
+    assert payload["unresolved_count"] == realization["summary"]["unbound_claims"]
+    assert payload["unrealized_count"] == 20
+    assert len(realization["unrealized"]) == 20
+    assert len(realization["obligations"]) == 13
+    assert realization["summary"]["requirements"] == 22
+
+    page = seed_both_documents.get("/gaps").get_data(as_text=True)
+    assert "no architecture references it" in page
+    assert "AlpineJS UI Framework" in page
+    assert "PAN-Card Encryption Service" in page
+
+
+def test_gap_report_page_lists_an_unanswered_requirement(reconcile_client):
+    """Populated branch: a requirement the architecture never answers has to appear
+    by name on the page, not merely be counted."""
+    response = reconcile_client.get("/gaps")
+    assert b"Requirements with no architectural answer" in response.data
+    assert b"Settlement Reporting" in response.data
+    assert "no architecture references it".encode() in response.data
+
+
+def test_api_realization_reports_both_directions(reconcile_client):
+    payload = reconcile_client.get("/api/realization").get_json()
+    summary = payload["summary"]
+
+    # Two requirements in the fixture: one answered by a citation, one untouched.
+    assert summary["requirements"] == 2
+    assert summary["realized"] == 1
+    assert summary["unrealized"] == 1
+    assert summary["coverage"]["full"] == 1
+    assert summary["coverage"]["none"] == 1
+    assert summary["bound_edges"] >= 1
+    assert {r["label"] for r in payload["unrealized"]} == {"Settlement Reporting"}
+    # The reference naming nothing extracted is the architecture-side finding.
+    assert {o["source_label"] for o in payload["obligations"]} == {"Payment Gateway Platform"}
+    assert {"unrealized", "obligations", "claims", "requirements"} <= set(payload)
+
+
+def test_ingest_records_the_document_type_on_the_run(seeded_client, load_working):
+    """Which document a run read is what tells the two sides of the audit apart,
+    and it cannot be recovered after ingest — so it has to be written down."""
+    runs = list(load_working().runs.values())
+    assert runs
+    assert {r.document_type for r in runs} == {"requirements"}
 
 
 def test_review_detail_partial_renders(seeded_client, load_working):
@@ -552,6 +625,9 @@ RECONCILE_OUTPUT = {
                  "reference_type": "REQUIREMENT_KEY"}
             ],
         },
+        # Deliberately never claimed by anything: the requirement-side finding the
+        # fixture exists to render.
+        {"name": "Settlement Reporting", "ontology_class": "FunctionalRequirement"},
     ],
 }
 
@@ -570,6 +646,51 @@ def reconcile_client(store_root):
     )
     client = application.test_client()
     client.post("/ingest", data={"text": "doc", "type": "requirements"})
+    return client
+
+
+@pytest.fixture
+def seed_both_documents(store_root):
+    """A client holding the saved REQ-G and ARC-G outputs, ingested as two runs.
+
+    The real fixture, not a minimal one: it is the only place both directions of
+    the audit are populated at the same time, and it is where the project's own
+    numbers come from.
+    """
+    root = Path(__file__).resolve().parents[1] / "data" / "output"
+    req_path, arch_path = root / "test_req_prd.json", root / "test_arch.json"
+    if not req_path.exists() or not arch_path.exists():
+        pytest.skip("saved extraction fixtures are absent")
+
+    def payload(path):
+        blob = json.loads(path.read_text())
+        return (
+            {k: v for k, v in blob.items() if k not in ("metadata", "case", "input_file")},
+            dict(blob.get("metadata", {})),
+        )
+
+    documents = {"requirements": payload(req_path), "architecture": payload(arch_path)}
+
+    from app import create_app
+
+    class SavedOutputs:
+        """Stands in for the agent stack, answering per document type."""
+
+        def __call__(self, doc_type):
+            return self
+
+        def run(self, input_data):
+            output, metadata = documents[input_data.get("document_type") or "requirements"]
+            return FakeResult(output, metadata)
+
+    application = create_app(
+        {"TESTING": True, "STORE_ROOT": str(store_root), "REVIEWER": "tester"},
+        store_root=str(store_root),
+        extractor_factory=SavedOutputs(),
+    )
+    client = application.test_client()
+    client.post("/ingest", data={"text": "x" * 200, "type": "requirements"})
+    client.post("/ingest", data={"text": "y" * 200, "type": "architecture"})
     return client
 
 
@@ -594,12 +715,16 @@ def test_reconcile_page_lists_proposals(reconcile_client):
 
 def test_api_reconcile_returns_json(reconcile_client):
     payload = reconcile_client.get("/api/reconcile").get_json()
-    assert payload["summary"]["total"] == 3
-    assert payload["summary"]["resolvable"] == 2
+    # Three cross-graph references exist in the fixture. The
+    # `implements_requirement` one cites `FR-PM-001`, the key the requirements
+    # document issued for a requirement it also declares, so it is already a link
+    # and never reaches the queue. That leaves the capability (resolvable) and
+    # the goal (no candidate of the expected kind).
+    assert payload["summary"]["total"] == 2
+    assert payload["summary"]["resolvable"] == 1
     assert payload["summary"]["no_candidate"] == 1
     assert {row["predicate"] for row in payload["rows"]} == {
         "supports_capability",
-        "implements_requirement",
         "traces_to_goal",
     }
 
@@ -612,13 +737,13 @@ def test_bulk_resolve_binds_everything_above_the_threshold(reconcile_client, loa
         follow_redirects=True,
     )
 
-    assert b"Resolved 2 of 3" in response.data
+    assert b"Resolved 1 of 2" in response.data
     assert b"1 with no candidate of the expected kind" in response.data
-    assert len(load_working().unresolved_references()) == before - 2
+    assert len(load_working().unresolved_references()) == before - 1
 
 
 def test_bulk_resolve_respects_a_stricter_threshold(reconcile_client, load_working):
-    """At 1.0 only the document-key match qualifies; wording alone does not."""
+    """At 1.0 only an exact match qualifies; wording alone does not."""
     reconcile_client.post(
         "/reconcile/bulk",
         data={"bulk_scope": "threshold", "threshold": "1.0"},
@@ -626,12 +751,17 @@ def test_bulk_resolve_respects_a_stricter_threshold(reconcile_client, load_worki
     )
 
     graph = load_working()
-    linked = [
+    cited = [
         a
         for a in graph.active()
-        if a.predicate == "implements_requirement" and a.object == REQUIREMENT_NODE
+        if a.predicate == "implements_requirement" and a.value == "FR-PM-001"
     ]
-    assert linked, "the external-reference match must resolve at any threshold"
+    # Bound before any pass ran: an `implements_*` citation of a requirement key
+    # is identity, not a proposal to accept. The literal is kept for lineage, so
+    # what proves the binding is that it is not an open reference any more.
+    assert cited, "the requirement-key citation must still be in the graph"
+    assert all(a not in graph.unresolved_references() for a in cited)
+    # Nothing else bound at 1.0, where the lexical capability match scores 0.92.
     still_open = {a.predicate for a in graph.unresolved_references()}
     assert "supports_capability" in still_open
 

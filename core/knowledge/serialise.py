@@ -142,6 +142,7 @@ def run_to_dict(r: ExtractionRun) -> Dict[str, Any]:
     return {
         "id": r.id,
         "document_ref": r.document_ref,
+        "document_type": r.document_type,
         "document_hash": r.document_hash,
         "document_chars": r.document_chars,
         "model_id": r.model_id,
@@ -158,6 +159,7 @@ def run_from_dict(data: Dict[str, Any]) -> ExtractionRun:
     return ExtractionRun(
         id=data["id"],
         document_ref=data.get("document_ref") or "",
+        document_type=data.get("document_type") or "",
         document_hash=data.get("document_hash") or "",
         document_chars=int(data.get("document_chars") or 0),
         model_id=data.get("model_id") or "",
@@ -217,6 +219,7 @@ def graph_to_dict(graph: KnowledgeGraph) -> Dict[str, Any]:
         "parent_version_id": graph.parent_version_id,
         "label": graph.label,
         "nodes": {nid: node_to_dict(n) for nid, n in graph.nodes.items()},
+        "declared_by": dict(graph.declared_by),
         "assertions": {aid: assertion_to_dict(a) for aid, a in graph.assertions.items()},
         "runs": {rid: run_to_dict(r) for rid, r in graph.runs.items()},
     }
@@ -241,6 +244,13 @@ def graph_from_dict(data: Dict[str, Any]) -> KnowledgeGraph:
         graph.assertions[aid] = assertion_from_dict(ad)
     for rid, rd in (data.get("runs") or {}).items():
         graph.runs[rid] = run_from_dict(rd)
+    # Absent in revisions written before the side was recorded; an empty map makes
+    # those nodes "unknown side", which is the conservative reading.
+    graph.declared_by = {
+        str(nid): str(side)
+        for nid, side in (data.get("declared_by") or {}).items()
+        if nid and side
+    }
     return graph
 
 

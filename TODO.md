@@ -3,7 +3,7 @@
 
 Open work only. Each item is one file under `docs/todos/entries/` — that file is the source of truth and this index is generated from it.
 
-**14 active · 1 parked · 2 superseded · 11 closed records**
+**14 active · 1 parked · 2 superseded · 12 closed records**
 
 | Where | What |
 |---|---|
@@ -19,7 +19,6 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 
 | ID | Item | Status | Area |
 |---|---|---|---|
-| [YB-005](docs/todos/entries/YB-005-arcg-reqg-linkage.md) | ARC-G ⇄ REQ-G linkage — Initiative-scoped reconciliation | in-progress | `agents/knowledge_extraction/`, `agents/architecture_extraction/`, ontology, `core/knowledge/ingest.py` |
 | [YB-012](docs/todos/entries/YB-012-c4-notation-parser.md) | C4 notation parser — deterministic extraction from structured architecture sources | open | new `agents/extraction/c4_parser.py`, integration with architecture extraction agent |
 
 ## High
@@ -34,6 +33,7 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [YB-023](docs/todos/entries/YB-023-requirements-completeness-reporting.md) | Requirements extraction never reports completeness — so REQ-G can never be audited | open | `agents/knowledge_extraction/agent.py`, `core/knowledge/ingest.py` |
 | [YB-024](docs/todos/entries/YB-024-requirements-graph-view.md) | Graph view — cover the requirements graph, not only C4 | open | `app/viewpoints/`, `app/projections.py`, `app/templates/` |
 | [YB-026](docs/todos/entries/YB-026-asynchronous-progress.md) | Asynchronous progress — stream pass and tool-call completion to the view | open | `app/__init__.py` (ingest route), `app/templates/ingest.html`, `agents/extraction/passes.py`, `agents/knowledge_extraction/agent.py` |
+| [YB-027](docs/todos/entries/YB-027-semantic-reference-matching.md) | Semantic reference matching — bridge the paraphrase the deterministic scorer cannot | open | `core/knowledge/reconcile.py`, possibly `core/knowledge/realization.py`, `app/` |
 
 ## Medium
 
@@ -62,6 +62,12 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [YB-019a](docs/todos/entries/YB-019a-deterministic-identifier-capture.md) | Deterministic identifier capture — stop asking the model to copy literals | superseded | new extraction pass in `agents/extraction/`, `core/knowledge/ingest.py`, `agents/knowledge_extraction/agent.py` |
 | [YB-019b](docs/todos/entries/YB-019b-deterministic-identifier-capture-rescoped.md) | Deterministic identifier capture — re-scoped, largely obviated by the ADR-0001 fix | superseded | `agents/extraction/`, `core/knowledge/ingest.py` |
 
+## Closed, retained for follow-ups
+
+| ID | Item | Record |
+|---|---|---|
+| [YB-005](docs/todos/entries/YB-005-arcg-reqg-linkage.md) | ARC-G ⇄ REQ-G linkage — Initiative-scoped reconciliation | [ADR-0012-req-arc-reconciliation-inversion](docs/decisions/ADR-0012-req-arc-reconciliation-inversion.md) |
+
 ## Closed work — records
 
 | ADR | Decision | Date | Legacy |
@@ -77,5 +83,6 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [ADR-0009](docs/decisions/ADR-0009-move-domain-layer-to-core.md) | Move the shared domain layer out of agents/ into core/ | 2026-09-22 | item 17 |
 | [ADR-0010](docs/decisions/ADR-0010-predicate-vocabulary.md) | Predicate vocabulary — the relationship names were never sent | 2026-09-23 | item 21 |
 | [ADR-0011](docs/decisions/ADR-0011-deterministic-quality-classification.md) | Deterministic quality classification and identifier recovery | 2026-09-23 | item 22 |
+| [ADR-0012](docs/decisions/ADR-0012-req-arc-reconciliation-inversion.md) | REQ ⇄ ARC reconciliation — both directions, and the citation rule | 2026-09-24 | item — |
 
 The index is generated from the entries — do not edit `TODO.md` by hand.

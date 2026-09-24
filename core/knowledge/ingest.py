@@ -26,6 +26,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from .model import (
     CROSS_GRAPH_PREDICATES,
     MANAGED_REFERENCE_TYPES,
+    REQUIREMENT_KINDS,
     RUN_COMPLETE,
     RUN_FAILED,
     RUN_PARTIAL,
@@ -41,6 +42,7 @@ from .model import (
     PassRecord,
     Provenance,
     document_reference,
+    ontology_class_for_predicate,
     utc_now,
 )
 
@@ -57,6 +59,19 @@ def _run_id(document_ref: str, document_text: str, model_id: str) -> str:
 def _document_hash(text: str) -> str:
     import hashlib
     return hashlib.sha1(text.encode("utf-8")).hexdigest()[:16]
+
+
+def _document_type(metadata: Dict[str, Any]) -> str:
+    """The kind of document a run read, normalised to `requirements`/`architecture`.
+
+    The extraction output carries `document_type` (the extractor is told which
+    profile to run), so this is the one place that knows which SIDE of the
+    reconciliation a run's nodes belong to. Anything else — a missing field, an
+    unexpected value — is recorded verbatim but classifies as neither side:
+    guessing that a document is an architecture one is how a requirement ends up
+    ranked as if it were an answer to itself.
+    """
+    return str(metadata.get("document_type") or "").strip().lower()
 
 
 # ============================================================================
@@ -129,7 +144,15 @@ def _typed_external_refs(
     for key in ("requirement_id", "external_id"):
         value = record.get(key)
         if value:
-            refs.append(document_reference(str(value), document_ref))
+            # Typed `REQUIREMENT_KEY` even though it stays DOCUMENT-scoped, and
+            # the type is load-bearing: it is what distinguishes the requirements
+            # document's own key from any other label it happens to contain. An
+            # `implements_*` citation of this identifier is identity rather than
+            # resemblance (see `reference_targets_a_node`), while a shared heading
+            # typed `OTHER` remains evidence a human must accept.
+            ref = document_reference(str(value), document_ref)
+            ref.reference_type = "REQUIREMENT_KEY"
+            refs.append(ref)
 
     deduped: List[ExternalReference] = []
     for ref in refs:
@@ -143,10 +166,51 @@ def _typed_external_refs(
     return deduped
 
 
+def _ref_texts(raw: Any) -> List[str]:
+    """Reference values as plain strings, from either shape a profile emits.
+
+    A reference list may arrive as bare strings, as typed reference dicts, or as
+    nested lists. Flattening it here keeps the ingest loops from each growing
+    their own slightly-different idea of what a reference looks like.
+    """
+    values: List[str] = []
+
+    def walk(value: Any) -> None:
+        if value is None:
+            return
+        if isinstance(value, str):
+            text = value.strip()
+            if text:
+                values.append(text)
+            return
+        if isinstance(value, dict):
+            text = str(value.get("identifier") or value.get("id") or value.get("reference") or "").strip()
+            if text:
+                values.append(text)
+            return
+        if isinstance(value, (list, tuple, set)):
+            for item in value:
+                walk(item)
+
+    walk(raw)
+    return values
+
+
 def _collect_declared_nodes(
-    graph: KnowledgeGraph, output: Dict[str, Any], document_ref: str = ""
+    graph: KnowledgeGraph,
+    output: Dict[str, Any],
+    document_ref: str = "",
+    document_type: str = "",
 ) -> Dict[str, str]:
-    """Create nodes from explicit collections. Returns label -> node id."""
+    """Create nodes from explicit collections. Returns label -> node id.
+
+    Every declared node id is also recorded on the graph as having come from THIS
+    document (`declared_by`). Which side of the reconciliation a node is on is a
+    property of where it was read from, and a declared-but-never-described node —
+    a requirement extracted with no triples at all — has no assertion to infer
+    that from. Recording it at declaration is what makes the side knowable for
+    exactly the nodes whose absence of claims the audit cares about.
+    """
     by_label: Dict[str, str] = {}
 
     def declare(
@@ -160,6 +224,7 @@ def _collect_declared_nodes(
             return
         nid = graph.add_node(kind, label, external_refs, external_references)
         by_label.setdefault(label.lower(), nid)
+        graph.declared_by[nid] = document_type
 
     # Architecture profile
     for e in output.get("elements", []) or []:
@@ -256,6 +321,7 @@ def graph_from_extraction(
     run = ExtractionRun(
         id=_run_id(document_ref, document_text, model_id),
         document_ref=document_ref,
+        document_type=_document_type(metadata),
         document_hash=_document_hash(document_text) if document_text else "",
         document_chars=int(metadata.get("document_chars") or len(document_text)),
         model_id=model_id,
@@ -288,7 +354,9 @@ def graph_from_extraction(
             domain_pack=domain_pack,
         )
 
-    by_label = _collect_declared_nodes(graph, output, document_ref)
+    by_label = _collect_declared_nodes(
+        graph, output, document_ref, run.document_type
+    )
 
     # ---- structural facts: description, classification, responsibilities ----
     for e in output.get("elements", []) or []:
@@ -428,47 +496,20 @@ def graph_from_extraction(
             gid = _resolve(graph, governed, by_label)
             graph.add_assertion(gid, "conforms_to", obj=cid, confidence=1.0, provenance=p)
 
-    # ---- triples ----
-    for t in output.get("triples", []) or []:
-        if not isinstance(t, dict):
-            continue
-        subject = (t.get("subject") or "").strip()
-        predicate = (t.get("predicate") or "").strip()
-        obj = (t.get("object") or "").strip()
-        if not (subject and predicate):
-            continue
-
-        sid = _resolve(graph, subject, by_label)
-        p = prov("triples")
-        p.asserted_at = run.completed_at
-        confidence = float(t.get("confidence") or 0.0)
-        source_text = t.get("source_text") or ""
-        ontology_class = t.get("ontology_class")
-
-        if predicate in CROSS_GRAPH_PREDICATES:
-            # A reference into another graph — keep it literal so reconciliation
-            # can find it. Do NOT invent a local node.
-            graph.add_assertion(sid, predicate, value=obj, confidence=confidence,
-                                source_text=source_text, ontology_class=ontology_class,
-                                provenance=p)
-        else:
-            oid = _resolve(graph, obj, by_label)
-            graph.add_assertion(sid, predicate, obj=oid, confidence=confidence,
-                                source_text=source_text, ontology_class=ontology_class,
-                                provenance=p)
-
     # ---- traceability references (architecture profile) ----
     for r in output.get("references", []) or []:
         if not isinstance(r, dict):
             continue
         eid = _resolve(graph, r.get("element") or "", by_label)
+        predicate = (r.get("relationship") or "implements_requirement").strip()
         p = prov("traceability")
         graph.add_assertion(
-            eid, (r.get("relationship") or "implements_requirement").strip(),
+            eid, predicate,
             value=(r.get("reference") or "").strip(),
             confidence=float(r.get("confidence") or 0.8),
             source_text=r.get("source_text") or "",
-            provenance=p,
+            ontology_class=ontology_class_for_predicate(predicate),
+            provenance=p, scope=default_scope, initiative_id=initiative_id,
         )
 
     # ---- initiative scoping links ----
@@ -482,7 +523,10 @@ def graph_from_extraction(
         if init_id:
             iid = _resolve(graph, init_id, by_label, "Initiative")
             p = prov("structure")
-            graph.add_assertion(nid, "delivers_initiative", obj=iid, confidence=1.0, provenance=p, scope=default_scope, initiative_id=initiative_id)
+            graph.add_assertion(nid, "delivers_initiative", obj=iid, confidence=1.0,
+                                ontology_class="InitiativeDelivery",
+                                provenance=p, scope=default_scope,
+                                initiative_id=initiative_id)
 
     for e in output.get("entities", []) or []:
         if not isinstance(e, dict):
@@ -502,7 +546,10 @@ def graph_from_extraction(
         for init_id in init_ids:
             iid = _resolve(graph, init_id, by_label, "Initiative")
             p = prov("triples")
-            graph.add_assertion(nid, "authorised_by_initiative", obj=iid, confidence=1.0, provenance=p, scope=default_scope, initiative_id=initiative_id)
+            graph.add_assertion(nid, "authorised_by_initiative", obj=iid, confidence=1.0,
+                                ontology_class="RequirementAuthorization",
+                                provenance=p, scope=default_scope,
+                                initiative_id=initiative_id)
 
         # ---- quality classification of an NFR ----
         #
@@ -525,6 +572,99 @@ def graph_from_extraction(
                 graph.add_assertion(nid, attr, value=str(e[attr]),
                                     confidence=1.0, provenance=p,
                                     scope=default_scope, initiative_id=initiative_id)
+
+        # ---- requirement classification (BUSINESS / FUNCTIONAL / …) ----
+        #
+        # Extracted since the schema existed and dropped here, which is why
+        # `requirement_type` was null on every requirement in REQ-G as well as on
+        # every architecture triple. Gated on the node being a Requirement: a
+        # `DomainConcept` or `Stakeholder` record carries the requirement's
+        # classification as document context, not as a property of itself, and
+        # asserting it on the node would state something the document never said.
+        node = graph.nodes.get(nid)
+        if e.get("requirement_type") and node is not None and node.kind in REQUIREMENT_KINDS:
+            p = prov("triples")
+            graph.add_assertion(nid, "requirement_type", value=str(e["requirement_type"]),
+                                confidence=1.0, provenance=p,
+                                scope=default_scope, initiative_id=initiative_id)
+
+        # ---- cross-graph references the requirements side makes ----
+        #
+        # The counterpart of the architecture profile's `references`: a
+        # requirement document may cite the capabilities or systems it belongs
+        # to. Kept literal for the same reason as every other cross-graph edge,
+        # and emitted only when the record carries one — the current extraction
+        # profile does not, so this changes nothing on today's output while
+        # removing the assumption that only architecture ever references outward.
+        p = None
+        for key in ("requirement_refs", "implements_requirements"):
+            for ref in _ref_texts(e.get(key)):
+                p = p or prov("triples")
+                graph.add_assertion(nid, "implements_requirement", value=ref,
+                                    confidence=float(e.get("confidence") or 0.8),
+                                    source_text=str(e.get("source_text") or ""),
+                                    ontology_class="RequirementRealization",
+                                    provenance=p, scope=default_scope,
+                                    initiative_id=initiative_id)
+
+    # ---- triples ----
+    #
+    # LAST, deliberately. A triple's cross-graph target is kept as a literal, and
+    # whether that literal already names a node can only be decided once every
+    # declared node exists — including the requirement nodes the entity loop above
+    # creates. Running this section earlier is why an `implements_requirement`
+    # reference to a requirement's own `requirement_id` looked unresolved at
+    # ingest and had to be reconciled by hand. `_collect_declared_nodes` declares
+    # the entities, but only the loop above gives them their identifiers and
+    # `requirement_type`, so this order is the one that leaves every fact present.
+    for t in output.get("triples", []) or []:
+        if not isinstance(t, dict):
+            continue
+        subject = (t.get("subject") or "").strip()
+        predicate = (t.get("predicate") or "").strip()
+        obj = (t.get("object") or "").strip()
+        if not (subject and predicate):
+            continue
+
+        sid = _resolve(graph, subject, by_label)
+        p = prov("triples")
+        p.asserted_at = run.completed_at
+        confidence = float(t.get("confidence") or 0.0)
+        source_text = t.get("source_text") or ""
+        ontology_class = t.get("ontology_class") or ontology_class_for_predicate(predicate)
+
+        if predicate in CROSS_GRAPH_PREDICATES:
+            # A reference into another graph — keep it literal so reconciliation
+            # can find it. Do NOT invent a local node.
+            #
+            # Scope is left at the model default (an Initiative proposal) rather
+            # than forced to this run's default: a triple is the document's own
+            # claim, and `promote_to_baseline` promotes exactly the
+            # Initiative-scoped facts a reviewer has vetted. Stamping the run's
+            # scope here would silently mark unreviewed triples as baseline.
+            graph.add_assertion(sid, predicate, value=obj, confidence=confidence,
+                                source_text=source_text, ontology_class=ontology_class,
+                                provenance=p, initiative_id=initiative_id)
+        else:
+            oid = _resolve(graph, obj, by_label)
+            graph.add_assertion(sid, predicate, obj=oid, confidence=confidence,
+                                source_text=source_text, ontology_class=ontology_class,
+                                provenance=p, initiative_id=initiative_id)
+
+        # `requirement_type` qualifies the SUBJECT when the subject is a
+        # requirement, and nothing else. On an architecture triple it names the
+        # requirements document's own vocabulary, not a property of the container
+        # the triple is about — which is why leaving it out is preferable to
+        # asserting it broadly "because the field was there".
+        subj_node = graph.nodes.get(sid)
+        if (
+            t.get("requirement_type")
+            and subj_node is not None
+            and subj_node.kind in REQUIREMENT_KINDS
+        ):
+            graph.add_assertion(sid, "requirement_type", value=str(t["requirement_type"]),
+                                confidence=confidence, source_text=source_text,
+                                provenance=p, initiative_id=initiative_id)
 
     return graph, run
 
@@ -629,6 +769,12 @@ def merge_graphs(base: KnowledgeGraph, incoming: KnowledgeGraph) -> KnowledgeGra
     # Runs accumulate: each extraction stays attributable after a later one lands.
     for run in incoming.runs.values():
         merged.runs[run.id] = run
+
+    # Which document declared a node is a fact about the knowledge, not about the
+    # snapshot it arrived in: dropping it on merge would make a merged graph's
+    # cross-graph ordering depend on whether it had been re-saved.
+    for nid, side in incoming.declared_by.items():
+        merged.declared_by.setdefault(nid, side)
 
     for a in incoming.assertions.values():
         folded = merged.add_assertion(

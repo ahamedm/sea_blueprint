@@ -10,7 +10,7 @@
 | 2 | Test and use Strands structured output with the new model | [ADR-0003](../decisions/ADR-0003-structured-output.md) | record |
 | 3 | Relationship extraction returns 0 with the new model | [ADR-0004](../decisions/ADR-0004-relationships-from-predicates.md) | record |
 | 4 | Model output is not structurally stable across runs | [YB-004](entries/YB-004-model-output-not-structurally-stable.md) | entry (open) |
-| 5 | ARC-G ⇄ REQ-G linkage — Initiative-scoped reconciliation | [YB-005](entries/YB-005-arcg-reqg-linkage.md) | entry (in-progress) |
+| 5 | ARC-G ⇄ REQ-G linkage — Initiative-scoped reconciliation | [YB-005](entries/YB-005-arcg-reqg-linkage.md) | entry (done) |
 | 6 | Extract from C4 Structurizr (model / DSL), not just prose | [YB-006](entries/YB-006-c4-structurizr-importer.md) | entry (open) |
 | 7 | Prompt scaffolding now exceeds the document 2.5:1 — instruction dilution | [YB-007](entries/YB-007-prompt-scaffolding-instruction-dilution.md) | entry (open) |
 | 8 | Team / Organisational Unit construct (PARKED) | [YB-008](entries/YB-008-team-organisational-unit.md) | entry (parked) |
@@ -33,3 +33,5 @@
 | 24 | Graph view — cover the requirements graph, not only C4 | [YB-024](entries/YB-024-requirements-graph-view.md) | entry (open) |
 | 25 | Dedicated C4 specification view — text notation plus rendered diagram | [YB-025](entries/YB-025-c4-specification-view.md) | entry (open) |
 | 26 | Asynchronous progress — stream pass and tool-call completion to the view | [YB-026](entries/YB-026-asynchronous-progress.md) | entry (open) |
+| — | REQ ⇄ ARC reconciliation — both directions, and the citation rule | [ADR-0012](../decisions/ADR-0012-req-arc-reconciliation-inversion.md) | record |
+| None | Semantic reference matching — bridge the paraphrase the deterministic scorer cannot | [YB-027](entries/YB-027-semantic-reference-matching.md) | entry (open) |

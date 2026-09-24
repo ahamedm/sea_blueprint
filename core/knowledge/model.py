@@ -128,6 +128,53 @@ CROSS_GRAPH_PREDICATES = frozenset({
 })
 
 
+# Node kinds that ARE requirements. One definition, because three places need to
+# agree on it: reconciliation scopes `implements_*` targets to these kinds,
+# ingest only classifies a record's `requirement_type` when its kind is here, and
+# the realization report lists exactly these as the requirement side. Three
+# copies would drift and the drift would be silent — a requirement that quietly
+# stops being reported as uncovered.
+REQUIREMENT_KINDS = frozenset({
+    "Requirement",
+    "BusinessRequirement",
+    "FunctionalRequirement",
+    "NonFunctionalRequirement",
+    "ConstraintRequirement",
+    "PlatformExtensibilityRequirement",
+    "PlatformMultiTenancyRequirement",
+    "PlatformCompatibilityRequirement",
+})
+
+
+# The ontology class each cross-graph predicate realizes, when the predicate
+# itself implies one. Declared next to the predicate set so ingest (writing the
+# extraction-time reference) and reconciliation (writing the bound link) cannot
+# disagree about what an `implements_*` edge IS.
+PREDICATE_ONTOLOGY_CLASS = {
+    # `implements_*` bound to a requirement IS the ontology's
+    # RequirementRealization — the REQ<->ARC join, modelled as a first-class
+    # resource precisely so the link can carry evidence and a coverage verdict.
+    "implements_requirement": "RequirementRealization",
+    "implements_functional_requirement": "RequirementRealization",
+    "implements_non_functional_requirement": "RequirementRealization",
+    # Authorization: the Initiative scoping edges that make the cross-graph join
+    # tractable when requirement identifiers are lost or paraphrased.
+    "delivers_initiative": "InitiativeDelivery",
+    "authorised_by_initiative": "RequirementAuthorization",
+}
+
+
+def ontology_class_for_predicate(predicate: str) -> Optional[str]:
+    """The class a cross-graph predicate's edge realizes, or None.
+
+    Only meaningful for predicates in `CROSS_GRAPH_PREDICATES`; an ordinary local
+    edge carries whatever class extraction gave it.
+    """
+    if predicate not in CROSS_GRAPH_PREDICATES:
+        return None
+    return PREDICATE_ONTOLOGY_CLASS.get(predicate)
+
+
 # Provenance sources that outrank agent output on conflict.
 HUMAN_SOURCES = frozenset({
     SOURCE_HUMAN_ARCHITECT, SOURCE_HUMAN_ANALYST, SOURCE_HUMAN_REVIEWER,
@@ -257,6 +304,14 @@ class ExtractionRun:
 
     id: str
     document_ref: str = ""
+    # What KIND of document this run read — `requirements` or `architecture`.
+    # Recorded because reconciliation has to tell the two sides apart: a
+    # cross-graph predicate claims its referent lives in the OTHER graph, so a
+    # candidate from the opposite side outranks one from the same side. Without
+    # this the side was unknowable and every candidate was ranked on wording
+    # alone. Empty means "not recorded" (older revisions) and is not treated as
+    # either side.
+    document_type: str = ""
     document_hash: str = ""
     document_chars: int = 0
     model_id: str = ""
@@ -468,13 +523,111 @@ class Node:
         return data
 
 
+# Predicates under which citing a document-local identifier IS identity.
+#
+# A requirements document numbers its requirements; an architecture document that
+# cites `FR-PM-001` is quoting that key, not inventing one. Restricted to the
+# `implements_*` family, which asserts exactly that ("this architecture answers
+# THAT requirement"). Every other cross-graph predicate joins on meaning, where a
+# shared label across two documents is a coincidence to assess rather than a fact.
+#
+# Defined here because BOTH the matcher (which may return a definitive score) and
+# the graph queries (which decide whether a reference already names a node) need
+# it, and two copies would drift into two different answers to "is this bound?".
+IDENTITY_BY_CITATION_PREDICATES = frozenset(
+    {
+        "implements_requirement",
+        "implements_functional_requirement",
+        "implements_non_functional_requirement",
+    }
+)
+
+
+def reference_targets_a_node(graph: "KnowledgeGraph", a: Assertion) -> Optional[Node]:
+    """The node a cross-graph reference ALREADY names, or None.
+
+    Three ways a reference can name a node, and all three count:
+
+    1. **It holds the node id** — a bound link, the shape reconciliation writes.
+    2. **Its text equals a node's label.** Ingest keeps a cross-graph target as a
+       literal because it refuses to invent a local node for it; when a node with
+       exactly that label already exists, the reference is a link in substance and
+       there is nothing to reconcile. Refusing to see that reported working links
+       as unresolved — and it is why the label check has always been here.
+    3. **Its text equals a node's external identifier, under an `implements_*`
+       predicate** (`IDENTITY_BY_CITATION_PREDICATES`). This is the citation case:
+       `implements_requirement -> FR-PM-001` names the requirement carrying
+       `FR-PM-001` as its key. Without it, a verbatim-preserved requirement id
+       could still not join across documents, which was the defect this item
+       existed to fix.
+
+    When more than one node carries the identifier, the strongest claim wins: a
+    key held in a system of record outranks one numbered by a document. Only then
+    does document order decide, and a wrong pick stays reviewable and reversible.
+
+    Shared by `KnowledgeGraph.unresolved_references`, the matcher and the
+    realization report so they cannot disagree about whether a claim is bound.
+    """
+    if a.object:
+        return graph.nodes.get(a.object)
+
+    text = (a.value or "").strip().lower()
+    if not text:
+        return None
+
+    for node in graph.nodes.values():
+        if node.label.strip().lower() == text:
+            return node
+
+    if a.predicate not in IDENTITY_BY_CITATION_PREDICATES:
+        return None
+
+    # Requirement kinds only, and only a REQUIREMENT_KEY: the predicate's range
+    # says the referent IS a requirement, and the reference type decides whether
+    # the identifier is one. An identifier the architecture profile recorded as a
+    # plain document label (`OTHER`) is a string two documents may legitimately
+    # share, so it stays evidence. Without this the citation rule would bind on
+    # any shared identifier — the confident wrong join this module was typed to
+    # prevent — and would reach across kinds as well.
+    #
+    # A key held in a system of record wins over a document-local one, because two
+    # nodes really can carry `FR-PM-001` (one in Jira, one numbered by a brief)
+    # and the enterprise key is the stronger claim. Only then does document order
+    # decide, and a wrong pick stays reviewable and reversible.
+    matches = [
+        node
+        for node in graph.nodes.values()
+        if node.kind in REQUIREMENT_KINDS
+        and any(
+            ref.identifier.strip().lower() == text
+            and ref.reference_type.strip().upper() == "REQUIREMENT_KEY"
+            for ref in node.external_references
+        )
+    ]
+    if not matches:
+        return None
+    matches.sort(key=lambda node: min(
+        (0 if ref.is_join_key else 1)
+        for ref in node.external_references
+        if ref.identifier.strip().lower() == text
+    ))
+    return matches[0]
+
+
 @dataclass
 class KnowledgeGraph:
     """The canonical form. Everything else derives from this."""
-
     nodes: Dict[str, Node] = field(default_factory=dict)
     assertions: Dict[str, Assertion] = field(default_factory=dict)
     runs: Dict[str, ExtractionRun] = field(default_factory=dict)
+    # node id -> the `document_type` of the run that DECLARED it. Which side of
+    # the cross-graph reconciliation a node belongs to is a property of where it
+    # was read from, not of the node, and a requirement extracted without a
+    # single triple has no assertion to infer that from — so it is recorded at
+    # declaration. Empty for nodes that were only ever inferred from a triple
+    # endpoint, which is honest: we know they were mentioned, not what declared
+    # them.
+    declared_by: Dict[str, str] = field(default_factory=dict)
     
     # Versioning fields for the "Living System"
     version_id: str = ""                # Unique ID for this graph state (e.g., hash or UUID)
@@ -631,15 +784,18 @@ class KnowledgeGraph:
         kept as a reference rather than turned into a local node, so an earlier
         version of this query (which checked only `object`) reported zero while
         nine references sat there unresolvable.
+
+        "Not a node" is decided by `reference_targets_a_node`, the same rule the
+        realization report uses. Two rules would eventually disagree, and the
+        disagreement would be a claim that is unresolved to one reader and bound
+        to the other — exactly the pair of readings this module exists to keep
+        apart.
         """
-        labels = {n.label.strip().lower() for n in self.nodes.values()}
-        ids = set(self.nodes)
         out = []
         for a in self.active():
             if a.predicate not in CROSS_GRAPH_PREDICATES:
                 continue
-            target = a.target
-            if target in ids or target.strip().lower() in labels:
+            if reference_targets_a_node(self, a) is not None:
                 continue
             out.append(a)
         return out

@@ -39,10 +39,10 @@ INGEST ──▶ REVIEW ──▶ RECONCILE ──▶ COMMIT ──▶ FREEZE �
 | **Project** | `/` | see the state of the graph: counts, completeness, what still needs attention |
 | **Ingest** | `/ingest` | upload or paste a document; choose requirements vs architecture |
 | **Review** | `/review` | confirm, correct, dispute or reopen individual assertions |
-| **Reconcile** | `/reconcile` | bind unresolved cross-graph references to the nodes they mean |
+| **Reconcile** | `/reconcile` | bind unresolved cross-graph references to the nodes they mean, and see how much of the requirement side they answer |
 | **Change management** | `/changes` | commit revisions, freeze a baseline, promote to baseline, read the audit trail |
 | **Diff** | `/changes/diff` | see what a run added, changed or removed before accepting it |
-| **Gaps** | `/gaps` | unresolved references, dangling assertions, completeness — and whether absence is even meaningful |
+| **Gaps** | `/gaps` | unresolved references, **requirements with no architectural answer**, architecture claiming what never bound, dangling assertions, completeness — and whether absence is even meaningful |
 | **C4 view** | `/c4` | the architecture as a C4 viewpoint (context / container / component) |
 
 `/ontology` is deliberately not in that table: it is a **reference**, not a stage
@@ -98,8 +98,23 @@ is the opposite act: a deliberate, recorded decision that the referent is known.
 ### The machine proposes, the human decides
 
 Candidate matching is deterministic and explainable, with the reason recorded:
-`exact`, `external_ref` (the document's own stable key), `contains`, `tokens`.
+`exact`, `external_ref` (a key a system of record holds), `citing_document_key`
+(the requirements document's own `requirement_id`, quoted by an
+`implements_*` reference — identity, not resemblance), `contains`, `tokens`.
 Nothing is bound without an explicit threshold, and **never across kinds**.
+
+Two *ordering* signals refine the proposal list without touching the scores, and
+both are inert when their evidence is missing:
+
+- **the same Initiative** — the `delivers_initiative` / `authorised_by_initiative`
+  scoping edges, or the run's claim scope
+- **the other graph** — a cross-graph predicate claims its referent lives in the
+  other document, and `ExtractionRun.document_type` is what makes "which side is
+  this node on?" knowable
+
+The threshold groups first, so a wrong Initiative can never displace a defensible
+match: acceptable candidates come before weak ones, and only then does the
+Initiative decide.
 
 Kind scoping is not optional. Measured on the real ARC-G output, unscoped
 best-match picks `Concept:'Card Payment Processing'` (0.94) over the correct
@@ -108,6 +123,12 @@ best-match picks `Concept:'Card Payment Processing'` (0.94) over the correct
 wrong kind of thing. Each predicate therefore declares the kinds it may point at
 (`EXPECTED_TARGET_KINDS`); a candidate outside them is shown as a near miss that a
 human must override deliberately, and bulk resolve ignores them entirely.
+
+A resolved link carries a **confidence band** rather than a flat 1.0: identity
+reasons keep 1.0, a lexical proposal keeps `0.5 + score/2` (0.875 at the 0.75
+threshold), and a target the reviewer picked by hand keeps 1.0. `status=VERIFIED`
+with human provenance is the separate authority claim — the band says how much of
+a risk the *match* was, not who vouched for it.
 
 ### What bulk resolve reports
 
@@ -139,6 +160,10 @@ found", because the fix is upstream.
 
 | | |
 |---|---|
+| Requirements | 22 |
+| Realized (bound answer) | 2 |
+| Unanswered | 20 |
+| Bound realization edges | 9 |
 | Unresolved references | 13 |
 | Resolvable at 0.75 | 1 |
 | Below threshold | 3 |
@@ -150,14 +175,39 @@ saved fixture carries **zero** `requirement_id` values (0 of 54 entities) and no
 `references` entries at all — it predates the ID-preservation work. Reconciliation
 cannot invent what extraction never emitted.
 
+### Both directions, and why one number was not enough
+
+`/gaps` reports the other half. `unresolved_references()` answers
+"architecture → requirement"; it cannot see a requirement nothing ever cited,
+which is a row that only exists if the report starts from the requirement list.
+`core/knowledge/realization.py` reports it, keeping four states apart because the
+fix differs:
+
+| State | Means | Fix |
+|---|---|---|
+| `none` | nothing claims it at all | the architecture document never mentioned it — extraction or scope |
+| `unresolved` | claimed, nothing bound | reconciliation's queue |
+| `partial` | some bound, some open | decide on the open claim |
+| `full` | every claim bound | nothing |
+
+The inverse list — "architecture claiming a requirement that never bound" — is
+either a paraphrase this matcher cannot bridge
+([YB-027](../todos/entries/YB-027-semantic-reference-matching.md)) or a claim about
+a requirement the requirements document never stated, which is a finding in its
+own right. The report also splits `unbound_claims` into those with a proposal and
+those the matcher cannot see, so "waiting for a decision" and "unreachable" are
+not the same statistic.
+
 ### A bug this feature exposed
 
 The requirements profile emits `requirement_id`; ingest read only the architecture
 profile's `external_references`, so the document's own stable key never reached
 the graph. **An identifier the graph does not record cannot be matched on** — the
 strongest signal was structurally unreachable, whatever the extractor did. Fixed
-in `ingest._external_refs`. It is forward-looking for the saved fixture, and
-`test_a_preserved_id_joins_two_documents_end_to_end` proves the path works.
+in `ingest._external_refs`, and completed later by typing the key
+`REQUIREMENT_KEY` and letting an `implements_*` citation resolve against it
+(`reference_targets_a_node`), which is what finally made a preserved identifier
+join across two documents.
 
 ---
 
@@ -205,7 +255,8 @@ review → **commit** → freeze.
 | `core/knowledge/ingest.py` | extraction output → graph; `merge_graphs` graph → graph |
 | `core/knowledge/serialise.py` | graph ↔ JSON, field-complete round trip |
 | `core/knowledge/review.py` | decisions, audit trail, progress, baseline promotion |
-| `core/knowledge/reconcile.py` | reference candidates (match + kind scoping), resolve, bulk resolve |
+| `core/knowledge/reconcile.py` | reference candidates (match, kind scoping, Initiative/side ordering), resolve, bulk resolve |
+| `core/knowledge/realization.py` | **requirement-side audit** — which requirements have an answer, and which architecture claims never bound |
 | `core/knowledge/store.py` | working set, revisions, freezing, diffing |
 | `core/knowledge/rdf.py` | graph → RDF (plain triples + assertion resources) |
 | `core/ontology.py` | **schema reader** — LinkML to a resolved model; no graph, no Flask |
@@ -348,10 +399,14 @@ Recorded so the gaps are choices rather than oversights.
   `Reviewer/Auditor` may be a distinct persona (open question 1 in
   `user-journey.md`).
 - **Reconciliation at scale.** `/reconcile` binds references to nodes that already
-  exist, one accepted match at a time. It does not create a missing target, does not
-  invert the direction (requirements with no architectural answer), and its matching is
-  lexical — no embeddings or model assistance, so a paraphrase with no shared vocabulary
-  will never surface. On the real fixture that leaves 9 of 13 references unresolvable.
+  exist, one accepted match at a time. It does not create a missing target, and it
+  reports both directions (below). Its matching is lexical —
+  no embeddings or model assistance — so a paraphrase with no shared vocabulary
+  will never surface; on the real fixture 9 of 13 references are unreachable, which
+  is [YB-027](../todos/entries/YB-027-semantic-reference-matching.md).
+- **Semantic matching.** The matcher is deterministic and explainable on purpose,
+  which is what lets a reviewer see *why* a link was proposed. Widening it is a
+  change of mechanism, tracked separately.
 - **Semantic audit.** All checks are structural. "Does this design answer this
   requirement?" is not implemented (YB-009).
 - **Correction merge conflicts.** While one document owns a graph, corrections are
@@ -372,15 +427,16 @@ Recorded so the gaps are choices rather than oversights.
 the suite needs no model server.
 
 ```
-.venv/bin/python -m pytest tests/ -q      # 246 tests
+.venv/bin/python -m pytest tests/ -q      # 457 tests
 ```
 
 | File | Covers |
 |---|---|
-| `test_serialise.py` | field-level round trip; `superseded_by` / `status` / provenance survival |
+| `test_serialise.py` | field-level round trip; `superseded_by` / `status` / provenance / `document_type` survival |
 | `test_merge.py` | human corrections survive re-extraction; folding does not duplicate |
 | `test_review.py` | decision semantics, supersession edge cases, bulk selection, promotion gate |
-| `test_reconcile.py` | matching, kind scoping, resolve/bulk semantics, the `requirement_id` path |
+| `test_reconcile.py` | matching, kind scoping, the citation rule, Initiative/side ordering, confidence bands, resolve/bulk semantics |
+| `test_realization.py` | both directions of the audit; coverage states; bound edges point at real requirement nodes |
 | `test_store.py` | working set vs revision vs baseline; the freeze gate; ordering within one second |
 | `test_projections.py` | graph projection, filters and the primitives viewpoints compose |
 | `test_viewpoint_c4.py` | C4 level selection and what the view reports it is hiding |

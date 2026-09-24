@@ -33,6 +33,7 @@ from core.knowledge.model import (
     SOURCE_EXTRACTION,
     STATUS_SUPERSEDED,
     STATUS_VERIFIED,
+    document_reference,
 )
 
 # ============================================================================
@@ -62,9 +63,16 @@ def refs():
                 )
             ],
         ),
-        # The same identifier, but stated only in a source document. Real as a
-        # label, useless as a join key: another document may number its own
-        # requirement FR-PM-001 and mean something else entirely.
+        # Carries a DOCUMENT-scoped key, which is the case that has to be
+        # PROPOSED rather than recognised: the key is a real label, and no
+        # citing document may bind it without review.
+        "pe_requirement": graph.add_node(
+            "NonFunctionalRequirement", "Performance Envelope",
+            external_references=[document_reference("NFR-PE-004", "prd.md")],
+        ),
+        # The same identifier as `keyed`, but stated only in a source document.
+        # Real as a label, useless as a join key: another document may number its
+        # own requirement FR-PM-001 and mean something else entirely.
         "document_local": graph.add_node(
             "FunctionalRequirement", "Payment Acceptance (document-local)",
             external_references=[
@@ -92,6 +100,16 @@ def refs():
         ),
         # resolvable by the document key, not by wording
         "by_key": graph.add_assertion(
+            orchestrator,
+            "implements_requirement",
+            value="NFR-PE-004",
+            confidence=0.5,
+            provenance=prov,
+        ),
+        # A citation of a key whose scope DOES carry match authority: recognised
+        # outright, so it is never offered as a proposal. The counterpart of
+        # `by_key`, and the reason the two cases must both exist in one fixture.
+        "citation": graph.add_assertion(
             orchestrator,
             "implements_requirement",
             value="FR-PM-001",
@@ -244,52 +262,46 @@ def test_requirement_ids_are_recorded_as_external_references():
     assert graph.nodes["nonfunctionalrequirement:latency_budget"].external_refs == ["NFR-PE-004"]
 
 
-def test_a_document_local_id_does_NOT_join_two_documents():
-    """The defect this scoping exists to prevent.
+def test_a_document_local_id_does_NOT_join_a_node_of_another_kind():
+    """The residual risk the citation rule leaves, stated as a test.
 
-    An earlier version treated ANY identifier equal to the target as a definitive
-    match, so `FR-PM-001` from a requirements document silently bound to
-    `FR-PM-001` in an architecture document. Those may be different requirements —
-    each document numbers its own — and a confident wrong join is worse than a
-    missing one, because it makes the audit wrong rather than incomplete.
-
-    The identifier is still reported, as sub-threshold evidence a human can see
-    and accept deliberately.
+    An `implements_*` reference now recognises a requirement document's key
+    wherever it finds it. But the predicate's range is a REQUIREMENT: a
+    document-local identifier carried by a capability or a container is not one,
+    so the reference stays open rather than binding to whatever happens to share
+    the string. And a requirement document is the only side whose numbering
+    `implements_requirement` claims to quote — two documents that each number
+    their own requirements are the ambiguity a human adjudicates.
     """
-    requirements = {
+    architecture_a = {
+        "elements": [{"name": "Payment Orchestrator", "element_type": "Container"}],
+        "triples": [
+            {"subject": "Payment Orchestrator", "predicate": "implements_requirement",
+             "object": "CAP-001", "confidence": 0.6},
+        ],
+    }
+    architecture_b = {
         "entities": [
-            {
-                "name": "Payment Acceptance",
-                "ontology_class": "FunctionalRequirement",
-                "requirement_id": "FR-PM-001",
-            }
+            {"name": "Unified Payment Processing", "ontology_class": "BusinessCapability",
+             "requirement_id": "CAP-001"},
         ],
         "triples": [],
     }
-    architecture = {
-        "elements": [{"name": "Payment Orchestrator", "element_type": "Container"}],
-        "triples": [
-            {
-                "subject": "Payment Orchestrator",
-                "predicate": "implements_requirement",
-                "object": "FR-PM-001",
-                "confidence": 0.6,
-            }
-        ],
-    }
-    req_graph, _ = graph_from_extraction(requirements, document_ref="req.md")
-    arch_graph, _ = graph_from_extraction(architecture, document_ref="arch.md")
-    merged = merge_graphs(req_graph, arch_graph)
+    a_graph, _ = graph_from_extraction(architecture_a, document_ref="arch_a.md")
+    b_graph, _ = graph_from_extraction(architecture_b, document_ref="arch_b.md")
+    merged = merge_graphs(a_graph, b_graph)
 
     proposals = reference_candidates(merged)
     assert len(proposals) == 1
     proposal = proposals[0]
-    # Reported, not hidden — a human can still see why it was proposed.
-    assert proposal.best is not None
-    assert proposal.best.reason == "unscoped_ref"
-    assert proposal.best.score < 1.0
-    # But not resolvable without a deliberate decision.
-    assert proposal.status() == "below_threshold"
+    # Reported, not hidden. Nothing is bound: the capability is not a requirement,
+    # and `CAP-001` carries no lexical resemblance either, so there is no
+    # candidate of the expected kind to accept — only a near miss a reviewer
+    # would have to override deliberately.
+    assert proposal.best is None
+    assert proposal.best_near_miss is not None
+    assert proposal.best_near_miss.kind == "BusinessCapability"
+    assert proposal.status() == "no_candidate"
 
     log = ReviewLog()
     result = bulk_resolve(merged, log, actor="tester")
@@ -297,12 +309,58 @@ def test_a_document_local_id_does_NOT_join_two_documents():
     assert len(merged.unresolved_references()) == 1
 
 
-def test_a_document_local_id_joins_within_its_own_document():
-    """The case the requirement-id path was actually built for.
+def test_a_requirement_key_joins_across_documents_by_citation():
+    """The citation case, and the one the item was opened for.
 
-    One document states both the requirement and its identifier, so the label
+    An architecture document citing `FR-PM-001` is quoting the requirements
+    document's own key — that IS the claim `implements_requirement` makes — so it
+    is a link without a human having to reconcile two documents' numbering
+    schemes. Without this rule a verbatim-preserved requirement id still could
+    not join across documents, which is the defect in full.
+    """
+    requirements = {
+        "entities": [
+            {"name": "Payment Acceptance", "ontology_class": "FunctionalRequirement",
+             "requirement_id": "FR-PM-001"},
+        ],
+        "triples": [],
+    }
+    architecture = {
+        "elements": [{"name": "Payment Orchestrator", "element_type": "Container"}],
+        "triples": [
+            {"subject": "Payment Orchestrator", "predicate": "implements_requirement",
+             "object": "FR-PM-001", "confidence": 0.6},
+        ],
+    }
+    req_graph, _ = graph_from_extraction(
+        requirements, {"document_type": "requirements"}, document_ref="prd.md"
+    )
+    arch_graph, _ = graph_from_extraction(
+        architecture, {"document_type": "architecture"}, document_ref="arch.md"
+    )
+    merged = merge_graphs(req_graph, arch_graph)
+
+    # Nothing left to reconcile: the citation already names the node.
+    assert reference_candidates(merged) == []
+    assert merged.unresolved_references() == []
+
+    from core.knowledge import realization_edges
+
+    edges = realization_edges(merged)
+    assert len(edges) == 1
+    assertion, node = edges[0]
+    assert node.id == "functionalrequirement:payment_acceptance"
+    assert assertion.predicate == "implements_requirement"
+    assert assertion.ontology_class == "RequirementRealization"
+
+
+def test_a_document_local_requirement_key_joins_within_its_own_document():
+    """One document states both the requirement and its identifier, so the label
     genuinely identifies that requirement. Scoping must not throw this away — it
     is the strongest signal available when the source is consistent with itself.
+
+    The named `requirement_id` is the requirements profile's own key, so it binds
+    outright rather than being offered as a sub-threshold suggestion.
     """
     single = {
         "entities": [
@@ -324,21 +382,37 @@ def test_a_document_local_id_joins_within_its_own_document():
     }
     graph, _ = graph_from_extraction(single, document_ref="both.md")
 
-    proposals = reference_candidates(graph)
-    assert len(proposals) == 1
-    assert proposals[0].best.reason == "external_ref"
-    assert proposals[0].best.score == 1.0
-    assert proposals[0].best.node_id == "functionalrequirement:payment_acceptance"
-    assert proposals[0].status() == "resolvable"
-
-    log = ReviewLog()
-    result = bulk_resolve(graph, log, actor="tester")
-    assert len(result.resolved) == 1
+    # Already a link: nothing left to reconcile, and it points at the node
+    # carrying the key.
+    assert reference_candidates(graph) == []
     assert graph.unresolved_references() == []
-    assert (
-        graph.assertions[log.entries[0].replacement_id].ontology_class
-        == "RequirementRealization"
-    )
+
+    from core.knowledge import realization_edges
+
+    edges = realization_edges(graph)
+    assert len(edges) == 1
+    assertion, node = edges[0]
+    assert node.id == "functionalrequirement:payment_acceptance"
+    assert assertion.ontology_class == "RequirementRealization"
+
+    # A document label that is NOT a requirements key still cannot bind itself:
+    # the same words in another document are a different claim.
+    untyped = {
+        "entities": [
+            {
+                "name": "Latency Budget",
+                "ontology_class": "NonFunctionalRequirement",
+                "external_references": [{"identifier": "NFR-PE-004", "system": "prd.md"}],
+            }
+        ],
+        "elements": [{"name": "Payment Orchestrator", "element_type": "Container"}],
+        "triples": [
+            {"subject": "Payment Orchestrator", "predicate": "implements_requirement",
+             "object": "NFR-PE-004", "confidence": 0.6},
+        ],
+    }
+    loose, _ = graph_from_extraction(untyped, document_ref="both.md")
+    assert reference_candidates(loose), "an untyped label must still be proposed"
 
 
 def test_an_enterprise_reference_joins_across_documents():
@@ -375,11 +449,16 @@ def test_an_enterprise_reference_joins_across_documents():
     arch_graph, _ = graph_from_extraction(architecture, document_ref="arch.md")
     merged = merge_graphs(req_graph, arch_graph)
 
-    proposals = reference_candidates(merged)
-    assert len(proposals) == 1
-    assert proposals[0].best.reason == "external_ref"
-    assert proposals[0].best.score == 1.0
-    assert proposals[0].status() == "resolvable"
+    # An enterprise key is recognised outright — that is the whole reason the
+    # typed reference exists — so there is nothing to propose and nothing to
+    # review before the link is usable.
+    assert reference_candidates(merged) == []
+    assert merged.unresolved_references() == []
+
+    from core.knowledge import realization_edges
+
+    edges = realization_edges(merged)
+    assert [node.id for _a, node in edges] == ["functionalrequirement:payment_acceptance"]
 
 
 def test_scoping_picks_the_right_kind_over_the_closer_string(reference_best):
@@ -407,15 +486,26 @@ def reference_best(refs):
 
 
 def test_one_proposal_per_unresolved_reference(refs):
+    """One row per open reference, and the cited enterprise key is not among them.
+
+    `citation` carries `FR-PM-001`, which the Jira-keyed node holds — so it is
+    already a link and offering it for binding would be busywork. The
+    document-local node carrying the same string does not change that: the
+    enterprise key is the stronger claim, and the ambiguity is settled by
+    preference rather than by listing both.
+    """
     assert len(reference_candidates(refs.graph)) == len(refs.graph.unresolved_references())
     assert len(reference_candidates(refs.graph)) == 5
+    proposal_ids = {rc.assertion_id for rc in reference_candidates(refs.graph)}
+    assert refs.refs["citation"].id not in proposal_ids
+    assert refs.refs["by_key"].id in proposal_ids
 
 
 def test_document_key_resolves_exactly(reference_best):
     proposal = reference_best("by_key")
     assert proposal.best.score == 1.0
-    assert proposal.best.reason == "external_ref"
-    assert proposal.best.node_id == "functionalrequirement:payment_acceptance"
+    assert proposal.best.reason == "citing_document_key"
+    assert proposal.best.node_id == "nonfunctionalrequirement:performance_envelope"
 
 
 def test_no_expected_kind_candidate_is_reported_not_hidden(reference_best):
@@ -475,8 +565,12 @@ def test_resolve_binds_the_literal_to_a_real_node(refs):
     assert resolved.predicate == "implements_requirement"
     assert resolved.status == STATUS_VERIFIED
     assert resolved.is_human
-    assert "FR-PM-001" in resolved.provenance.correction_note
+    assert "NFR-PE-004" in resolved.provenance.correction_note
     assert resolved.provenance.asserted_by == "tester"
+    # A key that IS the target node's own identifier is identity, so the link
+    # keeps full confidence — the manual path must not record a weaker reason
+    # than a proposal would have carried (`citing_document_key`).
+    assert resolved.confidence == 1.0
 
 
 def test_resolve_records_the_transition_in_the_audit_trail(refs):
@@ -487,7 +581,7 @@ def test_resolve_records_the_transition_in_the_audit_trail(refs):
     assert decision.action == "resolve"
     assert decision.label == "Resolved"
     assert decision.before["object"] is None
-    assert decision.before["target"] == "FR-PM-001"
+    assert decision.before["target"] == "NFR-PE-004"
     assert decision.after["object"] == refs.nodes["keyed"]
     assert sorted(decision.changed_fields) == ["object", "status", "target"]
     assert log.entries == [decision]
@@ -614,6 +708,186 @@ def test_bulk_binds_only_what_clears_the_threshold(refs):
     assert result.considered == 5
     assert all(score < DEFAULT_MATCH_THRESHOLD for _id, score in result.below_threshold)
     assert all(d.action == "resolve" for d in log.entries)
+    # Every binding reports the assertion it produced, so a caller can see what
+    # the decision actually became rather than re-deriving it.
+    assert len(result.bound) == 2
+    assert {a_id for a_id, _replacement in result.bound} == set(result.resolved)
+
+
+# ============================================================================
+# Ordering signals: the same Initiative, then the other graph
+# ============================================================================
+
+
+def _two_capability_graph():
+    """Two same-kind candidates for one reference, told apart only by Initiative.
+
+    Both are the right kind and both clear the threshold, so kind scoping cannot
+    separate them — which is precisely the situation YB-005's Initiative anchor
+    exists for.
+    """
+    graph = KnowledgeGraph()
+    element = graph.add_node("Container", "Payment Orchestrator")
+    initiative = graph.add_node("Initiative", "Payment Modernisation")
+    home = graph.add_node("BusinessCapability", "Payment Processing Platform")
+    away = graph.add_node("BusinessCapability", "Unified Payment Processing")
+    graph.add_assertion(element, "delivers_initiative", obj=initiative, confidence=1.0)
+    graph.add_assertion(home, "authorised_by_initiative", obj=initiative, confidence=1.0)
+    return graph, element, home, away
+
+
+def test_a_same_initiative_candidate_outranks_a_higher_scoring_one():
+    """YB-005's anchor, made concrete.
+
+    `Unified Payment Processing` scores marginally higher against `Payment
+    Processing` than `Payment Processing Platform` does, and both clear the
+    threshold — so lexical scoring alone picks the element in another Initiative's
+    scope. Ordering by Initiative puts the one this element actually delivers
+    first. Scores are untouched: this is a preference among *acceptable*
+    candidates, not a licence to bind a bad match.
+    """
+    graph, element, home, away = _two_capability_graph()
+    prov = Provenance(source_type=SOURCE_EXTRACTION, run_id="run_1")
+    graph.add_assertion(
+        element, "supports_capability", value="Payment Processing", confidence=0.5, provenance=prov,
+    )
+
+    proposal = reference_candidates(graph)[0]
+    ranked = {c.node_id: c for c in proposal.candidates}
+    assert proposal.source_initiative == "Payment Modernisation"
+    assert ranked[away].score > ranked[home].score, "the fixture must keep distance ahead"
+    assert proposal.best.node_id == home
+    assert proposal.best.same_initiative is True
+    # Both remain bindable: the ranking moved the order, not the scores.
+    assert min(proposal.best.score, ranked[away].score) >= DEFAULT_MATCH_THRESHOLD
+
+
+def test_an_initiative_preference_never_promotes_a_weak_match(refs):
+    """The guard on the ordering signal.
+
+    If the candidate this element delivers scores below the threshold while a
+    different one clears it, the acceptable candidate still wins. Preferring the
+    Initiative here would trade a defensible link for an indefensible one, and a
+    wrong traceability link is worse than a missing one.
+    """
+    graph = KnowledgeGraph()
+    element = graph.add_node("Container", "Payment Orchestrator")
+    initiative = graph.add_node("Initiative", "Payment Modernisation")
+    weak_home = graph.add_node("BusinessCapability", "Payment Handling Support")
+    strong_away = graph.add_node("BusinessCapability", "Payment Processing Service")
+    graph.add_assertion(element, "delivers_initiative", obj=initiative, confidence=1.0)
+    graph.add_assertion(weak_home, "authorised_by_initiative", obj=initiative, confidence=1.0)
+    prov = Provenance(source_type=SOURCE_EXTRACTION, run_id="run_1")
+    graph.add_assertion(
+        element, "supports_capability", value="Payment Processing", confidence=0.5, provenance=prov
+    )
+
+    proposal = reference_candidates(graph)[0]
+    ranked = {c.node_id: c for c in proposal.candidates}
+    assert ranked[weak_home].same_initiative is True
+    assert ranked[home_ok := strong_away].score >= DEFAULT_MATCH_THRESHOLD
+    assert proposal.best.node_id == home_ok
+    assert proposal.status() == "resolvable"
+
+
+def test_the_other_graph_is_ranked_first_when_both_name_it():
+    """A cross-graph predicate CLAIMS the referent lives in the other graph.
+
+    Two nodes are called `Payment Processing`, one read out of each document. The
+    predicate's own meaning says which one it means, and the document type each
+    node came from is what makes that knowable.
+    """
+    from core.knowledge import merge_graphs
+
+    # Each document declares its OWN capability, and the two share no wording
+    # with each other. The one the architecture document declares scores higher
+    # lexically, which is exactly the trap: a cross-graph predicate says the
+    # referent is the OTHER document's capability.
+    req_output = {"entities": [
+        {"name": "Unified Payment Processing", "ontology_class": "BusinessCapability"},
+    ], "triples": []}
+    arch_output = {
+        "elements": [
+            {"name": "Payment Orchestrator", "element_type": "Container"},
+            {"name": "Card Payment Processing", "element_type": "BusinessCapability"},
+        ],
+        "triples": [
+            {"subject": "Payment Orchestrator", "predicate": "supports_capability",
+             "object": "Payment Processing", "confidence": 0.6},
+        ],
+    }
+    req_graph, _ = graph_from_extraction(
+        req_output, {"document_type": "requirements"}, document_ref="req.md"
+    )
+    arch_graph, _ = graph_from_extraction(
+        arch_output, {"document_type": "architecture"}, document_ref="arch.md"
+    )
+    merged = merge_graphs(req_graph, arch_graph)
+
+    proposal = next(
+        rc for rc in reference_candidates(merged) if rc.predicate == "supports_capability"
+    )
+    assert proposal.source_side == "architecture"
+    assert len(proposal.candidates) == 2
+    home = next(c for c in proposal.candidates if not c.other_side)
+    away = next(c for c in proposal.candidates if c.other_side)
+    assert home.score > away.score, "the fixture must keep the same-document match ahead"
+    assert away.node_id == "businesscapability:unified_payment_processing"
+    assert proposal.best.node_id == away.node_id
+
+
+def test_ranking_is_inert_when_no_initiative_or_document_type_is_known(refs):
+    """Unknown scope must not reorder anything: guessing a side or an Initiative
+    would re-rank candidates on evidence that is not there."""
+    for proposal in reference_candidates(refs.graph):
+        assert proposal.source_initiative == ""
+        assert proposal.source_side == ""
+        assert all(c.same_initiative is False for c in proposal.candidates)
+        assert all(c.other_side is False for c in proposal.candidates)
+
+
+# ============================================================================
+# Confidence is a band, not a constant
+# ============================================================================
+
+
+def test_an_exact_proposal_keeps_full_confidence(refs):
+    log = ReviewLog()
+    by_key = _proposal(refs.graph, refs.refs["by_key"].id)
+    decision = resolve_reference(
+        refs.graph, log, by_key.assertion_id, by_key.best.node_id,
+        actor="tester", proposed_score=by_key.best.score, match_reason=by_key.best.reason,
+    )
+    resolved = refs.graph.assertions[decision.replacement_id]
+    assert resolved.confidence == 1.0
+    assert by_key.best.reason in resolved.provenance.correction_note
+
+
+def test_a_lexical_proposal_keeps_a_band_reflecting_its_strength(refs):
+    """A human accepted a *proposal*; the proposal's own strength says how much
+    of a risk that was, and the link should carry it rather than claiming 1.0."""
+    log = ReviewLog()
+    proposal = _proposal(refs.graph, refs.refs["capability"].id)
+    decision = resolve_reference(
+        refs.graph, log, proposal.assertion_id, proposal.best.node_id,
+        actor="tester", proposed_score=proposal.best.score,
+        match_reason=proposal.best.reason,
+    )
+    resolved = refs.graph.assertions[decision.replacement_id]
+    assert 0.9 <= resolved.confidence < 1.0
+    assert resolved.status == STATUS_VERIFIED
+    assert resolved.is_human
+
+
+def test_a_manual_binding_is_the_reviewers_own_claim(refs):
+    """A target nobody proposed is a judgement, not a match, so it is not
+    discounted for a match quality that does not exist."""
+    log = ReviewLog()
+    decision = resolve_reference(
+        refs.graph, log, refs.refs["hopeless"].id, refs.nodes["domain"],
+        actor="tester", allow_kind_override=True,
+    )
+    assert refs.graph.assertions[decision.replacement_id].confidence == 1.0
 
 
 def test_bulk_never_binds_across_kinds_even_at_zero_threshold(refs):
@@ -650,6 +924,10 @@ def test_bulk_with_explicit_ids_touches_only_those(refs):
 def test_bulk_with_an_empty_selection_does_nothing(refs):
     log = ReviewLog()
     result = bulk_resolve(refs.graph, log, assertion_ids=[], actor="tester")
+    # Reported even for a pass that bound nothing: a bulk resolve that declined
+    # everything still has to say what the requirement side looks like, or
+    # "0 resolved" reads as "nothing to do". The fixture's three requirement
+    # nodes have no architecture claiming them.
     assert result.to_dict() == {
         "resolved": 0,
         "below_threshold": 0,
@@ -657,6 +935,7 @@ def test_bulk_with_an_empty_selection_does_nothing(refs):
         "unknown_ids": 0,
         "considered": 0,
         "threshold": DEFAULT_MATCH_THRESHOLD,
+        "unrealized_requirements": 3,
     }
     assert log.entries == []
 

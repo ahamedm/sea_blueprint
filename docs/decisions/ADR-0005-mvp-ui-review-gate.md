@@ -32,8 +32,11 @@ against. Three of the journey's five blocking gaps (1–3) are addressed:
 | 2. Correction write path | ✅ verify / correct / dispute / reopen + audit trail |
 | 3. Revision / baseline | ✅ working set vs immutable revision vs frozen baseline |
 
-Still open, in dependency order: **4. Reconciliation** (YB-005) and **5. Audit
-engine + gap report** (YB-009) — `/gaps` does the structural half only.
+Still open, in dependency order: **5. Audit engine + gap report** (YB-009) — `/gaps`
+does the structural and reconciliation half; the semantic checks ("does this design
+answer this requirement?" in judgement rather than in links) are not implemented.
+**4. Reconciliation** (YB-005) is closed — both directions of the REQ ⇄ ARC audit —
+in [ADR-0012](ADR-0012-req-arc-reconciliation-inversion.md).
 
 ### Bugs fixed
 

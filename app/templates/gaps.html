@@ -39,20 +39,110 @@
     <div class="foot">cross-graph links awaiting reconciliation</div>
   </div>
   <div class="stat">
-    <div class="value" style="color:{{ 'var(--ok)' if report.dangling_count == 0 else 'var(--bad)' }}">{{ report.dangling_count }}</div>
-    <div class="label">Dangling assertions</div>
-    <div class="foot">point at a node id that does not exist</div>
+    <div class="value" style="color:{{ 'var(--bad)' if report.unrealized_count else 'var(--ok)' }}">{{ report.unrealized_count }}</div>
+    <div class="label">Unanswered requirements</div>
+    <div class="foot">no bound architectural answer</div>
   </div>
   <div class="stat">
-    <div class="value">{{ report.elements_without_facts|length }}</div>
-    <div class="label">Elements with no facts</div>
-    <div class="foot">extracted but never described</div>
+    <div class="value">{{ report.realization.summary.realized }}</div>
+    <div class="label">Realized requirements</div>
+    <div class="foot">of {{ report.realization.summary.requirements }} — {{ report.bound_edges }} realization edge(s)</div>
   </div>
   <div class="stat">
     <div class="value small"><span class="badge badge-{{ report.completeness|lower }}">{{ report.completeness }}</span></div>
     <div class="label">Completeness</div>
     <div class="foot">{{ report.runs|length }} run(s)</div>
   </div>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <h2>Requirements with no architectural answer</h2>
+    <a class="small" href="{{ url_for('reconcile') }}">reconcile →</a>
+  </div>
+  <p class="hint">
+    The requirement side of the audit — the question the platform exists to answer. Three
+    states are kept apart because the fix differs: <span class="badge badge-disputed">none</span>
+    means nothing claims it at all, so the architecture document never mentioned it;
+    <span class="badge badge-unverified">unresolved</span> means something claims it but no
+    claim has been bound yet, which is reconciliation's queue; and
+    <span class="badge badge-corrected">partial</span> means at least one answer is bound
+    while at least one claim is still open.
+  </p>
+  {% if report.realization.unrealized %}
+    <table class="table-plain">
+      <thead>
+        <tr><th>Requirement</th><th>Kind</th><th>Identifiers</th><th>State</th><th>What claims it</th></tr>
+      </thead>
+      <tbody>
+        {% for r in report.realization.unrealized %}
+          <tr>
+            <td>{{ r.label }}</td>
+            <td>
+              <span class="kind">{{ r.kind }}</span>
+              {% if r.requirement_type %}<span class="muted small">{{ r.requirement_type }}</span>{% endif %}
+            </td>
+            <td class="small mono">{{ r.external_refs|join(', ') or '—' }}</td>
+            <td>
+              <span class="badge badge-{{ 'disputed' if r.coverage == 'none' else ('unverified' if r.coverage == 'unresolved' else 'corrected') }}">{{ r.coverage }}</span>
+            </td>
+            <td class="small">
+              {% for c in r.unbound %}
+                <div>
+                  <code>{{ c.predicate }}</code> → {{ c.target_label }}
+                  <span class="muted">(unbound, conf. {{ c.confidence }})</span>
+                </div>
+              {% else %}
+                <span class="muted">nothing — no architecture references it</span>
+              {% endfor %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="hint">
+      None. Every requirement has at least one bound architectural answer — which is a
+      claim about the graph, not about the system, and is only as good as the extraction
+      completeness above.
+    </p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <h2>Architecture claiming a requirement that never bound</h2>
+    <a class="small" href="{{ url_for('reconcile') }}">resolve these →</a>
+  </div>
+  <p class="hint">
+    The architecture side of the same audit. Each row is an element asserting it answers
+    something while no bound link exists — either a paraphrase reconciliation could not
+    resolve, or a claim about a requirement the requirements document never stated. Both
+    are findings, and neither is visible from the requirement side alone.
+  </p>
+  {% if report.realization.obligations %}
+    <table class="table-plain">
+      <thead>
+        <tr><th>Element</th><th>Relationship</th><th>References</th><th style="text-align:right;">Conf.</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for o in report.realization.obligations %}
+          <tr>
+            <td><span class="kind">{{ o.source_kind }}</span>{{ o.source_label }}</td>
+            <td><code>{{ o.predicate }}</code></td>
+            <td>{{ o.target_label }}</td>
+            <td style="text-align:right;" class="conf conf-{{ 'high' if o.confidence >= 0.85 else ('medium' if o.confidence >= 0.7 else 'low') }}">{{ o.confidence }}</td>
+            <td><a class="small" href="{{ url_for('reconcile') }}">reconcile</a></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="hint">
+      None. Every architecture element that claims a requirement has bound it, so the
+      architecture's own account of what it answers is complete.
+    </p>
+  {% endif %}
 </div>
 
 <div class="card">

@@ -62,6 +62,7 @@ from core.knowledge.model import (
     STATUS_UNVERIFIED,
     STATUS_VERIFIED,
 )
+from core.knowledge.realization import realization_report
 from core.knowledge.reconcile import DEFAULT_MATCH_THRESHOLD, reference_candidates
 from core.knowledge.review import ReviewLog
 
@@ -511,10 +512,17 @@ def project_gap_report(graph) -> Dict[str, Any]:
     Deliberately explicit about *why* a gap may not be a real gap. A graph from a
     PARTIAL or UNKNOWN run cannot support absence claims, and saying so on the
     report is the difference between a useful finding and a confident falsehood.
+
+    `realization` is the other half and the point of the report: unresolved
+    references are only the architecture->requirement direction. Requirements with
+    no answer at all — including the ones nothing ever cited — are a different
+    finding with a different fix, and a reader who sees only one number will
+    assume it covers both.
     """
     progress = review_progress(graph)
     unresolved = graph.unresolved_references()
     dangling = graph.dangling_assertions()
+    realization = realization_report(graph)
 
     by_predicate: Dict[str, int] = {}
     for a in unresolved:
@@ -554,6 +562,11 @@ def project_gap_report(graph) -> Dict[str, Any]:
     return {
         "unresolved_count": len(unresolved),
         "dangling_count": len(dangling),
+        "realization": realization,
+        # Flat counters so a stat tile does not have to reach two levels deep.
+        "unrealized_count": realization["summary"]["unrealized"],
+        "bound_edges": realization["summary"]["bound_edges"],
+        "unmet_obligation_count": len(realization["obligations"]),
         "completeness": worst,
         "completeness_note": completeness_note(graph),
         "auditability": auditability,
@@ -759,6 +772,36 @@ def project_reconciliation(graph, threshold: float = DEFAULT_MATCH_THRESHOLD) ->
         ),
     }
     return {"rows": rows, "summary": summary, "threshold": threshold}
+
+
+def project_realization(graph) -> Dict[str, Any]:
+    """Realization coverage, shaped for the reconcile page's header strip.
+
+    A thin wrapper rather than a second implementation: the report is the
+    knowledge-layer query, and this layer only decides what a page needs to show.
+    Splitting them any further would let the page's numbers drift from the gap
+    report's.
+    """
+    report = realization_report(graph)
+    summary = report["summary"]
+    return {
+        # The whole report rather than a subset: `/api/realization` exists to be
+        # read by something that is not this page, and a caller should not have to
+        # know which keys the view happens to use today.
+        "report": report,
+        "summary": summary,
+        "coverage_pct": (
+            int(round(100 * summary["realized"] / summary["requirements"]))
+            if summary["requirements"]
+            else 0
+        ),
+        # Worst-first, so a page leads with what is entirely unanswered rather than
+        # with requirements that already have an answer plus a stray reference.
+        "unrealized": report["unrealized"],
+        "obligations": report["obligations"],
+        "requirements": report["requirements"],
+        "claims": report["claims"],
+    }
 
 
 def project_dashboard(

@@ -2,25 +2,30 @@
 id: YB-005
 legacy: "5"
 title: "ARC-G ⇄ REQ-G linkage — Initiative-scoped reconciliation"
-status: in-progress
+status: done
 priority: critical
 area: "`agents/knowledge_extraction/`, `agents/architecture_extraction/`, ontology, `core/knowledge/ingest.py`"
 created: 2026-09-21
 updated: 2026-09-24
 design: null
-record: null
+record: docs/decisions/ADR-0012-req-arc-reconciliation-inversion.md
 superseded_by: []
-related: ["YB-011", "YB-018"]
+related: ["YB-011", "YB-018", "YB-027"]
 blocks: []
 blocked_by: []
 ---
 
 # YB-005 — ARC-G ⇄ REQ-G linkage — Initiative-scoped reconciliation
 
-> **In progress.** This file is the source of truth for this item; `TODO.md` is generated from it.
+> **Closed.** The resolution pass and both directions of the audit are implemented
+> and measured; the record is
+> [`ADR-0012`](../decisions/ADR-0012-req-arc-reconciliation-inversion.md).
+> Semantic (paraphrase) matching moved to [`YB-027`](YB-027-semantic-reference-matching.md),
+> which was deliberately kept out of this work because it is a different mechanism
+> with a different cost. This file is kept because it carries those open items.
 
-**Legacy status:** In progress — a bulk resolution path now exists (item 14); the resolution pass itself is still outstanding
-**Legacy priority:** **Critical** — this is the platform's core purpose, currently unmet
+**Legacy status:** ✅ IMPLEMENTED — see ADR-0012 §4 for the measured result
+**Legacy priority:** **Critical** — this was the platform's core purpose
 **Legacy area:** `agents/knowledge_extraction/`, `agents/architecture_extraction/`, ontology, `core/knowledge/ingest.py`
 
 ---
@@ -160,23 +165,39 @@ architecture is walkable as one chain.
 
 ### Remaining
 
-**C. Resolution pass (later stage).** Match captured `requirement_refs` against
-REQ-G nodes, emit `RequirementRealization` with `coverage`/`evidence`/`confidence`,
-and — critically — report **unresolved refs in both directions**. That dual
-reporting is the actual gap analysis:
-- architecture citing a requirement that does not exist
-- requirement with no architecture citing it
+**C. Resolution pass (later stage).** DONE. `core/knowledge/realization.py` reports
+both directions, `/gaps` renders them, and `/reconcile` states the requirement
+coverage next to the references it is binding. The dual reporting was the actual
+gap analysis, and it now exists at three levels: unresolved references,
+requirements with no bound answer, and architecture claiming something that never
+bound.
 
-Semantic matching, not string equality: the source paraphrases
-(`"Request Acceptance and Validation"` for `FR-PM-001`).
+**D. Better ID recall.** 16/18 with 1 false positive. Partially addressed and the
+rest is measured, not tuned: the citation rule (a citation of a requirement's own
+key is identity, not resemblance) means the recall question now changes what
+*binds*, not merely what is proposed — so it is worth revisiting only once a fresh
+run exists to measure against. The saved fixture carries zero identifiers, so it
+cannot answer this.
 
-**D. Better ID recall.** 16/18 with 1 false positive. Revisit once the resolution
-pass can measure what was actually missed — tuning recall blind, without knowing
-which misses matter, is guesswork.
+**E. Semantic matching. MOVED OUT** to
+[`YB-027`](YB-027-semantic-reference-matching.md). The matcher is deterministic and
+explainable on purpose, and that constraint is what makes a paraphrase with no
+shared vocabulary unreachable. Widening it is a change of mechanism (embeddings or
+model-assisted proposals), not a tuning of this one.
 
 ### Acceptance criteria
 
-- A requirement with no architecture can be listed
-- An architecture element answering no requirement can be listed
-- Every resolved `implements_requirement` edge points at a real REQ-G node id
-- Unresolved references are surfaced, never silently dropped
+All four are now met, and checked by tests:
+
+- A requirement with no architecture can be listed — `unrealized_requirements`,
+  rendered on `/gaps`, with the three coverage states kept apart
+- An architecture element answering no requirement can be listed —
+  `unmet_obligations`, rendered on `/gaps` as "Architecture claiming a requirement
+  that never bound"
+- Every resolved `implements_requirement` edge points at a real REQ-G node id —
+  `test_every_requirement_is_listed_even_when_nothing_claims_it` and
+  `test_the_requirements_key_joins_end_to_end`
+- Unresolved references are surfaced, never silently dropped —
+  `bulk_resolve`'s `below_threshold` / `no_candidate` / `unknown_ids`, plus
+  `unbound_claims` in the report
+

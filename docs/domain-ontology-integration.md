@@ -233,7 +233,7 @@ vocabulary where zero actually *means* something. And it creates the **third
 reconciliation leg**, which is the genuinely new capability:
 
 ```
-REQ-G ⇄ ARC-G     does the design answer the requirement?      (exists, YB-005)
+REQ-G ⇄ ARC-G     does the design answer the requirement?      (exists — ADR-0012, both directions)
 REQ-G ⇄ DOMAIN    does the requirement set cover the subject?  (new)
 ARC-G ⇄ DOMAIN    what has the design ignored?                 (new)
 ```

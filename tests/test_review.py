@@ -22,10 +22,26 @@ from core.knowledge.model import (
 )
 
 
+# Executor bookkeeping, not extracted facts. These edges exist to scope an
+# ingest and are written by the ingest itself, so "a fact a reviewer can verify"
+# never means one of them.
+_BOOKKEEPING = {"authorised_by_initiative", "delivers_initiative"}
+
+
 def a_fact(graph, predicate=None):
+    """The first active assertion a reviewer would actually be looking at.
+
+    Skips human decisions and the executor's own scoping edges, so the choice does
+    not depend on insertion order: every caller means "a fact the extractor
+    produced", and reordering the ingest passes used to silently change which one
+    that was.
+    """
     for a in graph.active():
-        if predicate is None or a.predicate == predicate:
-            return a
+        if predicate is not None and a.predicate != predicate:
+            continue
+        if predicate is None and (a.is_human or a.predicate in _BOOKKEEPING):
+            continue
+        return a
     raise AssertionError(f"no active assertion for {predicate!r}")
 
 

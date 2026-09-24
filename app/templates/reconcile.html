@@ -25,12 +25,43 @@
     <p>The working set is empty. Load a requirements and an architecture document first.</p>
     <p><a class="btn btn-primary" href="{{ url_for('ingest') }}">Ingest a document</a></p>
   </div>
-{% elif not view.rows %}
-  <div class="banner banner-ok">
-    <strong>Every cross-graph reference is resolved.</strong>
-    There is nothing left for reconciliation to bind in this graph.
-  </div>
 {% else %}
+
+  {% if coverage.summary.requirements %}
+    <div class="card">
+      <div class="row">
+        <strong class="small">Requirement coverage</strong>
+        <span class="muted small">·</span>
+        <span class="small">
+          <strong>{{ coverage.summary.realized }}</strong> of
+          {{ coverage.summary.requirements }} requirement(s) have an architectural answer
+          ({{ coverage.coverage_pct }}%)
+        </span>
+        <span class="spacer"></span>
+        <a class="small" href="{{ url_for('gaps') }}">both directions on the gap report →</a>
+      </div>
+      {% if coverage.summary.unrealized %}
+        <p class="hint" style="margin:8px 0 0;">
+          {{ coverage.summary.unrealized }} requirement(s) are unanswered — of which
+          {{ coverage.summary.coverage.none }} nothing claims at all and
+          {{ coverage.summary.coverage.unresolved }} are claimed but never bound.
+          Reconciling below closes the second group; the first needs the architecture
+          document to mention them, which is a different fix.
+        </p>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  {% if not view.rows %}
+    <div class="banner banner-ok">
+      <strong>Every cross-graph reference is resolved.</strong>
+      There is nothing left for reconciliation to bind in this graph.
+      {% if coverage.summary.unrealized %}
+        That is not the same as every requirement being answered —
+        {{ coverage.summary.unrealized }} still have no bound architecture.
+      {% endif %}
+    </div>
+  {% else %}
 
   <div class="grid grid-4" style="margin-bottom:18px;">
     <div class="stat">
@@ -213,5 +244,6 @@
       </tbody>
     </table>
   </div>
+  {% endif %}
 {% endif %}
 {% endblock %}
