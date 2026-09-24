@@ -29,9 +29,10 @@
 | 20 | Structured-path budget — decide, don't retry into the timeout | [YB-020](entries/YB-020-structured-path-budget.md) | entry (open) |
 | 21 | Predicate vocabulary — the relationship names were never sent | [ADR-0010](../decisions/ADR-0010-predicate-vocabulary.md) | record |
 | 22 | Deterministic quality classification and identifier recovery | [ADR-0011](../decisions/ADR-0011-deterministic-quality-classification.md) | record |
-| 23 | Requirements extraction never reports completeness — so REQ-G can never be audited | [YB-023](entries/YB-023-requirements-completeness-reporting.md) | entry (open) |
+| 23 | Requirements extraction never reports completeness — so REQ-G can never be audited | [YB-023](entries/YB-023-requirements-completeness-reporting.md) | entry (done) |
 | 24 | Graph view — cover the requirements graph, not only C4 | [YB-024](entries/YB-024-requirements-graph-view.md) | entry (open) |
 | 25 | Dedicated C4 specification view — text notation plus rendered diagram | [YB-025](entries/YB-025-c4-specification-view.md) | entry (open) |
 | 26 | Asynchronous progress — stream pass and tool-call completion to the view | [YB-026](entries/YB-026-asynchronous-progress.md) | entry (open) |
 | — | REQ ⇄ ARC reconciliation — both directions, and the citation rule | [ADR-0012](../decisions/ADR-0012-req-arc-reconciliation-inversion.md) | record |
+| — | Requirements runs report their own completeness — REQ-G can be audited | [ADR-0013](../decisions/ADR-0013-requirements-completeness-reporting.md) | record |
 | None | Semantic reference matching — bridge the paraphrase the deterministic scorer cannot | [YB-027](entries/YB-027-semantic-reference-matching.md) | entry (open) |

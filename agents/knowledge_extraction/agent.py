@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field, field_validator
 from ..base_agent import SEABaseAgent, AgentConfig, AgentResult
 from ..extraction.quality import enrich_entities
+from core.knowledge.model import PassRecord
 
 # ============================================================================
 # Structured Output Models
@@ -523,6 +524,14 @@ class KnowledgeExtractionAgent(SEABaseAgent):
                         v.model_dump() if hasattr(v, "model_dump") else v
                         for v in (values or [])
                     ]
+
+            pass_records = self._pass_records(
+                path=path,
+                structured_error=structured_error,
+                triples=len(triples),
+                entities=len(entities),
+            )
+            fell_back_to_text = any(p.path == "text" for p in pass_records)
             
             return AgentResult(
                 success=True,
@@ -539,6 +548,15 @@ class KnowledgeExtractionAgent(SEABaseAgent):
                     "total_relationships": len(relationships),
                     "low_confidence_count": len(low_confidence),
                     "contract_violation_count": len(contract_flags),
+                    # Completeness input. Without these the run reports UNKNOWN,
+                    # which is indistinguishable from "we could not tell" — see
+                    # the docstring on `_pass_records`.
+                    "model_id": self.config.model_id,
+                    "model_calls": len(pass_records),
+                    "failed_calls": sum(1 for p in pass_records if p.outcome == "failed"),
+                    "empty_calls": sum(1 for p in pass_records if p.outcome == "empty"),
+                    "text_fallback_calls": int(fell_back_to_text),
+                    "passes": [self._pass_record_dict(p) for p in pass_records],
                 },
             )
             
@@ -549,7 +567,103 @@ class KnowledgeExtractionAgent(SEABaseAgent):
                 output=None,
                 errors=[str(e)],
             )
-    
+
+    # ------------------------------------------------------------------
+    # Completeness — what this run actually managed to read
+    # ------------------------------------------------------------------
+
+    def _pass_records(
+        self,
+        path: str,
+        structured_error: Optional[str],
+        triples: int,
+        entities: int,
+    ) -> List[PassRecord]:
+        """One record per model attempt, so the run can report its own completeness.
+
+        WHY THIS EXISTS. `ExtractionRun.compute_completeness()` returns `UNKNOWN`
+        when a run has no pass records, and that is correct — absence of pass
+        detail is ignorance, not success. But it was the permanent answer for every
+        requirements run, because this profile emitted no pass metadata at all:
+        ingest reconstructed records from `model_calls` / `failed_calls` /
+        `empty_calls`, none of which were set, so the list came back empty and
+        every REQ-G graph was `UNKNOWN` and therefore never auditable (YB-023).
+
+        WHY TEXT IS `empty` RATHER THAN `ok`. The text parser is a fallback with no
+        reliable parser for several collections (technology stacks, styles,
+        techniques, conventions, references), so a run that used it genuinely is
+        incomplete and has to say so. Reporting `COMPLETE` because *something* came
+        back is the false assurance the completeness field exists to prevent.
+
+        The two attempts are the whole inventory: at most one structured call, then
+        at most one text call if the first produced nothing usable. `path` is the
+        agent's own verdict on which attempt won, which is why the structural
+        facts are not passed in separately.
+        """
+        content = bool(triples or entities)
+
+        if path == "structured_output":
+            return [
+                PassRecord(
+                    pass_name="structured",
+                    chunk_label="",
+                    outcome="ok",
+                    path="structured",
+                    triples_produced=triples,
+                )
+            ]
+
+        records: List[PassRecord] = []
+
+        # A structured attempt only happened if one failed. `force_text_parsing`
+        # skips it entirely, and then reporting a failed attempt would invent one.
+        if structured_error is not None:
+            # `empty` rather than `failed`: nothing usable came out of the call,
+            # but nothing raised either — `invoke_structured` returns None for a
+            # model that cannot satisfy the schema, for a cancelled call, and for
+            # an unsupported tool_choice alike. The reason is kept on the record
+            # because those are different problems to fix.
+            records.append(
+                PassRecord(
+                    pass_name="structured",
+                    chunk_label="",
+                    outcome="empty",
+                    path="structured" if "empty" in structured_error else "none",
+                    error=structured_error,
+                )
+            )
+
+        records.append(
+            PassRecord(
+                pass_name="text_fallback",
+                chunk_label="",
+                outcome="ok" if content else "empty",
+                path="text",
+                triples_produced=triples,
+            )
+        )
+        return records
+
+    @staticmethod
+    def _pass_record_dict(record: PassRecord) -> Dict[str, Any]:
+        """A PassRecord as plain data, for the metadata envelope.
+
+        Emitted alongside the counters so ingest can read the real outcomes instead
+        of reconstructing them from totals. Two shapes of the same information is
+        what let the requirements profile report nothing for so long without anyone
+        noticing; carrying the records means the reconstruction is a fallback for
+        old output rather than the only path.
+        """
+        return {
+            "pass_name": record.pass_name,
+            "chunk_label": record.chunk_label,
+            "outcome": record.outcome,
+            "path": record.path,
+            "elapsed": record.elapsed,
+            "error": record.error,
+            "triples_produced": record.triples_produced,
+        }
+
     def _build_extraction_prompt(
         self, 
         document: str, 

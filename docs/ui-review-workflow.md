@@ -437,7 +437,7 @@ Recorded so the gaps are choices rather than oversights.
 the suite needs no model server.
 
 ```
-.venv/bin/python -m pytest tests/ -q      # 457 tests
+.venv/bin/python -m pytest tests/ -q      # 476 tests
 ```
 
 | File | Covers |
@@ -447,6 +447,7 @@ the suite needs no model server.
 | `test_review.py` | decision semantics, supersession edge cases, bulk selection, promotion gate |
 | `test_reconcile.py` | matching, kind scoping, the citation rule, Initiative/side ordering, confidence bands, resolve/bulk semantics |
 | `test_realization.py` | both directions of the audit; coverage states; bound edges point at real requirement nodes |
+| `test_completeness_reporting.py` | a run reports its own completeness; records beat counters; a text fallback is PARTIAL, never COMPLETE |
 | `test_store.py` | working set vs revision vs baseline; the freeze gate; ordering within one second |
 | `test_projections.py` | graph projection, filters and the primitives viewpoints compose |
 | `test_viewpoint_c4.py` | C4 level selection and what the view reports it is hiding |

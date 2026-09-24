@@ -670,28 +670,88 @@ def graph_from_extraction(
 
 
 def _passes_from_metadata(metadata: Dict[str, Any]) -> List[PassRecord]:
-    """Reconstruct a coarse run record when per-pass detail is unavailable.
+    """The run's pass records, from the richest source the metadata carries.
 
-    Coarse is better than absent: recording that *something* failed is what stops
-    a partial run being read as complete. The agent emits per-pass records where
-    it can; this is the fallback for older saved output.
+    THREE SHAPES, IN ORDER OF FIDELITY:
+
+    1. **`passes`** — the per-attempt records themselves. What the profiles emit
+       now, and the only shape that preserves which attempt failed and why.
+    2. **Counters** — `model_calls` / `failed_calls` / `empty_calls`, plus
+       `text_fallback_calls`. The architecture profile has always emitted these;
+       an older payload or a hand-written one may.
+    3. **Nothing** — an empty list, which reads as `UNKNOWN`. Coarse is better
+       than absent, but absent is honestly absent: an empty list is why
+       `compute_completeness` returns UNKNOWN rather than pretending.
+
+    WHY `text_fallback_calls` IS COUNTED AS `empty`. A text-fallback call came
+    back with something, so it is not a failure — but the text parser has no
+    reliable parser for several collections, so a run that used it is genuinely
+    incomplete. Reading the counter as `ok` (which is what subtracting only
+    `failed` and `empty` did) reported COMPLETE for a run that fell back, which is
+    the one direction of error this field exists to prevent.
     """
-    records: List[PassRecord] = []
+    records = _pass_records_from_metadata(metadata.get("passes"))
+    if records:
+        return records
+
     failed = int(metadata.get("failed_calls") or 0)
     empty = int(metadata.get("empty_calls") or 0)
+    text_fallback = int(metadata.get("text_fallback_calls") or 0)
     total = int(metadata.get("model_calls") or 0)
-    ok = max(0, total - failed - empty)
+    ok = max(0, total - failed - empty - text_fallback)
 
+    out: List[PassRecord] = []
     for _ in range(ok):
-        records.append(PassRecord(pass_name="(unspecified)", chunk_label="",
-                                  outcome="ok"))
+        out.append(PassRecord(pass_name="(unspecified)", chunk_label="",
+                              outcome="ok"))
     for _ in range(empty):
-        records.append(PassRecord(pass_name="(unspecified)", chunk_label="",
-                                  outcome="empty"))
+        out.append(PassRecord(pass_name="(unspecified)", chunk_label="",
+                              outcome="empty"))
+    for _ in range(text_fallback):
+        out.append(PassRecord(pass_name="text_fallback", chunk_label="",
+                              outcome="empty", path="text"))
     for _ in range(failed):
-        records.append(PassRecord(pass_name="(unspecified)", chunk_label="",
-                                  outcome="failed"))
-    return records
+        out.append(PassRecord(pass_name="(unspecified)", chunk_label="",
+                              outcome="failed"))
+    return out
+
+
+def _pass_records_from_metadata(raw: Any) -> List[PassRecord]:
+    """Per-attempt records from the `passes` metadata key, if present.
+
+    Accepts either shape a caller might hand over — a `PassRecord` or the plain
+    dict the agent serialises it into — because the extraction output crosses a
+    JSON boundary in between. An unusable entry is skipped rather than raising:
+    a malformed pass list must not take the whole ingest down, and a missing
+    record degrades to the counter path, which is the honest outcome.
+    """
+    if not isinstance(raw, (list, tuple)):
+        return []
+
+    out: List[PassRecord] = []
+    for item in raw:
+        if isinstance(item, PassRecord):
+            out.append(item)
+            continue
+        if not isinstance(item, dict):
+            continue
+        outcome = str(item.get("outcome") or "").strip().lower()
+        if outcome not in ("ok", "empty", "failed"):
+            # An unknown outcome is not silently mapped to `ok`: that is the one
+            # reading which could open the audit gate on evidence we cannot read.
+            continue
+        out.append(
+            PassRecord(
+                pass_name=str(item.get("pass_name") or "(unspecified)"),
+                chunk_label=str(item.get("chunk_label") or ""),
+                outcome=outcome,
+                path=str(item.get("path") or ""),
+                elapsed=float(item.get("elapsed") or 0.0),
+                error=str(item.get("error") or ""),
+                triples_produced=int(item.get("triples_produced") or 0),
+            )
+        )
+    return out
 
 
 def completeness_note(graph: KnowledgeGraph) -> str:

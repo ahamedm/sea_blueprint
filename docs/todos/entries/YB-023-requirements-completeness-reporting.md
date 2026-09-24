@@ -2,13 +2,13 @@
 id: YB-023
 legacy: "23"
 title: "Requirements extraction never reports completeness — so REQ-G can never be audited"
-status: open
+status: done
 priority: high
 area: "`agents/knowledge_extraction/agent.py`, `core/knowledge/ingest.py`"
 created: 2026-09-23
 updated: 2026-09-24
 design: null
-record: null
+record: docs/decisions/ADR-0013-requirements-completeness-reporting.md
 superseded_by: []
 related: ["YB-004", "YB-026"]
 blocks: []
@@ -17,10 +17,17 @@ blocked_by: []
 
 # YB-023 — Requirements extraction never reports completeness — so REQ-G can never be audited
 
-> **Open work.** This file is the source of truth for this item; `TODO.md` is generated from it.
+> **Closed.** The record is
+> [`ADR-0013`](../decisions/ADR-0013-requirements-completeness-reporting.md). The
+> write-up below is preserved, with the three corrections the implementation forced
+> marked inline.
+>
+> **Verified on the real run the item was confirmed against** — `run_aa36f85b79f4`
+> reported `completeness=UNKNOWN, passes=0, model_id=''` while the architecture run
+> in the same working set was COMPLETE with 12 passes.
 
-**Legacy status:** Not started — **the gate is right, the input is missing**
-**Legacy priority:** High (it blocks the audit for every requirements-only graph, permanently)
+**Legacy status:** ✅ IMPLEMENTED — see ADR-0013 for the measured result
+**Legacy priority:** High (it blocked the audit for every requirements-only graph, permanently)
 **Legacy area:** `agents/knowledge_extraction/agent.py`, `core/knowledge/ingest.py`
 
 ---
@@ -56,10 +63,26 @@ metadata**. The architecture profile does (`ARCHITECTURE_PASSES` → `run_passes
 `PassRecord` per pass per chunk), which is why the arch page shows pass and failed-pass
 counts and the requirements page shows none.
 
+> **Correction 1 — it is not a single call.** By implementation time the profile makes
+> **up to two**: one structured attempt, then a text fallback when that yields nothing
+> usable (`path` records which one won). A fix that set `model_calls=1` from this
+> sentence would have reported `COMPLETE` for a run that actually fell back — the exact
+> false assurance this file warns about, pointing the other way.
+
 Ingest then falls back to `_passes_from_metadata`, which reconstructs records from
 `failed_calls` / `empty_calls` / `model_calls`. The requirements agent populates **none**
 of the three, so all are `0` and the list is empty. `model_id` is empty for the same
 reason — that metadata is not reaching the graph either.
+
+> **Correction 2 — the failure is not an exception path.** The success return
+> hard-codes that metadata dict. The outer `except` returns
+> `AgentResult(success=False, output=None)` with *no* metadata at all, which produces
+> the same empty result by a different route.
+
+> **Correction 3 — there is a second site of the same bug.** `_passes_from_metadata`
+> never read `text_fallback_calls`, which the architecture metadata *does* emit. A run
+> whose calls all fell back reconstructed as every call `ok` → `COMPLETE` → the gate
+> opened on a genuinely incomplete run. Fixed in the same change.
 
 ### Why this is a real defect and not just a display issue
 
@@ -85,6 +108,18 @@ genuine evidence about whether the document was fully processed:
 That makes the value **true** rather than merely **known**, and it unblocks auditing
 requirements-only graphs. Also populate `model_calls` (and `model_id`) so the coarse
 metadata fallback has something to work from instead of producing an empty list.
+
+> **What was actually built**, beyond that plan: per-attempt `PassRecord`s are emitted
+> as `metadata["passes"]` and ingest reads them **first**, keeping the counter
+> reconstruction as the fallback for older output. The counters are *derived from* the
+> records, so the two cannot silently disagree — two shapes of the same information,
+> with only one of them checked, is what let this stay invisible.
+
+> **One thing not anticipated here:** `invoke_structured` returns `None` for three
+> different problems (schema never satisfied, wall-clock cancelled, unsupported
+> `tool_choice`). All three leave the same absence, so the outcome is `empty` for each,
+> but the reason is kept on the record's `error` and `path` distinguishes "came back
+> empty" from "never got there".
 
 ### Care needed
 

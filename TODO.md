@@ -3,7 +3,7 @@
 
 Open work only. Each item is one file under `docs/todos/entries/` — that file is the source of truth and this index is generated from it.
 
-**14 active · 1 parked · 2 superseded · 12 closed records**
+**13 active · 1 parked · 2 superseded · 13 closed records**
 
 | Where | What |
 |---|---|
@@ -30,7 +30,6 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [YB-011](docs/todos/entries/YB-011-domain-ontology-layer.md) | Domain ontology layer — the ontology of the SUBJECT MATTER, not the artifact | in-progress | `ontology/domains/`, `core.ontology` overlay loader, extraction grounding |
 | [YB-018](docs/todos/entries/YB-018-review-batches.md) | Review batches — scope the review gate to a run, without fragmenting the graph | open | `core/knowledge/store.py`, `app/projections.py`, `app/__init__.py`, `core/knowledge/review.py` |
 | [YB-020](docs/todos/entries/YB-020-structured-path-budget.md) | Structured-path budget — decide, don't retry into the timeout | open | `config/agent_config.py`, `.env.example`, `agents/base_agent.py`, `agents/knowledge_extraction/agent.py` |
-| [YB-023](docs/todos/entries/YB-023-requirements-completeness-reporting.md) | Requirements extraction never reports completeness — so REQ-G can never be audited | open | `agents/knowledge_extraction/agent.py`, `core/knowledge/ingest.py` |
 | [YB-024](docs/todos/entries/YB-024-requirements-graph-view.md) | Graph view — cover the requirements graph, not only C4 | open | `app/viewpoints/`, `app/projections.py`, `app/templates/` |
 | [YB-026](docs/todos/entries/YB-026-asynchronous-progress.md) | Asynchronous progress — stream pass and tool-call completion to the view | open | `app/__init__.py` (ingest route), `app/templates/ingest.html`, `agents/extraction/passes.py`, `agents/knowledge_extraction/agent.py` |
 | [YB-027](docs/todos/entries/YB-027-semantic-reference-matching.md) | Semantic reference matching — bridge the paraphrase the deterministic scorer cannot | open | `core/knowledge/reconcile.py`, possibly `core/knowledge/realization.py`, `app/` |
@@ -67,6 +66,7 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | ID | Item | Record |
 |---|---|---|
 | [YB-005](docs/todos/entries/YB-005-arcg-reqg-linkage.md) | ARC-G ⇄ REQ-G linkage — Initiative-scoped reconciliation | [ADR-0012-req-arc-reconciliation-inversion](docs/decisions/ADR-0012-req-arc-reconciliation-inversion.md) |
+| [YB-023](docs/todos/entries/YB-023-requirements-completeness-reporting.md) | Requirements extraction never reports completeness — so REQ-G can never be audited | [ADR-0013-requirements-completeness-reporting](docs/decisions/ADR-0013-requirements-completeness-reporting.md) |
 
 ## Closed work — records
 
@@ -84,5 +84,6 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [ADR-0010](docs/decisions/ADR-0010-predicate-vocabulary.md) | Predicate vocabulary — the relationship names were never sent | 2026-09-23 | item 21 |
 | [ADR-0011](docs/decisions/ADR-0011-deterministic-quality-classification.md) | Deterministic quality classification and identifier recovery | 2026-09-23 | item 22 |
 | [ADR-0012](docs/decisions/ADR-0012-req-arc-reconciliation-inversion.md) | REQ ⇄ ARC reconciliation — both directions, and the citation rule | 2026-09-24 | item — |
+| [ADR-0013](docs/decisions/ADR-0013-requirements-completeness-reporting.md) | Requirements runs report their own completeness — REQ-G can be audited | 2026-09-24 | item — |
 
 The index is generated from the entries — do not edit `TODO.md` by hand.

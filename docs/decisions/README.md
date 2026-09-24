@@ -17,3 +17,4 @@ Closed work from the TODO. Each record preserves its original write-up verbatim;
 | [ADR-0010](ADR-0010-predicate-vocabulary.md) | Predicate vocabulary — the relationship names were never sent | 2026-09-23 | 21 |
 | [ADR-0011](ADR-0011-deterministic-quality-classification.md) | Deterministic quality classification and identifier recovery | 2026-09-23 | 22 |
 | [ADR-0012](ADR-0012-req-arc-reconciliation-inversion.md) | REQ ⇄ ARC reconciliation — both directions, and the citation rule | 2026-09-24 | — |
+| [ADR-0013](ADR-0013-requirements-completeness-reporting.md) | Requirements runs report their own completeness — REQ-G can be audited | 2026-09-24 | — |
