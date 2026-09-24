@@ -687,7 +687,7 @@ it keeps working.
 
 **Status:** Analysed, not started
 **Priority:** High — these are load-bearing, not polish
-**Full analysis:** [`docs/architecture-review.md`](docs/architecture-review.md)
+**Full analysis:** [`docs/architecture-review.md`](../../docs/architecture-review.md)
 
 A sanity check of the proposed system architecture (agents / workflow / two UIs /
 MCP servers / API) surfaced two gaps that force decisions everything else depends
@@ -790,7 +790,7 @@ to lock in data-model decisions that should be deliberate.
 
 **Status:** Analysed, not started
 **Priority:** Medium — staged behind extraction reliability
-**Full analysis:** [`docs/architecture-review.md`](docs/architecture-review.md) Part 2
+**Full analysis:** [`docs/architecture-review.md`](../../docs/architecture-review.md) Part 2
 
 **Why:** makes the *audit* deterministic while leaving extraction as-is, and its
 biggest value is diagnostic — a fixed query over a varying graph does not hide
@@ -848,7 +848,7 @@ invariant is currently failing and is the gate.**
 > the architecture layer and invert the one-way import rule. It stays an unresolved
 > cross-graph reference, like `CROSS_GRAPH_REFERENCE` predicates in the knowledge model.
 >
-> **Design:** [`docs/domain-ontology-integration.md`](docs/domain-ontology-integration.md).
+> **Design:** [`docs/domain-ontology-integration.md`](../../docs/domain-ontology-integration.md).
 > **Tests:** `tests/test_domain_pack.py` (50 tests) — pack resolution, integrity failures,
 > "no pack" as a first-class state, provenance round-trip, and the prompt-grounding claim.
 
@@ -1224,7 +1224,7 @@ This should be **critical** — not because it's blocking the current workflow, 
 ## 13. MVP UI — extraction projection, review gate, change management
 
 **Status:** ✅ IMPLEMENTED (first slice of the journey) — see
-[`docs/ui-review-workflow.md`](docs/ui-review-workflow.md)
+[`docs/ui-review-workflow.md`](../../docs/ui-review-workflow.md)
 **Priority:** Closed for this slice; follow-ups below
 **Area:** `app/`, `core/knowledge/` (`serialise.py`, `review.py`, `store.py`), `tests/`
 
@@ -1304,7 +1304,7 @@ server.
 ## 14. Bulk reference resolution — reconciliation, first slice
 
 **Status:** ✅ IMPLEMENTED — see
-[`docs/ui-review-workflow.md`](docs/ui-review-workflow.md) §4
+[`docs/ui-review-workflow.md`](../../docs/ui-review-workflow.md) §4
 **Priority:** Closed for this slice; follow-ups below
 **Area:** `core/knowledge/reconcile.py`, `core/knowledge/ingest.py`, `app/`
 
@@ -1384,7 +1384,7 @@ end when a key does survive.
 ## 15. Split graph projection from architecture viewpoints
 
 **Status:** ✅ IMPLEMENTED — see
-[`docs/ui-review-workflow.md`](docs/ui-review-workflow.md) §8
+[`docs/ui-review-workflow.md`](../../docs/ui-review-workflow.md) §8
 **Priority:** Closed
 **Area:** `app/projections.py`, `app/viewpoints/`, `app/templates/c4.html`
 
@@ -1443,7 +1443,7 @@ projections, never the reverse.
 ## 16. Ontology reference view — a browsable view of the four schemas
 
 **Status:** ✅ IMPLEMENTED — see
-[`docs/ui-review-workflow.md`](docs/ui-review-workflow.md) §8, §8a
+[`docs/ui-review-workflow.md`](../../docs/ui-review-workflow.md) §8, §8a
 **Priority:** Closed
 **Area:** `core/ontology.py`, `app/ontology_reference.py`,
 `app/templates/ontology.html`, `tests/test_ontology*.py`
