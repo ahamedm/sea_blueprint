@@ -1251,7 +1251,7 @@ If the source provides no identifier, leave the field empty. **Do not invent one
         Carries identifier fields through. Losing `requirement_id` on the text
         path is what left the PRD run with 0 identifiers while the structured
         run captured 16 — and identifiers are the join key architecture uses to
-        trace back, so a silent drop here breaks cross-verification (item 5).
+        trace back, so a silent drop here breaks cross-verification (YB-005).
         """
         try:
             # Handle both 'name' and 'entity' fields

@@ -5,7 +5,7 @@ Extraction test harness  [DRAFT]
 Runs each extraction agent against a known input, writes a named output file,
 and asserts a battery of invariants against the result.
 
-Why this exists (TODO item 7): every prompt change this session silently broke
+Why this exists (YB-007): every prompt change this session silently broke
 a previously-working invariant — tightening the object contract killed
 traceability predicates, adding containment resurrected technologies as
 elements. Catching those depended on manually diffing runs. This makes it a

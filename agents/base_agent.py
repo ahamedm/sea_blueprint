@@ -367,7 +367,7 @@ class SEABaseAgent:
 
         # Compact on purpose. The full name -> targets list costs ~1,540 chars and
         # pushed the extraction prompt past the 2.5:1 scaffolding-to-document
-        # ratio that TODO item 7 already flags as the thing making every other
+        # ratio that YB-007 already flags as the thing making every other
         # prompt fix unreliable. Names alone cost ~830, so the targets are kept —
         # they are what makes a predicate checkable — but the block is kept tight
         # and the per-name pattern is shown once rather than on 47 lines.

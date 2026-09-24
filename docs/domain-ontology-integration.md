@@ -1,6 +1,6 @@
 # Domain Ontology Integration — where it sits, how it is told apart, how it is chosen
 
-**Status:** Design — steps 1–3 **implemented** · 23 September 2026 · answers TODO item 11
+**Status:** Design — steps 1–3 **implemented** · 23 September 2026 · answers YB-011
 **Question:** Where does the Domain Ontology integrate? How is it differentiated in
 the view from the Business Requirements and Architecture ontologies? And can the
 Architect/BA simply *pick* the relevant domain ontology for the Initiative to start
@@ -42,7 +42,7 @@ Two things learned while building, both recorded in the code:
 
 ## 1. The distinction that has to be made first
 
-TODO item 11 already states it, and it is the whole design:
+YB-011 already states it, and it is the whole design:
 
 | | Vocabulary of… | Classes |
 |---|---|---|
@@ -82,7 +82,7 @@ the "generic, not tied to one domain" requirement is dead.
 **The import resolution already works.** `agents/base_agent._collect_ontology_names()`
 walks `imports:` recursively from the agent's single `ontology_path`. Point an agent at
 `ontology/domains/payment_processing.yaml` and it inherits the entire base chain for
-free. **No restructuring required** (item 11 is right about this) — with one caveat in
+free. **No restructuring required** (YB-011 is right about this) — with one caveat in
 §2.4.
 
 ### 2.2 Conceptually: the pack is **TBox**, and this is the subtle part
@@ -108,7 +108,7 @@ Why this matters concretely: `KnowledgeGraph.add_node(kind, label)` takes an arb
 kind string and `ingest.py` never validates it against a schema (line 103/118 — the
 kind is taken from the extraction output verbatim). So making the pack a *schema*
 costs **nothing** in the storage or graph layers and immediately makes `kind` mean a
-real class instead of a free string. That is the whole win of item 11 in one sentence:
+real class instead of a free string. That is the whole win of YB-011 in one sentence:
 *43% of entities currently carry no ontology class, and `Spring Boot` is filed as a
 domain concept, because `DomainConcept` is a catch-all and there is nothing to be
 wrong against.*
@@ -233,7 +233,7 @@ vocabulary where zero actually *means* something. And it creates the **third
 reconciliation leg**, which is the genuinely new capability:
 
 ```
-REQ-G ⇄ ARC-G     does the design answer the requirement?      (exists, item 5)
+REQ-G ⇄ ARC-G     does the design answer the requirement?      (exists, YB-005)
 REQ-G ⇄ DOMAIN    does the requirement set cover the subject?  (new)
 ARC-G ⇄ DOMAIN    what has the design ignored?                 (new)
 ```
@@ -258,9 +258,9 @@ ARC-G ⇄ DOMAIN    what has the design ignored?                 (new)
 
 | Option | Why it fails |
 |---|---|
-| **Add all domain classes to `requirements_base`** | Recreates exactly the problem item 11 names. `DomainConcept` is a catch-all *because* there was no domain vocabulary; widening the base layer makes the vocabulary domain-shaped while pretending to be generic. The user's requirement is explicit: not tied to one domain. |
+| **Add all domain classes to `requirements_base`** | Recreates exactly the problem YB-011 names. `DomainConcept` is a catch-all *because* there was no domain vocabulary; widening the base layer makes the vocabulary domain-shaped while pretending to be generic. The user's requirement is explicit: not tied to one domain. |
 | **Hard-code the pack as `LAYER_ORDER` entry five** | Breaks `stats["layers"] == 4` and `classes_per_layer` (tests `test_ontology.py:39,45`), and `_load_cached` would demand a specific domain forever. Also kills per-Initiative selection — the global `lru_cache` is keyed by directory only. |
-| **Load every pack always** | Prompt dilution is already the known failure mode (`TODO.md` item 7: scaffolding 2.5:1 over the document). Adding HR + payments + LMS vocabularies to a payments extraction makes mis-classification *worse*, not better, and `Spring Boot`-as-a-concept is the current symptom of too much permissive vocabulary. |
+| **Load every pack always** | Prompt dilution is already the known failure mode (`YB-007`: scaffolding 2.5:1 over the document). Adding HR + payments + LMS vocabularies to a payments extraction makes mis-classification *worse*, not better, and `Spring Boot`-as-a-concept is the current symptom of too much permissive vocabulary. |
 | **Model the domain as instances, not as a pack** | Loses the schema. You cannot validate `kind` against a concept that is itself just another node, and you cannot ask "which concepts have zero instances" because there is no closed list of concepts to have zero of. |
 | **A separate third graph store** | Unnecessary — §2.2. Nodes already carry kind; instances still live in REQ-G/ARC-G. A third store invents a merge problem that does not exist. |
 
@@ -268,8 +268,8 @@ ARC-G ⇄ DOMAIN    what has the design ignored?                 (new)
 
 ## 5. Sequencing — what to build now, honestly
 
-TODO item 11's ordering note is correct and should be kept: the pack's *full* value is
-realised through the coverage audit, which needs the audit engine (item 9, gap 5) that
+YB-011's ordering note is correct and should be kept: the pack's *full* value is
+realised through the coverage audit, which needs the audit engine (YB-009, gap 5) that
 does not exist. Building the whole thing now yields a vocabulary nothing consumes.
 
 But **step 3 alone is independently useful and much smaller**, and it is the step that
@@ -282,7 +282,7 @@ domain concepts):
 | **2. Loader** | ✅ done | pack resolved **per Initiative**, separate from `load_ontology`; missing imports/ranges fatal; pack id in `Provenance.domain_pack`; picker on `/ingest` | makes it selectable | 1 |
 | **3. Grounding** | ✅ done | pack classes injected as a separate prompt block; **payment example moved out of the base prompt** into the pack | **immediate extraction precision** | 1, 2 |
 | **4. View** | ⬜ | `/ontology/domain` concept map + coverage table | the differentiation becomes visible | 2 |
-| **5. Coverage** | ⬜ | the two-way coverage audit and the two new reconciliation legs | the new capability | 4 + item 9 |
+| **5. Coverage** | ⬜ | the two-way coverage audit and the two new reconciliation legs | the new capability | 4 + YB-009 |
 
 **Recommendation:** 4 next (small, and it is what makes the distinction visible), 5 when
 the audit engine lands. Do **not** ship the pack as a fifth fixed base layer at any point.

@@ -165,7 +165,7 @@ resolution to design.
 
 That is a legitimate v1 simplification **only while one document owns a graph.**
 It breaks the moment knowledge accumulates across documents or runs, at which
-point item 9b comes back. Worth taking deliberately, with the exit condition
+point `YB-009` §9b comes back. Worth taking deliberately, with the exit condition
 written down.
 
 ---

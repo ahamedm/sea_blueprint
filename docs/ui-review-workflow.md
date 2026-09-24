@@ -353,14 +353,14 @@ Recorded so the gaps are choices rather than oversights.
   lexical — no embeddings or model assistance, so a paraphrase with no shared vocabulary
   will never surface. On the real fixture that leaves 9 of 13 references unresolvable.
 - **Semantic audit.** All checks are structural. "Does this design answer this
-  requirement?" is not implemented (TODO item 9).
+  requirement?" is not implemented (YB-009).
 - **Correction merge conflicts.** While one document owns a graph, corrections are
   recorded as supersessions. The first time knowledge arrives from two sources,
-  the overlay/conflict-resolution design (TODO item 9b) becomes necessary.
+  the overlay/conflict-resolution design (`YB-009` §9b) becomes necessary.
 - **Only one viewpoint.** C4 is the only architecture notation implemented, and it
   is read-only: no layout persistence, no manual arrangement, no write-back from the
   canvas, and no parsing of structured C4 sources (Structurizr/PlantUML/Mermaid,
-  TODO item 12). The viewpoint layer exists so the next notation has a home.
+  YB-012). The viewpoint layer exists so the next notation has a home.
 - **Concurrent writers.** Reads and writes go to disk per request. Fine for a
   single-process MVP; a multi-worker deployment needs locking or a real store.
 

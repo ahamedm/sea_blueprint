@@ -82,7 +82,7 @@ def _typed_external_refs(
     architecture profile emits `external_references`, while the requirements
     profile carries the document's own key as `requirement_id`. Reading only the
     former is why requirement IDs stayed out of the graph even after the extractor
-    began emitting them (TODO item 5, root cause 1).
+    began emitting them (YB-005, root cause 1).
 
     WHAT CHANGED, AND WHY IT MATTERS. Identifiers used to arrive as flat strings,
     so an enterprise CMDB key and a heading like `NFR-PS-001` were

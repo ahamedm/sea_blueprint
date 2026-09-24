@@ -79,7 +79,7 @@ class EnvironmentConfig(BaseModel):
     # Evaluation
     deepeval_api_key: str = Field(default="", alias="DEEPEVAL_API_KEY")
     
-    # Structured output (see TODO.md item 2)
+    # Structured output (see docs/decisions/ADR-0003-structured-output.md)
     # Requires an inference server that honours forced tool_choice. llama.cpp
     # (as observed) does not, so this always falls back on that setup — but the
     # attempt costs latency before falling back. Flip to "false" to skip it.

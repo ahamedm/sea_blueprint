@@ -114,7 +114,7 @@ Saving triples is not the win — JSON files work. Three things are:
   during a run.
 - **Named graphs** map onto the PRD's "requirements and architecture evolve"
   requirement — a graph per revision, diffed. This is the requirement-diffing
-  risk (TODO item 4) solved structurally.
+  risk (YB-004) solved structurally.
 - **ARC-G ⇄ REQ-G becomes a query.** Item 5's cross-verification — two graphs
   sharing 4 of 60 node names — becomes a SPARQL join across named graphs instead
   of bespoke matching code.

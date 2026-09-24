@@ -33,7 +33,7 @@ the distinction.
 **Node identity is stable and derived, never run-scoped.** `kind:label` slugged.
 If identity were assigned per run, re-extraction would duplicate the whole graph
 and human corrections would have nothing durable to attach to. Stability is the
-precondition for the correction-merge design (TODO item 9b).
+precondition for the correction-merge design (`YB-009` §9b).
 
 **Incompleteness is first-class.** A run records which passes failed or came back
 empty. Without this, a partial extraction is indistinguishable from a complete
@@ -539,7 +539,7 @@ class KnowledgeGraph:
         Folding rules matter: re-observing the same fact must raise confidence
         and keep the fuller source text, never create a parallel duplicate. And a
         human assertion must not be silently overwritten by a later agent run —
-        that is the correction-merge requirement (TODO item 9b) handled at the
+        that is the correction-merge requirement (`YB-009` §9b) handled at the
         point of write rather than as an afterthought.
         """
         aid = make_assertion_id(subject, predicate, obj, value)

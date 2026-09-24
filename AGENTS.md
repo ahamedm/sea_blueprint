@@ -2,7 +2,7 @@
 This is a platform shrinked to a tool/app to prove the core idea of leveraging Ontology for System Architecture reasoning, validation and evolution in an Enterprise ecosystem.
 
 # Convention
-- TODOs/Deferred Items tracking in TODO.md
+- TODOs/Deferred Items tracked as one file per item under `docs/todos/entries/`; `TODO.md` is a generated index — never edit it by hand, run `uv run scripts/todo.py render` (validate with `check`). Closed work becomes a record in `docs/decisions/`, long analysis lives in `docs/design/`. See [TODO system](docs/todos/README.md)
 - Documents under docs/ folder
 - Configurations Externalized
 - Use uv instead of direct python for build/dependency management etc.

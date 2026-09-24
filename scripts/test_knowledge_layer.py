@@ -153,7 +153,7 @@ def test_completeness_distinguishes_unknown_from_complete():
 
 
 # ---------------------------------------------------------------------------
-# Cross-graph references (TODO item 5 input)
+# Cross-graph references (YB-005 input)
 # ---------------------------------------------------------------------------
 
 def test_cross_graph_references_held_not_invented():

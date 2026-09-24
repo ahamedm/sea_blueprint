@@ -30,6 +30,6 @@ Available viewpoints:
 
     c4.c4_view(graph, level)   — C4 context / container / component
 
-Candidate future occupants of this package: C4/Structurizr parsing (TODO item 12),
+Candidate future occupants of this package: C4/Structurizr parsing (YB-012),
 a deployment view, a data-flow view, an initiative-vs-baseline comparison view.
 """
