@@ -15,7 +15,11 @@
     <dt>Source</dt><dd>{{ a.source_type }}{% if a.asserted_by %} · {{ a.asserted_by }}{% endif %}</dd>
     <dt>Run</dt><dd><code>{{ a.run_id or '—' }}</code>{% if a.pass_name %} · {{ a.pass_name }}{% endif %}</dd>
     <dt>Document</dt><dd>{{ a.derived_from or '—' }}</dd>
-    {% if a.superseded_by %}<dt>Superseded by</dt><dd class="mono">{{ a.superseded_by }}</dd>{% endif %}
+    {% if a.is_retired %}
+      <dt>Removed</dt><dd>by a reviewer — nothing replaced it</dd>
+    {% elif a.superseded_by %}
+      <dt>Superseded by</dt><dd class="mono">{{ a.superseded_by }}</dd>
+    {% endif %}
     {% if a.correction_note %}<dt>Correction</dt><dd>{{ a.correction_note }}</dd>{% endif %}
   </dl>
 
@@ -44,8 +48,29 @@
         <button class="btn btn-ok" name="action" value="verify">Verify</button>
         <button class="btn btn-warn" name="action" value="dispute">Dispute</button>
         {% if a.is_human %}<button class="btn btn-ghost" name="action" value="reset">Reopen</button>{% endif %}
+        <span class="spacer"></span>
+        {# Separated from the review actions on purpose. Verify/correct/dispute all
+           leave the fact in the graph; this is the only control that takes it out
+           of every query, the audit and the map, so it asks first and it says so. #}
+        <button class="btn btn-sm btn-ghost danger" name="action" value="retire"
+                onclick="return confirm('Remove this fact from the graph?\n\nIt stays in the audit trail and can be restored by reopening it, but it will no longer appear in queries, the gap report or the map.')">
+          Remove fact
+        </button>
       </div>
+      <p class="hint" style="margin-top:6px;">
+        <strong>Dispute</strong> records that the claim is wrong but keeps it in the
+        graph, so the gap report and map still count it. <strong>Remove</strong> takes
+        it out of the active graph entirely — the difference between flagging
+        invented content and deleting it.
+      </p>
     </form>
+  {% elif a.is_retired %}
+    <p class="hint">
+      This fact was <strong>removed</strong> by a reviewer — the extractor produced
+      it and it does not belong in the graph. It is excluded from queries, the gap
+      report and the map, and kept here for the audit trail. Reopening it puts it
+      back in the review queue.
+    </p>
   {% elif a.superseded_by %}
     <p class="hint">This assertion was replaced. The correction is
       <code>{{ a.superseded_by }}</code> — open it to keep reviewing.</p>

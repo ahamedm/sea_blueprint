@@ -10,7 +10,7 @@ updated: 2026-09-24
 design: null
 record: null
 superseded_by: []
-related: ["YB-023", "YB-018"]
+related: ["YB-023", "YB-018", "ADR-0015"]
 blocks: []
 blocked_by: []
 ---
@@ -120,3 +120,15 @@ which already works. Quality, not blocking.
 
 **Build UIs last.** They are the most tempting to start with and the most likely
 to lock in data-model decisions that should be deliberate.
+
+---
+
+### Added by ADR-0015 (retiring extracted facts)
+
+`retire` (ADR-0015) removes a fact from the working set and survives re-extraction.
+It deliberately does **not** retract a fact from a frozen revision: snapshots are
+immutable by design, so a promoted fact that is later removed is still asserted by
+the baseline revision it was promoted into. Expressing a *retraction* — rather than
+an addition — as a change relative to a baseline is this item's territory, and it is
+the same correction-merge problem seen from the other side: the overlay has to be
+able to say "this baseline fact is now wrong", not only "here is something new".

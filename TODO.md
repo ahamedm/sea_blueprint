@@ -3,7 +3,7 @@
 
 Open work only. Each item is one file under `docs/todos/entries/` — that file is the source of truth and this index is generated from it.
 
-**12 active · 1 parked · 2 superseded · 14 closed records**
+**12 active · 2 parked · 2 superseded · 15 closed records**
 
 | Where | What |
 |---|---|
@@ -52,6 +52,7 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | ID | Item | Status | Area |
 |---|---|---|---|
 | [YB-008](docs/todos/entries/YB-008-team-organisational-unit.md) | Team / Organisational Unit construct (PARKED) | parked | `ontology/enterprise_structure.yaml` |
+| [YB-029](docs/todos/entries/YB-029-quality-attribute-views.md) | Quality-attribute views for the map — the architect's primary focus has no view of its own | parked | `app/viewpoints/merged.py` (new lens or viewpoint), `app/projections.py`, `core/knowledge/realization.py`, `app/templates/map.html` |
 
 ## Superseded
 
@@ -67,6 +68,7 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [YB-005](docs/todos/entries/YB-005-arcg-reqg-linkage.md) | ARC-G ⇄ REQ-G linkage — Initiative-scoped reconciliation | [ADR-0012-req-arc-reconciliation-inversion](docs/decisions/ADR-0012-req-arc-reconciliation-inversion.md) |
 | [YB-023](docs/todos/entries/YB-023-requirements-completeness-reporting.md) | Requirements extraction never reports completeness — so REQ-G can never be audited | [ADR-0013-requirements-completeness-reporting](docs/decisions/ADR-0013-requirements-completeness-reporting.md) |
 | [YB-024](docs/todos/entries/YB-024-requirements-graph-view.md) | Graph view — cover the requirements graph, not only C4 | [ADR-0014-map-replaces-c4-view](docs/decisions/ADR-0014-map-replaces-c4-view.md) |
+| [YB-028](docs/todos/entries/YB-028-remove-extracted-facts.md) | Remove a fact the extractor invented — and stop a dispute withholding the audit | [ADR-0015-retiring-extracted-facts](docs/decisions/ADR-0015-retiring-extracted-facts.md) |
 
 ## Closed work — records
 
@@ -86,5 +88,6 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [ADR-0012](docs/decisions/ADR-0012-req-arc-reconciliation-inversion.md) | REQ ⇄ ARC reconciliation — both directions, and the citation rule | 2026-09-24 | item — |
 | [ADR-0013](docs/decisions/ADR-0013-requirements-completeness-reporting.md) | Requirements runs report their own completeness — REQ-G can be audited | 2026-09-24 | item — |
 | [ADR-0014](docs/decisions/ADR-0014-map-replaces-c4-view.md) | The map replaces the C4 view — one graph, both sides, references visible | 2026-09-24 | item — |
+| [ADR-0015](docs/decisions/ADR-0015-retiring-extracted-facts.md) | Removing a fact the extractor invented — retire, and what withholds the audit | 2026-09-24 | item — |
 
 The index is generated from the entries — do not edit `TODO.md` by hand.

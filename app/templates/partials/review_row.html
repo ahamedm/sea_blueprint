@@ -40,6 +40,13 @@
                 hx-vals='{"action":"reset","actor":"{{ reviewer }}"}'
                 hx-target="#row-{{ row.id }}" hx-swap="outerHTML">Reopen</button>
       {% endif %}
+      {% if row.is_active %}
+        <button class="btn btn-sm btn-ghost danger"
+                hx-post="{{ url_for('review_decision', assertion_id=row.id) }}"
+                hx-vals='{"action":"retire","actor":"{{ reviewer }}"}'
+                hx-confirm="Remove this fact from the graph? It stays in the audit trail and can be restored by reopening it."
+                hx-target="#row-{{ row.id }}" hx-swap="outerHTML">Remove</button>
+      {% endif %}
       <button class="btn btn-sm btn-ghost"
               hx-get="{{ url_for('review_detail', assertion_id=row.id) }}"
               hx-target="#drawer" hx-swap="innerHTML">Open</button>

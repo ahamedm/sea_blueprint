@@ -58,6 +58,7 @@ from core.knowledge.model import (
     CROSS_GRAPH_PREDICATES,
     STATUS_CORRECTED,
     STATUS_DISPUTED,
+    STATUS_RETIRED,
     STATUS_SUPERSEDED,
     STATUS_UNVERIFIED,
     STATUS_VERIFIED,
@@ -99,6 +100,18 @@ class ReviewFilters:
     max_confidence: Optional[float] = None
     sort: str = "confidence"
 
+    # NEGATIVE FILTERS. The queue had every filter except a way to say "not this":
+    # a reviewer facing 200 invented `connects_to` triples could isolate them but
+    # not exclude them, so working through the rest of the graph meant reading past
+    # the noise on every page. Exclusion is the cheap answer to that, and it is
+    # deliberately separate from `retire` — hiding a fact from a queue does not
+    # remove it from the graph, and the two should not be confused by the UI either.
+    exclude_predicate: str = ""
+    exclude_kind: str = ""
+    # Scoping to one extraction run. Related to YB-018 (review batches), which is
+    # the fuller version: this only says WHICH run a fact came from.
+    run: str = ""
+
     SORTS = {
         "confidence": "Lowest confidence first",
         "subject": "Subject",
@@ -127,7 +140,14 @@ class ReviewFilters:
             min_confidence=num("min_confidence"),
             max_confidence=num("max_confidence"),
             sort=(args.get("sort") or "confidence").strip(),
+            exclude_predicate=(args.get("exclude_predicate") or "").strip(),
+            exclude_kind=(args.get("exclude_kind") or "").strip(),
+            run=(args.get("run") or "").strip(),
         )
+
+    @property
+    def has_exclusions(self) -> bool:
+        return bool(self.exclude_predicate or self.exclude_kind)
 
     @property
     def is_default(self) -> bool:
@@ -141,6 +161,9 @@ class ReviewFilters:
                 self.only,
                 self.min_confidence,
                 self.max_confidence,
+                self.exclude_predicate,
+                self.exclude_kind,
+                self.run,
             ]
         )
 
@@ -156,6 +179,9 @@ class ReviewFilters:
             "min_confidence": "" if self.min_confidence is None else self.min_confidence,
             "max_confidence": "" if self.max_confidence is None else self.max_confidence,
             "sort": self.sort,
+            "exclude_predicate": self.exclude_predicate,
+            "exclude_kind": self.exclude_kind,
+            "run": self.run,
         }
         values.update(overrides)
         parts = [f"{k}={v}" for k, v in values.items() if v not in ("", None)]
@@ -227,6 +253,7 @@ def project_assertion(
         "derived_from": a.provenance.derived_from,
         "superseded_by": a.superseded_by,
         "is_active": a.is_active,
+        "is_retired": a.status == STATUS_RETIRED,
         "needs_review": a.is_active and a.status in (STATUS_UNVERIFIED, STATUS_DISPUTED),
         "is_low_confidence": a.is_active and a.confidence < LOW_CONFIDENCE,
         "is_unresolved": a in graph.unresolved_references(),
@@ -265,6 +292,17 @@ def _matches_filters(a, graph, f: ReviewFilters, unresolved_ids: set, dangling_i
         return False
     if f.only == "superseded" and a.status != STATUS_SUPERSEDED:
         return False
+    if f.only == "retired" and a.status != STATUS_RETIRED:
+        return False
+
+    # The exclusions come after the positives, so a chip and an exclusion that
+    # contradict each other yield nothing rather than silently preferring one.
+    if f.exclude_predicate and a.predicate == f.exclude_predicate:
+        return False
+    if f.exclude_kind and (subject.kind if subject else "?") == f.exclude_kind:
+        return False
+    if f.run and a.provenance.run_id != f.run:
+        return False
 
     if f.q:
         needle = f.q.lower()
@@ -300,7 +338,10 @@ def project_review_rows(
     unresolved_ids = {a.id for a in graph.unresolved_references()}
     dangling_ids = {a.id for a in graph.dangling_assertions()}
 
-    pool = graph.assertions.values() if include_superseded else graph.active()
+    # A retired assertion is inactive, so asking for it has to widen the pool —
+    # otherwise the chip is a link to an empty page.
+    include_inactive = include_superseded or f.only == "retired" or f.status == STATUS_RETIRED
+    pool = graph.assertions.values() if include_inactive else graph.active()
     selected = [a for a in pool if _matches_filters(a, graph, f, unresolved_ids, dangling_ids)]
 
     if f.sort == "confidence":
@@ -359,6 +400,11 @@ def project_review_rows(
                 "needs_review": a.is_active and a.status in (STATUS_UNVERIFIED, STATUS_DISPUTED),
                 "is_low_confidence": a.is_active and a.confidence < LOW_CONFIDENCE,
                 "is_unresolved": a.id in unresolved_ids,
+                # Active vs removed is what decides whether the row offers Verify
+                # and Remove or Reopen, so it is projected rather than left to the
+                # template to re-derive from three fields.
+                "is_active": a.is_active,
+                "is_retired": a.status == STATUS_RETIRED,
                 "decision_count": len(decisions),
                 "last_decision": decisions[-1].label if decisions else "",
             }
@@ -381,12 +427,30 @@ def project_review_summary(graph, log: ReviewLog) -> Dict[str, Any]:
         k = node.kind if node else "?"
         kinds[k] = kinds.get(k, 0) + 1
 
+    # Counted over ACTIVE assertions, so the numbers match what the exclusion
+    # filters can actually hide. A predicate the extractor invented is exactly what
+    # someone wants excluded, and it is the predicate with the highest count — which
+    # is the signal that says so.
+    predicates: Dict[str, int] = {}
+    for a in graph.active():
+        predicates[a.predicate] = predicates.get(a.predicate, 0) + 1
+
+    runs: Dict[str, int] = {}
+    for a in graph.active():
+        if a.provenance.run_id:
+            runs[a.provenance.run_id] = runs.get(a.provenance.run_id, 0) + 1
+
     return {
         "progress": progress.to_dict(),
         "by_status": by_status,
         "by_band": by_band,
         "by_kind": dict(sorted(kinds.items(), key=lambda kv: -kv[1])),
         "predicates": sorted(graph.predicates()),
+        # Ranked, and with counts: "which predicate is producing the noise?" is the
+        # question that leads to an exclusion, and a bare sorted list cannot answer
+        # it.
+        "by_predicate": dict(sorted(predicates.items(), key=lambda kv: (-kv[1], kv[0]))),
+        "runs": dict(sorted(runs.items())),
         "unresolved": len(graph.unresolved_references()),
         "dangling": len(graph.dangling_assertions()),
         "low_confidence": by_band["low"],
@@ -677,6 +741,7 @@ _ACTION_BADGE = {
     "reset": "unverified",
     "promote_baseline": "baseline",
     "resolve": "resolved",
+    "retire": "removed",
 }
 
 

@@ -60,7 +60,8 @@
       ('Disputed',          filters.to_query(only='', status='DISPUTED'),             summary.by_status.get('DISPUTED', 0)),
       ('Unresolved refs',   filters.to_query(status='', only='unresolved'),           summary.unresolved),
       ('Human-edited',      filters.to_query(status='', only='human'),                p.human),
-      ('Superseded',        filters.to_query(status='', only='superseded'),           p.superseded)
+      ('Superseded',        filters.to_query(status='', only='superseded'),           p.superseded),
+      ('Removed',           filters.to_query(status='', only='retired'),              p.retired)
     ] %}
     {% for label, query, count in chips %}
       <a class="chip {{ 'active' if query == filters.to_query() else '' }}"
@@ -78,7 +79,7 @@
         <span>Status</span>
         <select name="status">
           <option value="">any</option>
-          {% for s in ['UNVERIFIED', 'VERIFIED', 'CORRECTED', 'DISPUTED', 'SUPERSEDED'] %}
+          {% for s in ['UNVERIFIED', 'VERIFIED', 'CORRECTED', 'DISPUTED', 'SUPERSEDED', 'RETIRED'] %}
             <option value="{{ s }}" {{ 'selected' if filters.status == s else '' }}>{{ s }}</option>
           {% endfor %}
         </select>
@@ -96,8 +97,10 @@
         <span>Predicate</span>
         <select name="predicate">
           <option value="">any</option>
-          {% for pr in summary.predicates %}
-            <option value="{{ pr }}" {{ 'selected' if filters.predicate == pr else '' }}>{{ pr }}</option>
+          {# Ranked by count: "which predicate is producing the noise" is the
+             question that leads to an exclusion. #}
+          {% for pr, n in summary.by_predicate.items() %}
+            <option value="{{ pr }}" {{ 'selected' if filters.predicate == pr else '' }}>{{ pr }} ({{ n }})</option>
           {% endfor %}
         </select>
       </label>
@@ -119,6 +122,53 @@
       </label>
       <button class="btn btn-primary" type="submit">Apply</button>
       <a class="btn btn-ghost" href="{{ url_for('review') }}">Reset</a>
+    </form>
+
+    {# EXCLUSIONS. Separate form so the two cannot fight: a positive filter and an
+       exclusion that contradict each other would silently yield nothing, and the
+       reviewer would read that as "no facts" rather than "your filters collide". #}
+    <form class="filters" method="get" action="{{ url_for('review') }}" style="margin-top:8px;">
+      {% for key, value in {'status': filters.status, 'scope': filters.scope,
+                            'kind': filters.kind, 'predicate': filters.predicate,
+                            'q': filters.q, 'only': filters.only,
+                            'min_confidence': filters.min_confidence,
+                            'max_confidence': filters.max_confidence,
+                            'sort': filters.sort, 'run': filters.run}.items() %}
+        {% if value not in ('', None) %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endif %}
+      {% endfor %}
+      <span class="muted small">Hide:</span>
+      <label class="field" style="min-width:190px;">
+        <span>Predicate</span>
+        <select name="exclude_predicate">
+          <option value="">none</option>
+          {% for pr, n in summary.by_predicate.items() %}
+            <option value="{{ pr }}" {{ 'selected' if filters.exclude_predicate == pr else '' }}>{{ pr }} ({{ n }})</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        <span>Subject kind</span>
+        <select name="exclude_kind">
+          <option value="">none</option>
+          {% for k, n in summary.by_kind.items() %}
+            <option value="{{ k }}" {{ 'selected' if filters.exclude_kind == k else '' }}>{{ k }} ({{ n }})</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field" style="min-width:170px;">
+        <span>Extraction run</span>
+        <select name="run">
+          <option value="">all runs</option>
+          {% for r, n in summary.runs.items() %}
+            <option value="{{ r }}" {{ 'selected' if filters.run == r else '' }}>{{ r }} ({{ n }})</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button class="btn btn-sm" type="submit">Apply</button>
+      {% if filters.has_exclusions or filters.run %}
+        <a class="btn btn-sm btn-ghost" href="{{ url_for('review') }}?{{ filters.to_query(exclude_predicate='', exclude_kind='', run='') }}">Clear</a>
+      {% endif %}
+      <span class="hint">Hiding is not removing — excluded facts stay in the graph. Reopen a row to remove it.</span>
     </form>
   </div>
 

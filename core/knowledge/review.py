@@ -34,11 +34,13 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from .model import (
     CROSS_GRAPH_PREDICATES,
+    RETIREMENT_MARK,
     SCOPE_BASELINE,
     SCOPE_INITIATIVE,
     SOURCE_HUMAN_REVIEWER,
     STATUS_CORRECTED,
     STATUS_DISPUTED,
+    STATUS_RETIRED,
     STATUS_SUPERSEDED,
     STATUS_UNVERIFIED,
     STATUS_VERIFIED,
@@ -52,6 +54,9 @@ ACTION_VERIFY = "verify"
 ACTION_CORRECT = "correct"
 ACTION_DISPUTE = "dispute"
 ACTION_RESET = "reset"
+# Remove a fact the extractor should not have produced. Distinct from `dispute`,
+# which keeps it: see `retire` for why both are needed.
+ACTION_RETIRE = "retire"
 # Bulk action: promote verified initiative facts into the system baseline.
 ACTION_PROMOTE = "promote_baseline"
 # Reconciliation: bind an unresolved cross-graph reference to an existing node.
@@ -91,6 +96,7 @@ class Decision:
             ACTION_VERIFY: "Verified",
             ACTION_CORRECT: "Corrected",
             ACTION_DISPUTE: "Disputed",
+            ACTION_RETIRE: "Removed",
             ACTION_RESET: "Reopened",
             ACTION_PROMOTE: "Baselined",
             ACTION_RESOLVE: "Resolved",
@@ -181,6 +187,7 @@ class ReviewProgress:
     verified: int = 0
     corrected: int = 0
     disputed: int = 0
+    retired: int = 0
     superseded: int = 0
     human: int = 0
 
@@ -190,11 +197,33 @@ class ReviewProgress:
 
     @property
     def outstanding(self) -> int:
+        """Assertions a human has not yet decided on.
+
+        Kept as `unverified + disputed` and deliberately NOT narrowed. It is the
+        "needs attention" count the review queue shows, and a disputed fact is one
+        of those — someone rejected it and nobody has said what happens next.
+        """
         return self.unverified + self.disputed
 
     @property
+    def blocking(self) -> int:
+        """What actually withholds the audit, which is narrower than `outstanding`.
+
+        Only assertions NOBODY has judged block. A disputed claim is a human
+        decision, so counting it as an outstanding *review* was backwards: a
+        reviewer could dispute an invented fact, verify every other assertion in the
+        graph, and still be told the graph was not auditable — with no action left
+        that would make it so. That is the trap this property removes.
+
+        It does not make the disputed fact go away. `is_active` is unchanged by a
+        dispute, so the claim is still in the graph, still in the audit, and still
+        on the map; clearing one out is `retire`.
+        """
+        return self.unverified
+
+    @property
     def is_auditable(self) -> bool:
-        return self.outstanding == 0 and self.total > 0
+        return self.blocking == 0 and self.total > 0
 
     @property
     def percent_reviewed(self) -> int:
@@ -207,10 +236,12 @@ class ReviewProgress:
             "verified": self.verified,
             "corrected": self.corrected,
             "disputed": self.disputed,
+            "retired": self.retired,
             "superseded": self.superseded,
             "human": self.human,
             "reviewed": self.reviewed,
             "outstanding": self.outstanding,
+            "blocking": self.blocking,
             "is_auditable": self.is_auditable,
             "percent_reviewed": self.percent_reviewed,
         }
@@ -222,6 +253,11 @@ def review_progress(graph: KnowledgeGraph) -> ReviewProgress:
     for a in graph.assertions.values():
         if not a.is_active:
             p.superseded += 1
+            # Retirement is a supersession with nothing in its place, so it is
+            # counted separately — the two say different things about what a human
+            # did, and lumping them would hide how much of the graph was invented.
+            if a.status == STATUS_RETIRED:
+                p.retired += 1
             continue
         p.total += 1
         if a.is_human:
@@ -320,7 +356,17 @@ def verify(graph: KnowledgeGraph, assertion_id: str, actor: str = "", note: str 
 
 
 def dispute(graph: KnowledgeGraph, assertion_id: str, actor: str = "", note: str = "") -> Decision:
-    """A human rejects the claim. It stays visible — silently deleting is worse."""
+    """A human rejects the claim but leaves it in the active graph.
+
+    NOT a deletion, and the distinction is the point. `dispute` records a verdict
+    on a fact that is still in play — it may be referred to, argued about, or
+    resolved later by verifying or correcting it — so the assertion stays active
+    and every query still sees it. `retire` is the other act: the fact should never
+    have been extracted, and the graph should stop answering with it.
+
+    Because it stays active, a dispute does NOT remove the fact from the gap report
+    or the map. Someone who wants it gone wants `retire`.
+    """
     a = _require(graph, assertion_id)
     before = _snapshot(a)
     a.status = STATUS_DISPUTED
@@ -335,11 +381,79 @@ def dispute(graph: KnowledgeGraph, assertion_id: str, actor: str = "", note: str
     )
 
 
+def retire(graph: KnowledgeGraph, assertion_id: str, actor: str = "", note: str = "") -> Decision:
+    """Remove a fact from the active graph, without putting anything in its place.
+
+    WHY THIS IS NOT `dispute`. A dispute keeps the claim in play and blocks the
+    audit gate until someone resolves it; it is an annotation on a fact that is
+    still there. An assertion the extractor invented — a predicate no part of the
+    architecture exhibits, a reference to something that does not exist — has no
+    resolution: the only correct end state is for the graph to stop asserting it.
+    Without this action there was no way to reach that state, and the fact went on
+    polluting `active()`, the gap report and the map while carrying a flag.
+
+    HOW IT IS REMOVED, AND WHY THAT WAY. Supersession is this model's deletion:
+    `is_active` is false once `superseded_by` is set, and every query, audit and
+    view filters on it. Retirement is that mechanism with `RETIREMENT_MARK` in
+    place of a replacement id, so the lineage still says what happened — the
+    difference between "replaced by this" and "removed, nothing took its place" is
+    legible from the assertion alone.
+
+    The mark is a non-empty sentinel rather than `""` for a concrete reason:
+    `merge_graphs` carries `superseded_by` across a re-extraction only when it is
+    truthy, so an empty one would let the next run fold the identical assertion back
+    in as active. The removal would silently undo itself, which is the failure mode
+    a durable deletion exists to avoid.
+
+    WHAT IT DOES NOT DO:
+      - It does not delete the assertion. It stays in the graph, in the audit trail,
+        and in the `Removed` filter, and `reset` restores it.
+      - It does not delete NODES. A node's identity is deliberately durable so
+        re-extraction converges and corrections have something to attach to;
+        removing the node would have the next run recreate it. Retire the
+        assertions about a spurious node instead, and the orphan it leaves is
+        reported by `dangling_assertions()` rather than hidden.
+      - It does not retract a fact from a FROZEN baseline revision. Revision
+        snapshots are immutable by design, so a retraction has to be expressed as a
+        change relative to them (YB-009's territory).
+    """
+    a = _require(graph, assertion_id)
+    if not a.is_active:
+        raise ReviewError(f"{assertion_id} is {a.status}, not an active assertion")
+    before = _snapshot(a)
+    a.status = STATUS_RETIRED
+    a.superseded_by = RETIREMENT_MARK
+    a.provenance = _human_provenance(a, actor, note)
+    return Decision(
+        action=ACTION_RETIRE,
+        assertion_id=assertion_id,
+        actor=actor,
+        note=note,
+        before=before,
+        after=_snapshot(a),
+    )
+
+
 def reset(graph: KnowledgeGraph, assertion_id: str, actor: str = "", note: str = "") -> Decision:
-    """Undo a decision — back to the queue, attributed to the agent again."""
+    """Undo a decision — back to the queue, attributed to the agent again.
+
+    Also the RESTORE path for a removed fact, and that part needed fixing: setting
+    the status back to UNVERIFIED is not enough on its own, because `is_active`
+    reads the lineage too. An assertion retired earlier kept `superseded_by ==
+    RETIREMENT_MARK`, so "reopening" it left it inactive and invisible — a restore
+    that silently did nothing.
+
+    The two cases are told apart by what the lineage points at. `RETIREMENT_MARK`
+    means nothing replaced it, so reopening is complete once the mark is cleared.
+    Any other value is a real replacement held in the graph, and the link to it is
+    left alone: reopening a superseded assertion means "resume reviewing this", not
+    "orphan its correction", which would break the lineage invariant.
+    """
     a = _require(graph, assertion_id)
     before = _snapshot(a)
     a.status = STATUS_UNVERIFIED
+    if a.superseded_by == RETIREMENT_MARK:
+        a.superseded_by = None
     a.provenance = Provenance(
         source_type=a.provenance.source_type if not a.provenance.is_human else "EXTRACTION_AGENT",
         run_id=a.provenance.run_id,
@@ -440,6 +554,8 @@ def apply_decisions(
         decision = verify(graph, assertion_id, actor, note)
     elif action == ACTION_DISPUTE:
         decision = dispute(graph, assertion_id, actor, note)
+    elif action == ACTION_RETIRE:
+        decision = retire(graph, assertion_id, actor, note)
     elif action == ACTION_RESET:
         decision = reset(graph, assertion_id, actor, note)
     elif action == ACTION_CORRECT:

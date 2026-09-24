@@ -107,6 +107,17 @@ STATUS_VERIFIED = "VERIFIED"
 STATUS_CORRECTED = "CORRECTED"
 STATUS_DISPUTED = "DISPUTED"
 STATUS_SUPERSEDED = "SUPERSEDED"
+STATUS_RETIRED = "RETIRED"
+
+# What `superseded_by` holds when a human removes a fact outright, rather than
+# replacing it with a corrected version.
+#
+# A plain `""` would not survive: `merge_graphs` carries the lineage only when it
+# is truthy, so a re-extraction would fold the fresh observation back in and leave
+# the fact active — the removal would silently undo itself on the next run. A
+# non-empty sentinel is what makes "removed" durable, and it still says plainly
+# that this assertion was retired rather than replaced.
+RETIREMENT_MARK = "(retired)"
 
 # Predicates whose object is a REFERENCE into another graph rather than a node
 # in this one — `traces_to_goal`, `implements_requirement` and friends point at
@@ -251,8 +262,18 @@ class Assertion:
     @property
     def is_active(self) -> bool:
         """Superseded assertions stay in the graph for lineage, but are excluded
-        from queries and audits by default."""
-        return self.superseded_by is None and self.status != STATUS_SUPERSEDED
+        from queries and audits by default.
+
+        Three ways a fact leaves the active set, and they mean different things:
+        `SUPERSEDED` (replaced by a correction or a resolution), `RETIRED` (removed
+        by a human, with nothing put in its place), and any assertion carrying
+        `superseded_by` — which is the lineage pointing at what replaced it, or at
+        `RETIREMENT_MARK` when nothing did.
+        """
+        return self.superseded_by is None and self.status not in (
+            STATUS_SUPERSEDED,
+            STATUS_RETIRED,
+        )
 
     @property
     def target(self) -> str:

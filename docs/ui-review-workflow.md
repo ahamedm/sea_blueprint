@@ -60,10 +60,59 @@ question an auditor actually asks.
 |---|---|---|
 | **Verify** | `status → VERIFIED`, provenance flips to `HUMAN_REVIEWER` | the human vouches for the agent's claim |
 | **Correct** | writes a *new* assertion, marks the old `SUPERSEDED` with `superseded_by` | see below |
-| **Dispute** | `status → DISPUTED`, stays in the graph | silently deleting a rejected claim is worse than keeping it flagged |
-| **Reopen** | `status → UNVERIFIED`, provenance returns to the agent | undoing a decision is itself a decision |
+| **Dispute** | `status → DISPUTED`, stays in the graph and stays active | a verdict on a fact that is still in play — it does not remove it |
+| **Remove** | `status → RETIRED`, `superseded_by → (retired)` — out of every query | the fact should never have been extracted; reversible via Reopen |
+| **Reopen** | `status → UNVERIFIED`, provenance returns to the agent | undoing a decision is itself a decision — and the restore path for Remove |
 | **Bulk verify** | verifies many at once, by selection or by confidence threshold | selection is **re-derived from the graph**, so a stale page cannot verify assertions the reviewer never saw |
 | **Promote to baseline** | `scope INITIATIVE_PROPOSAL → SYSTEM_BASELINE` for reviewed facts | a baseline does not absorb unchecked extraction |
+
+### Dispute versus Remove
+
+Both reject a fact; only one takes it out of the graph, and the difference decides
+what the audit sees.
+
+|  | Dispute | Remove |
+|---|---|---|
+| The fact in `active()` | **yes** | no |
+| Counted by the gap report and the map | **yes** | no |
+| Surfaces as an open reference | **yes** | no |
+| Counts toward the audit gate | no | no |
+| Reversible | yes (verify/correct/reopen) | yes (reopen) |
+| Says | "this is wrong" | "this should not exist" |
+
+Dispute was the only rejection available, and it keeps the claim — deliberately, so
+a rejected fact is not silently deleted. The gap was the end state: an invented
+predicate or a reference to a node that does not exist has no resolution, and the
+only correct outcome is for the graph to stop asserting it. Until
+
+`retire` existed there was no way to reach that state, and the phantom went on
+being counted by `unresolved_references()`, the gap report and the map while
+carrying a flag.
+
+Two properties make removal durable rather than a display filter. It sets
+`superseded_by` to a **non-empty** sentinel, because `merge_graphs` carries the
+lineage across a re-extraction only when it is truthy — an empty one would let the
+next run fold the identical assertion back in as active. And the assertion is never
+deleted: it stays in the graph, in the audit trail, and under the `Removed` chip, so
+"why is this not in the graph?" has an answer.
+
+### The audit gate counts what is undecided, not what is outstanding
+
+`ReviewProgress` reports two numbers, because they answer different questions:
+
+- **`outstanding`** — assertions a human has not settled on: unverified **and**
+  disputed. This is the queue's "needs attention" count.
+- **`blocking`** — assertions *nobody has judged*, which is unverified alone. This is
+  what withholds the audit.
+
+They diverged in a way that trapped a reviewer: a dispute is a human decision, so
+counting it as outstanding *review* meant someone could dispute an invented fact,
+verify every other assertion in the graph, and still be told it was not auditable —
+with no action left that would change that. A disputed fact is judged; it is not
+unread, and it does not withhold the audit.
+
+What a dispute does **not** do is remove the fact. It stays active, so the audit
+still sees it. Clearing it out is Remove.
 
 ### Correction is supersession, not mutation
 
@@ -333,6 +382,25 @@ draws every node kind, on both sides of the reconciliation, and **C4 is not this
 view**. Rendering C4 as C4 — a canonical notation with a stable artefact — is its
 own item (YB-025). `/graph` and `/c4` both redirect to `/map`.
 
+### Lenses today, and the one an architect actually wants
+
+The map offers five lenses: `all`, `traceability`, `business`, `requirements`,
+`architecture`. Four of them are **document-shaped** — they divide the graph the way
+the ingest did, requirements here and architecture there.
+
+The architect's primary concern is not a document; it is the **quality attributes**
+the architecture is for. That lens does not exist, and the reason it matters is that
+`QualityAttribute` is a join point both sides reach independently —
+`NFR --realizes_attribute-->` and `Element --satisfies_attribute-->` — so it connects
+the two documents *without* needing a citation or a lexical match, which is more than
+`implements_requirement` can say.
+
+Parked as [YB-029](../todos/entries/YB-029-quality-attribute-views.md): a coverage
+census grouped by ISO/IEC 25010 characteristic, a quality-attribute lens, and
+filtering by characteristic. Parked rather than scheduled because the saved fixtures
+predate the profile work it needs — they contain **zero** `QualityAttribute` nodes,
+so a census run today would report five unattributed attributes and call it a finding.
+
 ---
 
 ## 8a. What the ontology reference shows
@@ -444,7 +512,7 @@ Recorded so the gaps are choices rather than oversights.
 the suite needs no model server.
 
 ```
-.venv/bin/python -m pytest tests/ -q      # 487 tests
+.venv/bin/python -m pytest tests/ -q      # 514 tests
 ```
 
 | File | Covers |
@@ -452,6 +520,8 @@ the suite needs no model server.
 | `test_serialise.py` | field-level round trip; `superseded_by` / `status` / provenance / `document_type` survival |
 | `test_merge.py` | human corrections survive re-extraction; folding does not duplicate |
 | `test_review.py` | decision semantics, supersession edge cases, bulk selection, promotion gate |
+| `test_retire.py` | removal: out of the graph durably, survives re-extraction, reversible; dispute no longer blocks the gate |
+| `test_review_exclusions.py` | hiding noise from the queue without touching the graph; the Remove route |
 | `test_reconcile.py` | matching, kind scoping, the citation rule, Initiative/side ordering, confidence bands, resolve/bulk semantics |
 | `test_realization.py` | both directions of the audit; coverage states; bound edges point at real requirement nodes |
 | `test_completeness_reporting.py` | a run reports its own completeness; records beat counters; a text fallback is PARTIAL, never COMPLETE |

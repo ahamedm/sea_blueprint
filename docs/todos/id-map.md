@@ -36,4 +36,7 @@
 | — | REQ ⇄ ARC reconciliation — both directions, and the citation rule | [ADR-0012](../decisions/ADR-0012-req-arc-reconciliation-inversion.md) | record |
 | — | Requirements runs report their own completeness — REQ-G can be audited | [ADR-0013](../decisions/ADR-0013-requirements-completeness-reporting.md) | record |
 | — | The map replaces the C4 view — one graph, both sides, references visible | [ADR-0014](../decisions/ADR-0014-map-replaces-c4-view.md) | record |
+| — | Removing a fact the extractor invented — retire, and what withholds the audit | [ADR-0015](../decisions/ADR-0015-retiring-extracted-facts.md) | record |
 | None | Semantic reference matching — bridge the paraphrase the deterministic scorer cannot | [YB-027](entries/YB-027-semantic-reference-matching.md) | entry (open) |
+| None | Remove a fact the extractor invented — and stop a dispute withholding the audit | [YB-028](entries/YB-028-remove-extracted-facts.md) | entry (done) |
+| None | Quality-attribute views for the map — the architect's primary focus has no view of its own | [YB-029](entries/YB-029-quality-attribute-views.md) | entry (parked) |
