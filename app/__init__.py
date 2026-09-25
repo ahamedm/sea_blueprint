@@ -59,6 +59,7 @@ from app.projections import (
     project_delta,
     project_gap_report,
     project_node_index,
+    project_quality_report,
     project_realization,
     project_reconciliation,
     project_review_rows,
@@ -473,7 +474,7 @@ def create_app(
         lens = request.args.get("lens", DEFAULT_LENS)
         return render_template(
             "map.html",
-            view=merged_view(snapshot.graph, lens),
+            view=merged_view(snapshot.graph, lens, request.args.get("concern", "")),
             elements=project_node_index(snapshot.graph)[:200],
             gaps=project_gap_report(snapshot.graph),
         )
@@ -489,7 +490,13 @@ def create_app(
     @app.route("/api/map")
     def api_map():
         snapshot = state()
-        return jsonify(merged_view(snapshot.graph, request.args.get("lens", DEFAULT_LENS)))
+        return jsonify(
+            merged_view(
+                snapshot.graph,
+                request.args.get("lens", DEFAULT_LENS),
+                request.args.get("concern", ""),
+            )
+        )
 
     @app.route("/api/c4")
     def api_c4_redirect():
@@ -513,6 +520,25 @@ def create_app(
         "which requirements have no architectural answer?"."""
         snapshot = state()
         return jsonify(project_realization(snapshot.graph))
+
+    # -- quality attributes ----------------------------------------------
+
+    @app.route("/quality")
+    def quality():
+        """The architect's census: where the quality gaps are, by ISO characteristic.
+
+        Separate from `/gaps` because it answers a different question. `/gaps` is
+        requirement-shaped ("is this requirement answered?"); this is
+        attribute-shaped ("which qualities does nothing deliver, and which does the
+        architecture deliver unasked?").
+        """
+        snapshot = state()
+        return render_template("quality.html", report=project_quality_report(snapshot.graph))
+
+    @app.route("/api/quality")
+    def api_quality():
+        snapshot = state()
+        return jsonify(project_quality_report(snapshot.graph)["report"])
 
     # -- reconciliation --------------------------------------------------
 

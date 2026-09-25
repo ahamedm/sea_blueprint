@@ -20,3 +20,4 @@ Closed work from the TODO. Each record preserves its original write-up verbatim;
 | [ADR-0013](ADR-0013-requirements-completeness-reporting.md) | Requirements runs report their own completeness — REQ-G can be audited | 2026-09-24 | — |
 | [ADR-0014](ADR-0014-map-replaces-c4-view.md) | The map replaces the C4 view — one graph, both sides, references visible | 2026-09-24 | — |
 | [ADR-0015](ADR-0015-retiring-extracted-facts.md) | Removing a fact the extractor invented — retire, and what withholds the audit | 2026-09-24 | — |
+| [ADR-0016](ADR-0016-quality-attribute-views.md) | Quality-attribute views — the census groups by canonical concern, and one taxonomy serves both layers | 2026-09-25 | — |

@@ -64,6 +64,7 @@ from core.knowledge.model import (
     STATUS_VERIFIED,
 )
 from core.knowledge.realization import realization_report
+from core.knowledge.quality import quality_report
 from core.knowledge.reconcile import DEFAULT_MATCH_THRESHOLD, reference_candidates
 from core.knowledge.review import ReviewLog
 
@@ -866,6 +867,33 @@ def project_realization(graph) -> Dict[str, Any]:
         "obligations": report["obligations"],
         "requirements": report["requirements"],
         "claims": report["claims"],
+    }
+
+
+def project_quality_report(graph) -> Dict[str, Any]:
+    """The quality-attribute census, shaped for a page.
+
+    Attribute-shaped rather than requirement-shaped: this is the other face of the
+    audit behind `project_gap_report`. Kept a thin wrapper for the same reason as
+    `project_realization` — the census is a knowledge-layer query, and a page that
+    recomputed it would eventually disagree with the API that serves it.
+    """
+    report = quality_report(graph)
+    summary = report["summary"]
+    return {
+        "report": report,
+        "summary": summary,
+        "characteristics": report["characteristics"],
+        "attributes": report["attributes"],
+        # The direction the gap report cannot express, and the one a reader is
+        # least likely to have thought of: architecture delivering a quality
+        # nobody asked for.
+        "unasked": report["unasked"],
+        "architecture_gaps": report["architecture_gaps"],
+        "unresolved": report["unresolved"],
+        "completeness_note": report["completeness_note"],
+        "state_labels": report["state_labels"],
+        "coverage_labels": report["coverage_labels"],
     }
 
 

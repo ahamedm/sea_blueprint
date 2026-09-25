@@ -1,193 +1,35 @@
 """
-Deterministic quality classification for non-functional requirements.
+Quality classification for the requirements profile — the agent-side half.
 
-WHY THIS IS NOT A MODEL TASK
-----------------------------
-Measured on the live model: with the full ISO/IEC 25010:2023 taxonomy in the
-prompt, **every** NFR came back with `quality_category`, `subcharacteristic` and
-`quality_attribute` empty. The model instead invented its own attribute names —
-`Latency`, `Throughput`, `Usability`, `Observability` — and attached them to the
-System with `satisfies_quality_attributes`, so they landed as untyped `Concept`
-nodes outside the vocabulary the auditor reads.
+The taxonomy and the classifier now live in `core.quality` (ADR-0016): the
+coverage census in `core.knowledge.quality` has to group quality ATTRIBUTES under
+the same ISO characteristic the extractor classifies requirements under, and two
+copies of a taxonomy drift silently. This module re-exports the moved names so
+its existing callers and tests are unchanged, and keeps what is genuinely
+agent-side: locating a requirement's passage in its source, reading the
+deterministic requirement inventory from the document, and enriching entities
+from it.
 
-That is the same shape of failure the deterministic validators already exist to
-catch (`check_containment`, `check_object_contract`, `check_element_types`): the
-model is unreliable at mechanical fidelity, so the mechanical part should not be
-its job. Mapping a requirement's wording onto a closed taxonomy is keyword and
-shape matching. It is reviewable, reproducible, and it either fires or does not —
-none of which is true of asking a 4B model to classify.
-
-WHAT IT DOES AND DOES NOT CLAIM
--------------------------------
-It reads the text of a requirement — the source passage plus the requirement's own
-name — and scores it against ISO 25010 sub-characteristics by keyword. The highest
-scoring sub-characteristic wins, and the score is recorded so a reviewer can see
-how strongly it fired.
-
-Two honest limits, both deliberate:
-
-- **It is a first pass, not a verdict.** A requirement that mentions no keyword is
-  left UNCLASSIFIED rather than guessed at. Reporting "we could not classify this"
-  is more useful than a confident wrong category, because the wrong one silently
-  becomes the answer an audit reasons over.
-- **Keyword matching is not comprehension.** "The system must not expose latency
-  guarantees" contains `latency` and would score TIME_BEHAVIOUR. This is why the
-  score and the matched terms are returned: a low or single-term match is visibly
-  weaker than a multi-term one.
+WHAT THE CLASSIFIER DOES AND DOES NOT CLAIM is documented on `core.quality`.
 """
 
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import Dict, List
 
-# ============================================================================
-# Keyword patterns per ISO/IEC 25010:2023 sub-characteristic
-# ============================================================================
-#
-# Written as regexes rather than bare substrings so a stem cannot match inside an
-# unrelated word. Deliberately NOT using `\b` boundaries: they make "encrypt"
-# fail to match "encrypted" and "encryption", because `\b` after a stem requires a
-# non-word character. A trailing `\w*` is the honest way to express "this stem and
-# its inflections".
-QUALITY_SIGNALS: Dict[str, Tuple[str, ...]] = {
-    # -- Performance Efficiency --
-    "TIME_BEHAVIOUR": (r"\blatenc", r"\brespons\w*\s*time", r"\bthroughput",
-                       r"\bper\s+second", r"\btps\b", r"\bmilliseconds?\b", r"\bms\b",
-                       r"\bseconds?\b", r"\bsub-second", r"\breal-?time"),
-    "RESOURCE_UTILIZATION": (r"\bcpu\b", r"\bmemor", r"\bresource\s+usage",
-                             r"\butilisation", r"\butilization", r"\bstorage\s+footprint"),
-    "CAPACITY": (r"\bcapacity", r"\bconcurrent", r"\bvolume", r"\bpeak\s+load",
-                 r"\btransactions?\s+per", r"\bscale\s+to"),
-    # -- Reliability --
-    "AVAILABILITY": (r"\bavailab", r"\buptime", r"\b24\s*/\s*7", r"\bnines\b",
-                     r"\bfailover", r"\bredundan", r"\breplic", r"\bactive-?active",
-                     r"\bdisaster\s+recover", r"\bservice\s+continuity"),
-    "FAULT_TOLERANCE": (r"\bfault", r"\bgraceful\w*\s+degrad", r"\bdegrad\w*\s+graceful",
-                        r"\bcircuit\s+break", r"\bretr(y|ies|ying)", r"\bresilien"),
-    "RECOVERABILITY": (r"\brecover", r"\brestore", r"\bbackup", r"\brestart",
-                       r"\breplay", r"\breprocess"),
-    "FAULTLESSNESS": (r"\bdefect", r"\berror\s+rate", r"\bfailure\s+rate", r"\baccuracy"),
-    # -- Security --
-    "CONFIDENTIALITY": (r"\bencrypt", r"\bconfidential", r"\bsecre", r"\bprivacy",
-                        r"\bmask", r"\btokeni[sz]", r"\bpci-?dss", r"\bcardholder",
-                        r"\btls\b", r"\baes\b", r"\bcvv\b", r"\bpan\b"),
-    "INTEGRITY": (r"\bintegrit", r"\btamper", r"\bimmutab", r"\bchecksum",
-                  r"\bhash", r"\bnon-?repudiation"),
-    "NON_REPUDIATION": (r"\bnon-?repudiation", r"\bundeniable", r"\bproof\s+of"),
-    "ACCOUNTABILITY": (r"\baudit", r"\btraceab", r"\baccountab", r"\brbac\b",
-                       r"\baccess\s+control", r"\bauthoris", r"\bauthoriz",
-                       r"\bwho\s+did\s+what", r"\battribution"),
-    "AUTHENTICITY": (r"\bauthentic", r"\bidentity", r"\bidentity\s+provider",
-                     r"\bmfa\b", r"\bmulti-?factor", r"\bcredential"),
-    "RESISTANCE": (r"\brate\s+limit", r"\bthrottl", r"\bdenial\s+of\s+service",
-                   r"\bdos\b", r"\bddos", r"\bwaf\b"),
-    # -- Maintainability --
-    "MODULARITY": (r"\bmodular", r"\bdecoupl", r"\bbounded\s+context",
-                   r"\bmodule\s+boundar", r"\bindependently\s+deploy"),
-    "REUSABILITY": (r"\breusab", r"\breusable", r"\bshared\s+component", r"\blibrar"),
-    # Observability is a maintainability concern in ISO 25010 terms — it is what
-    # makes a system analysable in production. Included here rather than left out
-    # because real documents treat it as an NFR, and a taxonomy that cannot place
-    # it forces the classifier to mislabel it. Measured: a requirement about
-    # logging, metrics and monitoring scored TIME_BEHAVIOUR on the single word
-    # `real-time`, which is the wrong axis entirely.
-    "ANALYSABILITY": (r"\banalysab", r"\banalyzab", r"\bdiagnos", r"\bimpact\s+analysis",
-                      r"\blogging", r"\bmetrics\b", r"\bmonitoring", r"\bobservab",
-                      r"\btracing", r"\bsiem\b"),
-    "MODIFIABILITY": (r"\bconfigurab", r"\bextensib", r"\bplug-?in", r"\bcustomis",
-                      r"\bcustomiz", r"\bmaintainab", r"\bevolv"),
-    "TESTABILITY": (r"\btestab", r"\bunit\s+test", r"\bautomated\s+test",
-                    r"\btest\s+coverage"),
-    # -- Flexibility (2023: replaced Portability; scalability lives here) --
-    "SCALABILITY": (r"\bscalab", r"\bscale\s+(up|out|horizont|vertical)",
-                    r"\bhorizontal\s+scal", r"\belastic", r"\bauto-?scal",
-                    r"\bstateless", r"\bpartition"),
-    "ADAPTABILITY": (r"\badaptab", r"\bportab", r"\bmulti-?region", r"\bmulti-?tenant",
-                     r"\bplatform\s+independent"),
-    "INSTALLABILITY": (r"\binstall", r"\bprovision", r"\bdeployab", r"\brollout"),
-    "REPLACEABILITY": (r"\breplac", r"\bswap\s+out", r"\binterchangeab"),
-    # -- Interaction Capability (2023: renamed from Usability) --
-    "OPERABILITY": (r"\busab", r"\buseab", r"\boperab", r"\bintuitiv", r"\bsimplicity"),
-    "LEARNABILITY": (r"\blearnab", r"\btraining", r"\bonboard", r"\bdocumentation"),
-    "USER_ERROR_PROTECTION": (r"\bvalidation", r"\binput\s+checks?", r"\bprevent\w*\s+error",
-                              r"\bconfirmation", r"\bguard"),
-    "USER_ASSISTANCE": (r"\bhelp\s+desk", r"\bsupport\s+channel", r"\btooltip",
-                        r"\bguidance", r"\bassistance"),
-    "INCLUSIVITY": (r"\baccessib", r"\bwcag", r"\binclusiv", r"\bscreen\s+reader"),
-    "APPROPRIATENESS_RECOGNIZABILITY": (r"\brecognis", r"\brecogniz", r"\bdiscoverab"),
-    "USER_ENGAGEMENT": (r"\bengag", r"\bresponsive\s+design", r"\buser\s+experience",
-                        r"\bux\b"),
-    "SELF_DESCRIPTIVENESS": (r"\bself-?descriptive", r"\bapi\s+documentation",
-                             r"\bdescriptive\s+error"),
-    # -- Compatibility --
-    "INTEROPERABILITY": (r"\binteroperab", r"\bintegrat", r"\bapi\b", r"\bgrpc\b",
-                         r"\brest\b", r"\bprotocol", r"\biso\s*8583", r"\biso\s*20022",
-                         r"\bwebhook", r"\bthird-?party"),
-    "CO_EXISTENCE": (r"\bco-?exist", r"\bshared\s+environment", r"\bmulti-?app"),
-    # -- Functional Suitability --
-    "FUNCTIONAL_COMPLETENESS": (r"\bcomplete", r"\bcover\w*\s+all", r"\ball\s+require"),
-    "FUNCTIONAL_CORRECTNESS": (r"\bcorrect", r"\baccura", r"\bexact", r"\bvalid\s+result"),
-    "FUNCTIONAL_APPROPRIATENESS": (r"\bappropriat", r"\bfit\s+for\s+purpose",
-                                   r"\bsuitab"),
-    # -- Safety --
-    "FAIL_SAFE": (r"\bfail-?safe", r"\bsafe\s+mode", r"\bfail\s+closed"),
-    "HAZARD_WARNING": (r"\balert", r"\bwarn", r"\bnotif\w*\s+of\s+failure",
-                       r"\bmonitor\w*\s+alert"),
-    "RISK_IDENTIFICATION": (r"\brisk", r"\bthreat\s+detect", r"\banomal"),
-    "OPERATIONAL_CONSTRAINT": (r"\blimit", r"\bconstrain", r"\bthreshold", r"\bquota"),
-    "SAFE_INTEGRATION": (r"\bsafe\s+integrat", r"\bsafety\s+integrity"),
-}
+from core.quality import (
+    MIN_SCORE,
+    MIN_SCORE_FUNCTIONAL,
+    QUALITY_SIGNALS,
+    QualityClassification,
+    classify_quality_text,
+    humanise,
+)
 
-# Sub-characteristic -> its ISO characteristic, derived from `core.ontology`
-# rather than restated, so the taxonomy has one definition.
-def _characteristic_of(subcharacteristic: str) -> str:
-    from core.ontology import SUBCHARACTERISTIC_PARENT
-
-    return SUBCHARACTERISTIC_PARENT.get(subcharacteristic, "")
-
-
-# Keyword hits that are too weak to classify on alone. Kept tiny and explicit: a
-# requirement whose ONLY signal is one of these is reported unclassified, because
-# these words appear in ordinary prose about almost anything.
-WEAK_SIGNALS = frozenset({r"\bapi\b", r"\brest\b", r"\blimit", r"\bmonitor\w*\s+alert"})
-
-# Signals that are PRECISE indicators of their sub-characteristic, and should
-# outrank a requirement that merely mentions a related quantity. Measured case:
-# "processing a minimum of [X] transactions per second (TPS) with horizontal
-# scaling capabilities" scored TIME_BEHAVIOUR (throughput, per second, tps) over
-# SCALABILITY (scalability 3:2) — the wrong call, because the phrase names
-# scaling as the requirement and throughput only as a quantity.
-STRONG_SIGNALS = frozenset({
-    # Scalability, not raw speed.
-    r"\bscalab", r"\bhorizontal\s+scal", r"\bscale\s+(up|out|horizont)", r"\belastic",
-    r"\bauto-?scal", r"\bstateless", r"\bpartition",
-    # Availability, not incidental resilience.
-    r"\bavailab", r"\buptime", r"\bnines\b", r"\bfailover", r"\bactive-?active",
-    r"\bdisaster\s+recover",
-    # Security specifics, not generic integrity.
-    r"\bencrypt", r"\bpci-?dss", r"\bcardholder", r"\baes\b", r"\brbac\b",
-    # Data protection, not generic "error".
-    r"\bconfidential", r"\btokeni[sz]", r"\bmask",
-})
-
-MIN_SCORE = 1
-
-# Functional requirements carry no quality attribute by definition, so a single
-# keyword is not enough to attach one. Measured false positives at MIN_SCORE=1 on
-# functional requirements:
-#
-#   FR-PM-003 "current state of every payment request (PENDING, AUTHORIZED, ...)"
-#       scored ACCOUNTABILITY on the word `AUTHORIZED`, which is a payment state
-#   FR-SR-001 "...based on transaction volume and time triggers"
-#       scored CAPACITY on `volume`, which describes a trigger, not a capacity goal
-#
-# Both are the classifier reading domain vocabulary as quality vocabulary — the
-# failure mode of keyword matching, and the reason a functional requirement has to
-# clear a higher bar. Non-functional requirements keep the lower one: their whole
-# purpose is to state a quality concern, so one clear signal is meaningful.
-MIN_SCORE_FUNCTIONAL = 6
+# The name this module's callers use. The implementation is the shared one.
+classify_requirement = classify_quality_text
 
 
 def _is_non_functional(entity: Dict[str, object]) -> bool:
@@ -196,81 +38,6 @@ def _is_non_functional(entity: Dict[str, object]) -> bool:
         return True
     return str(entity.get("requirement_id") or "").upper().startswith("NFR")
 
-
-@dataclass
-class QualityClassification:
-    """The verdict, with the evidence that produced it."""
-
-    characteristic: str = ""
-    subcharacteristic: str = ""
-    attribute_name: str = ""
-    score: int = 0
-    matched_terms: List[str] = field(default_factory=list)
-
-    @property
-    def is_classified(self) -> bool:
-        return bool(self.subcharacteristic and self.score >= MIN_SCORE)
-
-    def to_dict(self) -> Dict[str, object]:
-        return {
-            "quality_category": self.characteristic,
-            "subcharacteristic": self.subcharacteristic,
-            "quality_attribute": self.attribute_name,
-            "score": self.score,
-            "matched_terms": list(self.matched_terms),
-        }
-
-
-def humanise(subcharacteristic: str) -> str:
-    """`TIME_BEHAVIOUR` -> `Time Behaviour`. The ontology's own naming style."""
-    return subcharacteristic.replace("_", " ").title()
-
-
-def classify_requirement(
-    text: str, min_score: int = MIN_SCORE
-) -> QualityClassification:
-    """Classify one requirement's text. No model, no guessing.
-
-    The default is the light threshold: one clear signal is enough, which is the
-    right rule for the text of a NON-functional requirement — stating a quality
-    concern is its entire purpose. Callers that have established the text is a
-    functional requirement should pass `min_score=MIN_SCORE_FUNCTIONAL`, because
-    an FR carries no quality attribute and one incidental word should not attach
-    one. Text of unknown kind gets the light rule and should be treated as a
-    proposal, not a verdict.
-
-    Returns an unclassified result when nothing clears the bar, which callers must
-    render as "not classified" rather than treating as a category.
-    """
-    if not text or not text.strip():
-        return QualityClassification()
-
-    haystack = text.lower()
-    best: Optional[QualityClassification] = None
-
-    for subcharacteristic, patterns in QUALITY_SIGNALS.items():
-        matched: List[str] = []
-        score = 0
-        for pattern in patterns:
-            if re.search(pattern, haystack):
-                matched.append(pattern)
-                if pattern in WEAK_SIGNALS:
-                    continue          # cannot carry a classification alone
-                score += 6 if pattern in STRONG_SIGNALS else 1
-        if score < 1:
-            continue
-        if best is None or score > best.score:
-            best = QualityClassification(
-                characteristic=_characteristic_of(subcharacteristic),
-                subcharacteristic=subcharacteristic,
-                attribute_name=humanise(subcharacteristic),
-                score=score,
-                matched_terms=matched,
-            )
-
-    if best is None or best.score < min_score:
-        return QualityClassification()
-    return best
 
 
 # ============================================================================

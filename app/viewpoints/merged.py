@@ -50,10 +50,12 @@ assertions — see `app/viewpoints/__init__.py` for why the layers are split.
 
 from __future__ import annotations
 
-from typing import Any, Dict, FrozenSet, List
+from typing import Any, Dict, FrozenSet, List, Optional
 
 from app.projections import edge_records, literal_facts, node_records
 from core.knowledge.model import CROSS_GRAPH_PREDICATES, reference_targets_a_node
+from core.knowledge.quality import quality_state
+from core.quality import CHARACTERISTIC_ORDER, enum_name, humanise
 
 # ============================================================================
 # Which kinds belong to which layer
@@ -299,18 +301,180 @@ def _dedupe(edges: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return out
 
 
-def merged_view(graph, lens: str = DEFAULT_LENS) -> Dict[str, Any]:
+# ============================================================================
+# Quality-attribute focus — the architect's filter
+# ============================================================================
+#
+# `lens` selects by DOCUMENT LAYER (business / requirements / architecture),
+# which is a fact about how the graph was extracted. The architect's question is
+# not "show me the architecture layer" — it is "show me Security", and that
+# crosses the layers: the requirements that state the concern, the elements and
+# techniques that deliver it, and the attribute node where the two meet.
+
+FOCUS_CHARACTERISTIC = "characteristic"
+FOCUS_ATTRIBUTE = "attribute"
+
+
+def _char_rank(category: str) -> int:
+    try:
+        return CHARACTERISTIC_ORDER.index(category)
+    except ValueError:
+        return len(CHARACTERISTIC_ORDER)
+
+
+def _concern_node_ids(entry: Dict[str, Any]) -> set:
+    """Every node a concern's row points at: the attribute, and its claims."""
+    ids = set(entry.get("node_ids") or [])
+    for bucket in ("stated", "delivered", "scenarios"):
+        for claim in entry.get(bucket) or []:
+            if claim.get("source_id"):
+                ids.add(claim["source_id"])
+    return ids
+
+
+def quality_focus(graph, concern: str) -> Optional[Dict[str, Any]]:
+    """Resolve a focus value and the node neighbourhood it selects.
+
+    Accepts an ISO characteristic (`RELIABILITY`), a sub-characteristic
+    (`AVAILABILITY`) or a label as the graph spells it (`High Availability`),
+    because a filtered URL should not require the reader to know which of the
+    three they are naming. Returns None when nothing matches, so an unknown value
+    reads as "this filter selected nothing" rather than silently showing the whole
+    graph — a filter that fails open is worse than one that fails visibly.
+    """
+    wanted = enum_name(concern)
+    if not wanted:
+        return None
+
+    matched: List[Any] = []
+    kind = ""
+    label = concern
+    for entry in quality_state(graph):
+        if enum_name(entry.category) == wanted:
+            matched.append(entry)
+            kind = kind or FOCUS_CHARACTERISTIC
+            label = humanise(entry.category)
+        elif (
+            entry.key == wanted
+            or enum_name(entry.display) == wanted
+            or any(enum_name(alias) == wanted for alias in entry.labels)
+        ):
+            matched.append(entry)
+            if not kind:
+                kind, label = FOCUS_ATTRIBUTE, entry.display
+
+    if not matched:
+        return None
+
+    concerns = [e.to_dict() for e in matched]
+    node_ids: set = set()
+    for entry in concerns:
+        node_ids |= _concern_node_ids(entry)
+
+    return {
+        "value": concern,
+        "kind": kind,
+        "label": label,
+        "concerns": concerns,
+        # A list, not a set: this payload is handed to the template's `tojson`
+        # filter for the D3 view, and a set is not serialisable.
+        "node_ids": sorted(node_ids),
+        "counts": {
+            "concerns": len(concerns),
+            "stated": sum(1 for c in concerns if c["stated"]),
+            "delivered": sum(1 for c in concerns if c["delivered"]),
+            "answered": sum(1 for c in concerns if c["coverage"] == "answered"),
+            "gaps": sum(
+                1 for c in concerns if c["coverage"] == "architecture_gap"
+            ),
+            "unasked": sum(1 for c in concerns if c["coverage"] == "unasked"),
+        },
+    }
+
+
+def quality_focus_options(graph) -> Dict[str, Any]:
+    """The focus values this graph can be filtered to, with counts.
+
+    Only concerns the graph actually HAS. An option that selects nothing is a dead
+    end dressed as a filter, and the whole point of the census is that it reports
+    what is absent rather than offering it as if it were present.
+    """
+    state = [e.to_dict() for e in quality_state(graph)]
+
+    by_category: Dict[str, List[Dict[str, Any]]] = {}
+    for entry in state:
+        by_category.setdefault(entry["category"] or "", []).append(entry)
+
+    return {
+        "characteristics": [
+            {
+                "value": category,
+                "label": humanise(category) if category else "Unclassified",
+                "concerns": len(entries),
+                "answered": sum(1 for e in entries if e["coverage"] == "answered"),
+                "gaps": sum(1 for e in entries if e["coverage"] == "architecture_gap"),
+                "unasked": sum(1 for e in entries if e["coverage"] == "unasked"),
+            }
+            for category, entries in sorted(by_category.items(), key=lambda kv: _char_rank(kv[0]))
+        ],
+        "attributes": [
+            {
+                "value": entry["key"],
+                "label": entry["display"],
+                "category": entry["category"],
+                "category_label": entry["category_label"],
+                "coverage": entry["coverage"],
+                "coverage_label": entry["coverage_label"],
+            }
+            for entry in state
+        ],
+    }
+
+
+def merged_view(graph, lens: str = DEFAULT_LENS, concern: str = "") -> Dict[str, Any]:
     """Select the nodes a lens shows and shape them for the map.
 
     Node shape is what `node_records` and `literal_facts` already produce, plus
     `group` (the layer the renderer colours by) and the tooltip's detail facts.
     Inventing a second node shape would mean two definitions of "a node for a
     diagram", which is how the projection/viewpoint split gets undone.
+
+    `concern` is the quality filter — an ISO characteristic (`RELIABILITY`) or a
+    sub-characteristic (`AVAILABILITY`). It narrows the map to the attribute
+    neighbourhood: the attribute nodes themselves, the requirements that state
+    them and the elements and techniques that deliver them. The layer `lens` still
+    applies, and both are reported with what they hide, because a filter that
+    silently drops nodes is the failure every other lens here exists to avoid.
     """
     resolved_lens = lens if lens in LENSES else DEFAULT_LENS
     kinds = LENSES[resolved_lens]
 
+    requested = (concern or "").strip()
+    focus = quality_focus(graph, requested) if requested else None
+    if requested and focus is None:
+        # A filter that matches nothing selects nothing. Falling back to the whole
+        # graph would make a typo look like a working filter over a graph with no
+        # quality attributes in it, which is a different and much more alarming
+        # finding.
+        focus = {
+            "value": requested,
+            "kind": "unknown",
+            "label": requested,
+            "concerns": [],
+            "node_ids": [],
+            "counts": {
+                "concerns": 0, "stated": 0, "delivered": 0,
+                "answered": 0, "gaps": 0, "unasked": 0,
+            },
+        }
+    focus_unknown = bool(requested) and focus["kind"] == "unknown"
+
     records = node_records(graph, kinds=kinds)
+    if focus is not None:
+        hidden_by_focus = [r for r in records if r["id"] not in focus["node_ids"]]
+        records = [r for r in records if r["id"] in focus["node_ids"]]
+    else:
+        hidden_by_focus = []
     node_ids = {r["id"] for r in records}
 
     facts = literal_facts(graph, node_ids)
@@ -360,6 +524,14 @@ def merged_view(graph, lens: str = DEFAULT_LENS) -> Dict[str, Any]:
         "lens": resolved_lens,
         "lens_label": LENS_LABELS[resolved_lens],
         "lens_labels": LENS_LABELS,
+        # The quality filter, when one is applied, and what it hid. Both are
+        # reported so a narrowed map is never mistaken for a narrowed graph.
+        "focus": focus,
+        "focus_requested": concern,
+        "focus_unknown": focus_unknown,
+        "focus_options": quality_focus_options(graph),
+        "focus_hidden_nodes": len(hidden_by_focus),
+        "focus_hidden_kinds": sorted({r["kind"] for r in hidden_by_focus}),
         "nodes": nodes,
         "links": links,
         "kind_counts": dict(sorted(counts.items())),

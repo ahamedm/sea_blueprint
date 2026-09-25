@@ -2,25 +2,29 @@
 id: YB-029
 legacy: null
 title: "Quality-attribute views for the map — the architect's primary focus has no view of its own"
-status: parked
+status: done
 priority: high
-area: "`app/viewpoints/merged.py` (new lens or viewpoint), `app/projections.py`, `core/knowledge/realization.py`, `app/templates/map.html`"
+area: "`core/quality.py` (new), `core/knowledge/quality.py` (new), `app/viewpoints/merged.py`, `app/projections.py`, `app/templates/quality.html`, `app/templates/map.html`"
 created: 2026-09-24
-updated: 2026-09-24
-design: null
-record: null
+updated: 2026-09-25
+design: docs/design/real-run-readings.md
+record: docs/decisions/ADR-0016-quality-attribute-views.md
 superseded_by: []
-related: ["YB-005", "YB-024", "YB-009", "YB-028"]
+related: ["YB-005", "YB-024", "YB-009", "YB-028", "YB-030", "YB-031", "YB-032"]
 blocks: []
 blocked_by: []
 ---
 
 # YB-029 — Quality-attribute views for the map
 
-> **Parked.** Raised while reviewing what the map could focus on, and deliberately
-> not scheduled: the join it needs is already modelled, but the current profiles
-> only just started producing it (see *What the graph gives us*). This file is the
-> source of truth for the item.
+> **Closed.** The record is
+> [`ADR-0016`](../decisions/ADR-0016-quality-attribute-views.md). The blocker named
+> below — "the saved fixtures contain zero `QualityAttribute` nodes" — was cleared by
+> the real run of 2026-09-25
+> ([`docs/design/real-run-readings.md`](../../design/real-run-readings.md)), which
+> produced 13 attribute nodes across both documents. The write-up below is preserved
+> as it stood when the item was parked; the three blockers are annotated inline with
+> what happened to each.
 
 **Raised:** "Architects' critical focus is Quality Attributes. What other views in
 Map can help focus on Quality Attributes?"
@@ -108,6 +112,10 @@ business/requirements/architecture, which are *document* layers, not concerns.
 
 ### What blocks it, and why this is parked
 
+> **All three annotations below were added at closure.** The original text is kept
+> because each blocker turned out to be a real design question, and the answer is
+> what the ADR records.
+
 1. **The saved fixtures contain zero `QualityAttribute` nodes.** They predate the
    `satisfies_attributes` / `realizes_attribute` / `design_techniques` work, so the
    five quality references in `data/output/test_arch.json` are unbound literals
@@ -115,6 +123,13 @@ business/requirements/architecture, which are *document* layers, not concerns.
    Compliance") pointing at nothing. A census run today would report five attributes
    with no delivery — an artefact of the fixture, not a finding. It needs a run with
    the current profiles first, exactly as YB-023 did.
+
+   > **Resolved** by the 2026-09-25 real run: 13 attribute nodes, 11 canonical
+   > concerns, both directions populated. The prediction about the fixture was exact —
+   > and running it also surfaced [YB-030](YB-030-requirements-profile-cross-graph-claims.md)
+   > and [YB-031](YB-031-cross-graph-predicate-plural-routing.md), which no fixture
+   > replay could have.
+
 2. **Grouping must be by `subcharacteristic`, not by the attribute's label.** A
    requirement saying "Availability" and an element saying "High Availability"
    become two `QualityAttribute` nodes, and the join silently fails — the same
@@ -122,10 +137,23 @@ business/requirements/architecture, which are *document* layers, not concerns.
    classifier's `subcharacteristic` is deterministic and canonical, so it is the
    right grouping key; the label is for display only. Deciding that up front is what
    stops the census reporting duplicates as separate gaps.
+
+   > **Decided, with one correction.** Grouping is by canonical concern, and the
+   > classifier is part of how a label resolves — but it is the *fallback*, not the
+   > first rule. The taxonomy's own names and the renamed short forms are tried first,
+   > because the keyword scorer reads `Performance` as a sub-characteristic guess when
+   > it is the name of a characteristic. See
+   > [`core.quality.canonical_quality_concern`](../../../core/quality.py).
+
 3. **`ConcernClass` exists and is unmodelled here.** `QualityConcernClass` was added
    to separate concerns met by different designs (`TIME_BEHAVIOUR` vs `SCALABILITY`
    are both PERFORMANCE_EFFICIENCY). Whether the census groups by that too is a
    design question this item should answer rather than inherit.
+
+   > **Deliberately deferred, with the reason.** Nothing asserts a concern class in
+   > the graph today, so there is no axis to group by yet. The census groups by
+   > characteristic and sub-characteristic and leaves the slot alone rather than
+   > inventing a value for it. Recorded in ADR-0016 under *Not done*.
 
 ### Acceptance criteria
 
@@ -138,6 +166,22 @@ business/requirements/architecture, which are *document* layers, not concerns.
   not count as two attributes
 - The map can be filtered to one ISO characteristic, and reports what the filter
   hides the way every other lens does
+
+### What was built
+
+> Added at closure. The full reasoning is in
+> [`ADR-0016`](../decisions/ADR-0016-quality-attribute-views.md).
+
+- **The coverage census** (`/quality`, `/api/quality`) — every concern under its ISO
+  characteristic, with the four states independent and the empty one named.
+- **The inverse list** — delivered but not stated, which `/gaps` cannot express.
+- **The map focus** — `/map?concern=RELIABILITY` (characteristic) or
+  `?concern=AVAILABILITY` (sub-characteristic) or `?concern=High%20Availability`
+  (a label as the graph spells it), reporting what it hides and failing visibly on an
+  unknown value.
+- **One taxonomy for both layers** — `core/quality.py`, imported by the extractor,
+  so a requirement classified by the keyword pass and an attribute node written by
+  the architecture profile land in the same group by construction.
 
 ### Related
 

@@ -37,6 +37,10 @@
 | — | Requirements runs report their own completeness — REQ-G can be audited | [ADR-0013](../decisions/ADR-0013-requirements-completeness-reporting.md) | record |
 | — | The map replaces the C4 view — one graph, both sides, references visible | [ADR-0014](../decisions/ADR-0014-map-replaces-c4-view.md) | record |
 | — | Removing a fact the extractor invented — retire, and what withholds the audit | [ADR-0015](../decisions/ADR-0015-retiring-extracted-facts.md) | record |
+| — | Quality-attribute views — the census groups by canonical concern, and one taxonomy serves both layers | [ADR-0016](../decisions/ADR-0016-quality-attribute-views.md) | record |
 | None | Semantic reference matching — bridge the paraphrase the deterministic scorer cannot | [YB-027](entries/YB-027-semantic-reference-matching.md) | entry (open) |
 | None | Remove a fact the extractor invented — and stop a dispute withholding the audit | [YB-028](entries/YB-028-remove-extracted-facts.md) | entry (done) |
-| None | Quality-attribute views for the map — the architect's primary focus has no view of its own | [YB-029](entries/YB-029-quality-attribute-views.md) | entry (parked) |
+| None | Quality-attribute views for the map — the architect's primary focus has no view of its own | [YB-029](entries/YB-029-quality-attribute-views.md) | entry (done) |
+| None | The requirements profile claims architecture-side realization — the join reads as answered when no architecture exists | [YB-030](entries/YB-030-requirements-profile-cross-graph-claims.md) | entry (open) |
+| None | The predicate vocabulary is taught in its plural schema form and routed only in the singular | [YB-031](entries/YB-031-cross-graph-predicate-plural-routing.md) | entry (open) |
+| None | Multivalued quality fields arrive as one comma-joined string on a single assertion | [YB-032](entries/YB-032-multivalued-quality-fields-joined.md) | entry (open) |

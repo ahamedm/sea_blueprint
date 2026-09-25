@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+{% block title %}Quality attributes · SEA{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Quality attributes</h1>
+    <p>
+      The audit read from the attribute side. Requirements ask whether each
+      <em>requirement</em> is answered; architects ask where the <em>quality</em>
+      gaps are. Every <code>QualityAttribute</code> in the graph is grouped under
+      its ISO/IEC 25010 characteristic and reported with four independent states,
+      so a gap names its own fix.
+    </p>
+  </div>
+  <div class="row">
+    <a class="btn" href="{{ url_for('map_view') }}">Open the map</a>
+    <a class="btn" href="{{ url_for('api_quality') }}">JSON</a>
+  </div>
+</div>
+
+{% if report.summary.attributes == 0 %}
+  <div class="card empty">
+    <h2>No quality attributes in the graph</h2>
+    <p>
+      Nothing has been classified onto the ISO 25010 taxonomy yet. A requirements
+      run classifies its NFRs deterministically; an architecture run materialises
+      the attributes its elements and techniques deliver.
+    </p>
+    <p><a class="btn btn-primary" href="{{ url_for('ingest') }}">Ingest a document</a></p>
+  </div>
+{% else %}
+
+  <div class="banner banner-warn">
+    <strong>Read this beside the numbers.</strong>
+    {{ report.completeness_note }}
+    An attribute with no requirement behind it is not necessarily unasked-for — the
+    NFR may simply not have been read.
+  </div>
+
+  <div class="grid grid-4" style="margin-bottom:18px;">
+    <div class="stat">
+      <div class="value">{{ report.summary.attributes }}</div>
+      <div class="label">Quality concerns</div>
+      <div class="foot">
+        from {{ report.summary.attribute_nodes }} attribute node(s)
+        {%- if report.summary.merged_labels %}, {{ report.summary.merged_labels }} label(s) merged{% endif %}
+      </div>
+    </div>
+    <div class="stat">
+      <div class="value" style="color:{{ 'var(--bad)' if report.summary.architecture_gaps else 'var(--ok)' }}">{{ report.summary.architecture_gaps }}</div>
+      <div class="label">Stated, nothing delivers</div>
+      <div class="foot">the architecture gap — a requirement with no mechanism</div>
+    </div>
+    <div class="stat">
+      <div class="value" style="color:var(--warn)">{{ report.summary.unasked }}</div>
+      <div class="label">Delivered, nothing states</div>
+      <div class="foot">the architecture provides a quality nobody asked for</div>
+    </div>
+    <div class="stat">
+      <div class="value">{{ report.summary.characteristics }}</div>
+      <div class="label">ISO characteristics</div>
+      <div class="foot">{{ report.summary.stated }} stated · {{ report.summary.delivered }} delivered</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Coverage states</h2>
+      <span class="muted small">four states, because they fail independently</span>
+    </div>
+    <p class="hint">
+      <strong>Stated</strong> — an NFR <code>realizes_attribute</code> it.
+      <strong>Delivered</strong> — an element <code>satisfies_attribute</code> it.
+      <strong>Technique</strong> — a <code>DesignTechnique</code> is among the
+      deliverers, so the quality has a mechanism.
+      <strong>Scenario</strong> — a <code>QualityScenario</code> operationalises it,
+      so it is testable. A state nothing in the graph populates is listed here
+      rather than omitted: a census that drops the column it cannot fill is how
+      "no scenarios anywhere" reads as "scenarios are fine".
+    </p>
+    <table class="table-plain">
+      <thead><tr><th>State</th><th>Concerns</th><th></th></tr></thead>
+      <tbody>
+        {% for state, count in report.summary.states.items() %}
+          <tr>
+            <td>{{ report.state_labels[state] }}</td>
+            <td>{{ count }}</td>
+            <td>
+              {% if count %}
+                <span class="badge badge-verified">populated</span>
+              {% else %}
+                <span class="badge badge-unverified">nothing populates this</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if report.summary.unpopulated_states %}
+      <p class="hint">
+        Empty: {% for s in report.summary.unpopulated_states %}{{ report.state_labels[s] }}{% if not loop.last %}, {% endif %}{% endfor %}.
+        These are statements about the extraction, not about the system.
+      </p>
+    {% endif %}
+  </div>
+
+  {% for characteristic in report.characteristics %}
+    <div class="card">
+      <div class="card-head">
+        <h2>
+          {{ characteristic.label }}
+          {% if not characteristic.iso %}<span class="badge badge-unverified">non-ISO</span>{% endif %}
+        </h2>
+        <span class="muted small">
+          {{ characteristic.counts.concerns }} concern(s) ·
+          {{ characteristic.counts.stated }} stated ·
+          {{ characteristic.counts.delivered }} delivered ·
+          {{ characteristic.counts.gaps }} gap(s) ·
+          {{ characteristic.counts.unasked }} unasked
+          {% if characteristic.category %}
+            · <a href="{{ url_for('map_view', concern=characteristic.category) }}">filter the map →</a>
+          {% endif %}
+        </span>
+      </div>
+      <table class="table-plain">
+        <thead>
+          <tr>
+            <th>Attribute</th>
+            <th>Stated</th>
+            <th>Delivered</th>
+            <th>Technique</th>
+            <th>Scenario</th>
+            <th>Verdict</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in characteristic.concerns %}
+            <tr>
+              <td>
+                <a href="{{ url_for('map_view', concern=c.key) }}">{{ c.display }}</a>
+                {% if c.aliases|length > 1 %}
+                  <div class="muted small">
+                    one concern, {{ c.aliases|length }} labels: {{ c.aliases|join(' · ') }}
+                  </div>
+                {% endif %}
+                {% if not c.resolved %}
+                  <div class="muted small">not placed on the taxonomy</div>
+                {% endif %}
+              </td>
+              {% for state in ['stated_in_requirements', 'delivered_by_architecture', 'realized_by_technique', 'has_quality_scenario'] %}
+                <td>
+                  {% for claim in c.state_claims[state] %}
+                    <div class="small">
+                      {{ claim.source_label }}
+                      <span class="muted">({{ claim.source_kind }})</span>
+                    </div>
+                  {% else %}
+                    <span class="muted">—</span>
+                  {% endfor %}
+                </td>
+              {% endfor %}
+              <td>
+                <span class="badge badge-{{ {'answered': 'verified', 'architecture_gap': 'disputed', 'unasked': 'unverified', 'unaddressed': 'retired'}[c.coverage] }}">{{ c.coverage_label }}</span>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endfor %}
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Delivered, but no requirement states it</h2>
+      <span class="muted small">the direction the gap report cannot express</span>
+    </div>
+    <p class="hint">
+      The architecture provides a quality nobody asked for. That is not a defect —
+      it may be an unstated requirement, or a quality worth stating. It is invisible
+      from the requirement side, which is why it has its own list.
+    </p>
+    {% if report.unasked %}
+      <table class="table-plain">
+        <thead><tr><th>Attribute</th><th>Characteristic</th><th>Delivered by</th></tr></thead>
+        <tbody>
+          {% for c in report.unasked %}
+            <tr>
+              <td><a href="{{ url_for('map_view', concern=c.key) }}">{{ c.display }}</a></td>
+              <td>{{ c.category_label }}</td>
+              <td class="small">
+                {% for claim in c.delivered %}{{ claim.source_label }} <span class="muted">({{ claim.source_kind }})</span>{% if not loop.last %}, {% endif %}{% endfor %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="hint">None. Every delivered quality is also stated by a requirement.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Stated, but nothing delivers it</h2>
+      <span class="muted small">the architecture gap, from the attribute side</span>
+    </div>
+    {% if report.architecture_gaps %}
+      <table class="table-plain">
+        <thead><tr><th>Attribute</th><th>Characteristic</th><th>Stated by</th></tr></thead>
+        <tbody>
+          {% for c in report.architecture_gaps %}
+            <tr>
+              <td><a href="{{ url_for('map_view', concern=c.key) }}">{{ c.display }}</a></td>
+              <td>{{ c.category_label }}</td>
+              <td class="small">
+                {% for claim in c.stated %}{{ claim.source_label }}{% if not loop.last %}, {% endif %}{% endfor %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="hint">None. Every stated quality has at least one delivering element.</p>
+    {% endif %}
+  </div>
+
+  {% if report.unresolved %}
+    <div class="card">
+      <div class="card-head">
+        <h2>Attributes the taxonomy could not place</h2>
+        <span class="muted small">grouped under their own label, never folded into a neighbour</span>
+      </div>
+      <table class="table-plain">
+        <thead><tr><th>Label</th><th>Grouped as</th></tr></thead>
+        <tbody>
+          {% for c in report.unresolved %}
+            <tr><td>{{ c.label }}</td><td class="mono small">{{ c.key }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+
+{% endif %}
+{% endblock %}

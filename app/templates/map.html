@@ -16,19 +16,48 @@
   <div class="row">
     {% for lens, label in view.lens_labels.items() %}
       <a class="btn {{ 'btn-primary' if view.lens == lens else '' }}"
-         href="{{ url_for('map_view', lens=lens) }}">{{ label }}</a>
+         href="{{ url_for('map_view', lens=lens, concern=view.focus.value) if view.focus else url_for('map_view', lens=lens) }}">{{ label }}</a>
     {% endfor %}
   </div>
 </div>
 
+{% if view.focus_options.characteristics %}
+  <div class="row" style="flex-wrap:wrap; margin-bottom:12px;">
+    <span class="muted small" style="align-self:center;">Quality focus</span>
+    <a class="btn {{ 'btn-primary' if not view.focus else '' }}"
+       href="{{ url_for('map_view', lens=view.lens) }}">Whole graph</a>
+    {% for option in view.focus_options.characteristics %}
+      <a class="btn {{ 'btn-primary' if view.focus and view.focus.value|upper == option.value|upper else '' }}"
+         href="{{ url_for('map_view', lens=view.lens, concern=option.value) }}"
+         title="{{ option.answered }} answered · {{ option.gaps }} gap(s) · {{ option.unasked }} unasked">
+        {{ option.label }} <span class="muted">{{ option.concerns }}</span>
+      </a>
+    {% endfor %}
+    <a class="small" style="align-self:center;" href="{{ url_for('quality') }}">census →</a>
+  </div>
+{% endif %}
+
 {% if not view.nodes %}
   <div class="card empty">
-    <h2>Nothing to draw</h2>
-    <p>
-      The working set is empty. Ingest a requirements or an architecture document and
-      its concepts will appear here.
-    </p>
-    <p><a class="btn btn-primary" href="{{ url_for('ingest') }}">Ingest a document</a></p>
+    {% if view.focus_unknown %}
+      <h2>No quality attribute matches “{{ view.focus_requested }}”</h2>
+      <p>
+        The filter selected nothing, so nothing is drawn. A filter that fell back to
+        the whole graph would make a typo indistinguishable from a graph with no
+        quality attributes in it.
+      </p>
+      <p>
+        <a class="btn btn-primary" href="{{ url_for('map_view', lens=view.lens) }}">Clear the filter</a>
+        <a class="btn" href="{{ url_for('quality') }}">See what attributes exist</a>
+      </p>
+    {% else %}
+      <h2>Nothing to draw</h2>
+      <p>
+        The working set is empty. Ingest a requirements or an architecture document and
+        its concepts will appear here.
+      </p>
+      <p><a class="btn btn-primary" href="{{ url_for('ingest') }}">Ingest a document</a></p>
+    {% endif %}
   </div>
 {% else %}
   <div class="grid grid-4" style="margin-bottom:18px;">
@@ -55,6 +84,21 @@
       <div class="foot">the requirement ⇄ architecture join</div>
     </div>
   </div>
+
+  {% if view.focus and not view.focus_unknown %}
+    <div class="banner banner-ok">
+      <strong>Focused on {{ view.focus.label }}.</strong>
+      {{ view.focus.counts.concerns }} concern(s):
+      {{ view.focus.counts.answered }} answered ·
+      {{ view.focus.counts.gaps }} architecture gap(s) ·
+      {{ view.focus.counts.unasked }} unasked.
+      {% if view.focus_hidden_nodes %}
+        This filter hides {{ view.focus_hidden_nodes }} node(s) the lens would
+        otherwise draw ({{ view.focus_hidden_kinds|join(', ') }}).
+      {% endif %}
+      <a href="{{ url_for('map_view', lens=view.lens) }}">clear</a>
+    </div>
+  {% endif %}
 
   {% if view.unclassified_kinds %}
     <div class="banner banner-warn">

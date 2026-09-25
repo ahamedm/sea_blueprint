@@ -288,3 +288,99 @@ def test_the_view_counts_what_it_drew(arch_extraction):
     view = merged_view(arch_extraction)
     assert sum(view["group_counts"].values()) == len(view["nodes"])
     assert sum(view["kind_counts"].values()) == len(view["nodes"])
+
+
+# ============================================================================
+# The quality focus — selection by concern, not by document layer
+# ============================================================================
+
+
+def quality_graph():
+    """A graph with one concern stated by a requirement and delivered by an element.
+
+    Built here rather than added to `conftest.requirements_output`: the quality
+    collections are what this filter reads, and putting them in the shared fixture
+    would change what every other map test is looking at.
+    """
+    from core.knowledge import graph_from_extraction
+
+    graph, _run = graph_from_extraction(
+        {
+            "entities": [
+                {
+                    "name": "Uptime",
+                    "ontology_class": "NonFunctionalRequirement",
+                    "quality_attribute": "Availability",
+                },
+                {"name": "Note", "ontology_class": "BusinessGoal"},
+            ],
+            "elements": [
+                {
+                    "name": "Gateway",
+                    "element_type": "SoftwareSystem",
+                    "satisfies_attributes": ["High Availability"],
+                },
+                {
+                    "name": "Billing",
+                    "element_type": "Container",
+                    "satisfies_attributes": ["Scalability"],
+                },
+            ],
+        },
+        {"model_id": "fake"},
+        document_ref="q.md",
+        document_text="q source",
+    )
+    return graph
+
+
+def test_the_quality_focus_keeps_the_attribute_neighbourhood():
+    """The two spellings, the requirement that states it, the element that delivers it."""
+    view = merged_view(quality_graph(), "all", "AVAILABILITY")
+    labels = {n["label"] for n in view["nodes"]}
+    assert labels == {"Availability", "High Availability", "Uptime", "Gateway"}
+    assert view["focus"]["counts"]["concerns"] == 1
+
+
+def test_the_quality_focus_reports_what_it_hides():
+    """A narrowed map must never be mistaken for a narrowed graph."""
+    view = merged_view(quality_graph(), "all", "AVAILABILITY")
+    assert view["focus_hidden_nodes"] > 0
+    assert "Billing" not in {n["label"] for n in view["nodes"]}
+    assert "Container" in view["focus_hidden_kinds"]
+
+
+def test_a_characteristic_focus_selects_every_concern_under_it():
+    view = merged_view(quality_graph(), "all", "RELIABILITY")
+    assert view["focus"]["kind"] == "characteristic"
+    assert view["focus"]["counts"]["concerns"] == 1
+    assert "Scalability" not in {n["label"] for n in view["nodes"]}
+
+
+def test_an_unknown_focus_selects_nothing_rather_than_everything():
+    view = merged_view(quality_graph(), "all", "NOT_A_CONCERN")
+    assert view["focus_unknown"] is True
+    assert view["nodes"] == []
+
+
+def test_the_focus_accepts_a_label_as_the_graph_spells_it():
+    view = merged_view(quality_graph(), "all", "High Availability")
+    assert view["focus"]["label"] == "Availability"
+    assert {n["label"] for n in view["nodes"]} == {
+        "Availability", "High Availability", "Uptime", "Gateway",
+    }
+
+
+def test_the_focus_options_only_offer_what_the_graph_has():
+    """An option that selects nothing is a dead end dressed as a filter."""
+    options = merged_view(quality_graph())["focus_options"]
+    assert {o["value"] for o in options["characteristics"]} == {"RELIABILITY", "FLEXIBILITY"}
+    assert {o["value"] for o in options["attributes"]} == {"AVAILABILITY", "SCALABILITY"}
+
+
+def test_without_a_focus_the_whole_graph_is_drawn(arch_extraction):
+    view = merged_view(arch_extraction)
+    assert view["focus"] is None
+    assert view["focus_unknown"] is False
+    assert view["focus_hidden_nodes"] == 0
+

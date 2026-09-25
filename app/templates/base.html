@@ -20,6 +20,7 @@
     {% for endpoint, label in [
         ('index', 'Overview'), ('ingest', 'Ingest'), ('review', 'Review'),
         ('reconcile', 'Reconcile'), ('map_view', 'Map'), ('gaps', 'Gaps'),
+        ('quality', 'Quality'),
         ('changes', 'Changes'), ('ontology', 'Ontology')] %}
       <a href="{{ url_for(endpoint) }}" class="{{ 'active' if section == endpoint else '' }}">{{ label }}</a>
     {% endfor %}

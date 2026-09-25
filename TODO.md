@@ -3,7 +3,7 @@
 
 Open work only. Each item is one file under `docs/todos/entries/` — that file is the source of truth and this index is generated from it.
 
-**12 active · 2 parked · 2 superseded · 15 closed records**
+**15 active · 1 parked · 2 superseded · 16 closed records**
 
 | Where | What |
 |---|---|
@@ -32,6 +32,8 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [YB-020](docs/todos/entries/YB-020-structured-path-budget.md) | Structured-path budget — decide, don't retry into the timeout | open | `config/agent_config.py`, `.env.example`, `agents/base_agent.py`, `agents/knowledge_extraction/agent.py` |
 | [YB-026](docs/todos/entries/YB-026-asynchronous-progress.md) | Asynchronous progress — stream pass and tool-call completion to the view | open | `app/__init__.py` (ingest route), `app/templates/ingest.html`, `agents/extraction/passes.py`, `agents/knowledge_extraction/agent.py` |
 | [YB-027](docs/todos/entries/YB-027-semantic-reference-matching.md) | Semantic reference matching — bridge the paraphrase the deterministic scorer cannot | open | `core/knowledge/reconcile.py`, possibly `core/knowledge/realization.py`, `app/` |
+| [YB-030](docs/todos/entries/YB-030-requirements-profile-cross-graph-claims.md) | The requirements profile claims architecture-side realization — the join reads as answered when no architecture exists | open | `agents/knowledge_extraction/agent.py` (prompt vocabulary), `core/knowledge/realization.py`, `core/knowledge/ingest.py` |
+| [YB-031](docs/todos/entries/YB-031-cross-graph-predicate-plural-routing.md) | The predicate vocabulary is taught in its plural schema form and routed only in the singular | open | `core/knowledge/model.py` (`CROSS_GRAPH_PREDICATES`), `core/ontology.py` (`CORE_ROUTED_PREDICATES`, `ROUTING_ALIASES`), `agents/base_agent.py` |
 
 ## Medium
 
@@ -46,13 +48,13 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | ID | Item | Status | Area |
 |---|---|---|---|
 | [YB-004](docs/todos/entries/YB-004-model-output-not-structurally-stable.md) | Model output is not structurally stable across runs | open | `agents/base_agent.py`, `agents/knowledge_extraction/agent.py` |
+| [YB-032](docs/todos/entries/YB-032-multivalued-quality-fields-joined.md) | Multivalued quality fields arrive as one comma-joined string on a single assertion | open | `agents/architecture_extraction/` (profile schema and prompt), `core/knowledge/ingest.py` |
 
 ## Parked
 
 | ID | Item | Status | Area |
 |---|---|---|---|
 | [YB-008](docs/todos/entries/YB-008-team-organisational-unit.md) | Team / Organisational Unit construct (PARKED) | parked | `ontology/enterprise_structure.yaml` |
-| [YB-029](docs/todos/entries/YB-029-quality-attribute-views.md) | Quality-attribute views for the map — the architect's primary focus has no view of its own | parked | `app/viewpoints/merged.py` (new lens or viewpoint), `app/projections.py`, `core/knowledge/realization.py`, `app/templates/map.html` |
 
 ## Superseded
 
@@ -69,6 +71,7 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [YB-023](docs/todos/entries/YB-023-requirements-completeness-reporting.md) | Requirements extraction never reports completeness — so REQ-G can never be audited | [ADR-0013-requirements-completeness-reporting](docs/decisions/ADR-0013-requirements-completeness-reporting.md) |
 | [YB-024](docs/todos/entries/YB-024-requirements-graph-view.md) | Graph view — cover the requirements graph, not only C4 | [ADR-0014-map-replaces-c4-view](docs/decisions/ADR-0014-map-replaces-c4-view.md) |
 | [YB-028](docs/todos/entries/YB-028-remove-extracted-facts.md) | Remove a fact the extractor invented — and stop a dispute withholding the audit | [ADR-0015-retiring-extracted-facts](docs/decisions/ADR-0015-retiring-extracted-facts.md) |
+| [YB-029](docs/todos/entries/YB-029-quality-attribute-views.md) | Quality-attribute views for the map — the architect's primary focus has no view of its own | [ADR-0016-quality-attribute-views](docs/decisions/ADR-0016-quality-attribute-views.md) |
 
 ## Closed work — records
 
@@ -89,5 +92,6 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [ADR-0013](docs/decisions/ADR-0013-requirements-completeness-reporting.md) | Requirements runs report their own completeness — REQ-G can be audited | 2026-09-24 | item — |
 | [ADR-0014](docs/decisions/ADR-0014-map-replaces-c4-view.md) | The map replaces the C4 view — one graph, both sides, references visible | 2026-09-24 | item — |
 | [ADR-0015](docs/decisions/ADR-0015-retiring-extracted-facts.md) | Removing a fact the extractor invented — retire, and what withholds the audit | 2026-09-24 | item — |
+| [ADR-0016](docs/decisions/ADR-0016-quality-attribute-views.md) | Quality-attribute views — the census groups by canonical concern, and one taxonomy serves both layers | 2026-09-25 | item — |
 
 The index is generated from the entries — do not edit `TODO.md` by hand.

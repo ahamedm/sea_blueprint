@@ -25,9 +25,85 @@ def store_for(app) -> RevisionStore:
 
 
 def test_every_page_renders_on_an_empty_working_set(client):
-    for path in ["/", "/ingest", "/review", "/reconcile", "/map", "/gaps", "/changes"]:
+    for path in ["/", "/ingest", "/review", "/reconcile", "/map", "/gaps", "/quality", "/changes"]:
         response = client.get(path)
         assert response.status_code == 200, f"{path} -> {response.status_code}"
+
+
+def test_the_quality_census_renders_and_serves_json(client):
+    """The attribute-shaped audit.
+
+    `requirements_output` classifies no quality attribute and `architecture_output`
+    delivers none, so this exercises the page's empty branch; the populated branch
+    is covered below and in `test_quality_census.py`.
+    """
+    response = client.get("/quality")
+    assert response.status_code == 200
+    assert b"Quality attributes" in response.data
+
+    payload = client.get("/api/quality").get_json()
+    assert "summary" in payload
+    assert set(payload["summary"]["states"]) == {
+        "stated_in_requirements",
+        "delivered_by_architecture",
+        "realized_by_technique",
+        "has_quality_scenario",
+    }
+
+
+def test_the_quality_page_renders_the_states_and_the_merge(tmp_path):
+    """The populated branch: four states, the empty one named, and one concern
+    carrying two labels rather than counting as two gaps."""
+    from app import create_app
+    from tests.conftest import FakeExtractor
+
+    output = {
+        "entities": [
+            {
+                "name": "Uptime",
+                "ontology_class": "NonFunctionalRequirement",
+                "quality_attribute": "Availability",
+            }
+        ],
+        "elements": [
+            {
+                "name": "Gateway",
+                "element_type": "SoftwareSystem",
+                "satisfies_attributes": ["High Availability"],
+            }
+        ],
+    }
+    root = tmp_path / "quality-sea"
+    app = create_app(
+        {"TESTING": True, "STORE_ROOT": str(root)},
+        store_root=str(root),
+        extractor_factory=lambda doc_type: FakeExtractor(output),
+    )
+    app.test_client().post(
+        "/ingest", data={"text": "quality body", "type": "requirements"}
+    )
+
+    page = app.test_client().get("/quality")
+    assert b"Uptime" in page.data
+    assert b"Gateway" in page.data
+    assert b"one concern, 2 labels" in page.data
+
+    payload = app.test_client().get("/api/quality").get_json()
+    assert payload["summary"]["attributes"] == 1
+    assert payload["summary"]["attribute_nodes"] == 2
+    assert payload["summary"]["merged_labels"] == 1
+    assert payload["summary"]["states"]["stated_in_requirements"] == 1
+    assert payload["summary"]["states"]["delivered_by_architecture"] == 1
+    assert payload["summary"]["states"]["has_quality_scenario"] == 0
+    assert "has_quality_scenario" in payload["summary"]["unpopulated_states"]
+
+
+def test_the_map_quality_filter_is_a_url_not_a_script(client):
+    """The filter has to survive a reload and a shared link, and an unknown value
+    has to select nothing rather than fall back to the whole graph."""
+    response = client.get("/map?concern=RELIABILITY")
+    assert response.status_code == 200
+    assert b"No quality attribute matches" in response.data
 
 
 def test_viewpoint_and_gap_routes_exist(client):

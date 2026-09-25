@@ -57,6 +57,17 @@ from .realization import (
     unmet_obligations,
     unrealized_requirements,
 )
+from .quality import (
+    COVERAGE_ANSWERED,
+    COVERAGE_ARCHITECTURE_GAP,
+    COVERAGE_UNADDRESSED,
+    COVERAGE_UNASKED,
+    QUALITY_ATTRIBUTE_KIND,
+    AttributeCoverage,
+    attribute_nodes,
+    quality_report,
+    quality_state,
+)
 from .reconcile import (
     DEFAULT_MATCH_THRESHOLD,
     EXPECTED_TARGET_KINDS,
@@ -182,6 +193,16 @@ __all__ = [
     "COVERAGE_UNRESOLVED",
     "COVERAGE_PARTIAL",
     "COVERAGE_FULL",
+    # quality — the attribute-shaped census
+    "quality_state",
+    "quality_report",
+    "attribute_nodes",
+    "AttributeCoverage",
+    "QUALITY_ATTRIBUTE_KIND",
+    "COVERAGE_ANSWERED",
+    "COVERAGE_ARCHITECTURE_GAP",
+    "COVERAGE_UNASKED",
+    "COVERAGE_UNADDRESSED",
     # store
     "RevisionStore",
     "Revision",
