@@ -3,7 +3,7 @@
 
 Open work only. Each item is one file under `docs/todos/entries/` — that file is the source of truth and this index is generated from it.
 
-**15 active · 1 parked · 2 superseded · 16 closed records**
+**20 active · 1 parked · 2 superseded · 16 closed records**
 
 | Where | What |
 |---|---|
@@ -34,6 +34,8 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [YB-027](docs/todos/entries/YB-027-semantic-reference-matching.md) | Semantic reference matching — bridge the paraphrase the deterministic scorer cannot | open | `core/knowledge/reconcile.py`, possibly `core/knowledge/realization.py`, `app/` |
 | [YB-030](docs/todos/entries/YB-030-requirements-profile-cross-graph-claims.md) | The requirements profile claims architecture-side realization — the join reads as answered when no architecture exists | open | `agents/knowledge_extraction/agent.py` (prompt vocabulary), `core/knowledge/realization.py`, `core/knowledge/ingest.py` |
 | [YB-031](docs/todos/entries/YB-031-cross-graph-predicate-plural-routing.md) | The predicate vocabulary is taught in its plural schema form and routed only in the singular | open | `core/knowledge/model.py` (`CROSS_GRAPH_PREDICATES`), `core/ontology.py` (`CORE_ROUTED_PREDICATES`, `ROUTING_ALIASES`), `agents/base_agent.py` |
+| [YB-036](docs/todos/entries/YB-036-modular-run-streaming.md) | Modular run streaming — one progress mechanism for the browser and for unattended runs | open | `agents/knowledge_extraction/agent.py`, `agents/extraction/passes.py`, `core/knowledge/store.py` (run journal), `app/__init__.py` |
+| [YB-037](docs/todos/entries/YB-037-background-workflow-management.md) | Background workflow management — durable execution for runs nobody is waiting for | open | new `core/workflow/` or `app/worker.py`, `core/knowledge/store.py`, `app/__init__.py`, `app/templates/` (jobs page) |
 
 ## Medium
 
@@ -42,6 +44,9 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [YB-006](docs/todos/entries/YB-006-c4-structurizr-importer.md) | Extract from C4 Structurizr (model / DSL), not just prose | open | new importer alongside `agents/architecture_extraction/` |
 | [YB-010](docs/todos/entries/YB-010-rdf-knowledge-layer.md) | Adopt RDF for the knowledge layer (rdflib first, Jena later) | open | `core/knowledge/serialise.py`, `core/knowledge/rdf.py` |
 | [YB-025](docs/todos/entries/YB-025-c4-specification-view.md) | Dedicated C4 specification view — text notation plus rendered diagram | open | new `app/viewpoints/c4_spec.py` (or a `notation/` renderer), `app/templates/`, possibly a Kroki/PlantUML endpoint |
+| [YB-033](docs/todos/entries/YB-033-event-ingress.md) | Event ingress — an external system's event starts graph work, without a browser in the loop | open | new `app/events.py` or `integrations/` (receiver + adapters), `app/__init__.py`, `core/knowledge/ingest.py` |
+| [YB-034](docs/todos/entries/YB-034-initiative-delivery-phase.md) | Initiative delivery phase — the graph cannot represent "this Initiative is in Design" | open | `ontology/requirements_base.yaml` (Initiative, InitiativeStatus), `core/knowledge/ingest.py`, `app/projections.py` |
+| [YB-035](docs/todos/entries/YB-035-design-assistant.md) | Design Assistant — draft an initial architecture from REQ-G, on request or on an event | open | `agents/design_assistant/` (placeholder today), `core/knowledge/`, `app/` (review batches, map) |
 
 ## Low
 

@@ -6,11 +6,11 @@ status: open
 priority: high
 area: "`app/__init__.py` (ingest route), `app/templates/ingest.html`, `agents/extraction/passes.py`, `agents/knowledge_extraction/agent.py`"
 created: 2026-09-23
-updated: 2026-09-24
+updated: 2026-09-25
 design: null
 record: null
 superseded_by: []
-related: ["YB-020", "YB-023", "YB-024", "YB-025"]
+related: ["YB-020", "YB-023", "YB-024", "YB-025", "YB-033", "YB-035", "YB-036", "YB-037"]
 blocks: []
 blocked_by: []
 ---
@@ -99,6 +99,25 @@ regardless of how long it took.
 - **Nothing here changes completeness semantics.** Streaming is transport; the run's
   `completeness` must still be computed from pass outcomes, not inferred from the fact
   that the stream ended.
+
+### Added 2026-09-25 — a second consumer changes the seam, not the mechanism
+
+The three phases above are written for one consumer: the page that started the run.
+Event-driven work adds a second — a run nobody's browser is attached to
+([`docs/design/event-driven-integration.md`](../../design/event-driven-integration.md)) —
+and if phase 2 is built as an HTMX poll served by the ingest route, that second
+consumer has to reimplement the progress plumbing.
+
+[YB-036](YB-036-modular-run-streaming.md) is the generalisation: a
+transport-agnostic progress log with attachable subscribers, of which the ingest
+page is one. **The two items should be designed together**, and only one of them
+should own the mechanism. The test is simple: the extraction pipeline must not
+import a web framework, and a run must be able to complete with no subscriber at
+all.
+
+That does not make phase 3 (SSE) more likely — polling may be entirely adequate for
+both consumers — but it does mean the question "who is this stream for?" gets asked
+before the transport is chosen rather than after.
 
 ### Related
 
