@@ -18,7 +18,7 @@ blocked_by: []
 # YB-028 — Remove a fact the extractor invented
 
 > **Closed.** The record is
-> [`ADR-0015`](../decisions/ADR-0015-retiring-extracted-facts.md). The entry is kept
+> [`ADR-0015`](../../decisions/ADR-0015-retiring-extracted-facts.md). The entry is kept
 > because the record carries follow-ups that stay open; see *Remaining* below.
 
 **Raised:** reviewing the working set, not from the TODO index — the question was

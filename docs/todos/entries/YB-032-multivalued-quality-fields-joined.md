@@ -35,7 +35,7 @@ enum member and matches nothing.
 ### Why it is low priority, and why it is still worth an entry
 
 The quality census ([YB-029](YB-029-quality-attribute-views.md),
-[ADR-0016](../decisions/ADR-0016-quality-attribute-views.md)) does not read these
+[ADR-0016](../../decisions/ADR-0016-quality-attribute-views.md)) does not read these
 edges — it groups attribute nodes by their own labels — so the numbers on the census
 page are unaffected. But any consumer that groups by `subcharacteristic`, which the
 ontology presents as *the* precise axis, would see a nonsense token and report the

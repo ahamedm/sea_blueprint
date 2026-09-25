@@ -13,7 +13,7 @@ related: []
 > **Record.** Closed work, preserved verbatim from `TODO.md` v1 (ADR-0006).
 > Legacy source: [`docs/todos/legacy-todo-v1.md`](../todos/legacy-todo-v1.md).
 
-**Legacy status:** ✅ IMPLEMENTED — see [`docs/ui-review-workflow.md`](docs/ui-review-workflow.md) §4
+**Legacy status:** ✅ IMPLEMENTED — see [`docs/ui-review-workflow.md`](../ui-review-workflow.md) §4
 **Legacy priority:** Closed for this slice; follow-ups below
 **Legacy area:** `core/knowledge/reconcile.py`, `core/knowledge/ingest.py`, `app/`
 

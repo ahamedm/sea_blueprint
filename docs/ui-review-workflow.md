@@ -241,7 +241,7 @@ fix differs:
 
 The inverse list — "architecture claiming a requirement that never bound" — is
 either a paraphrase this matcher cannot bridge
-([YB-027](../todos/entries/YB-027-semantic-reference-matching.md)) or a claim about
+([YB-027](todos/entries/YB-027-semantic-reference-matching.md)) or a claim about
 a requirement the requirements document never stated, which is a finding in its
 own right. The report also splits `unbound_claims` into those with a proposal and
 those the matcher cannot see, so "waiting for a decision" and "unreachable" are
@@ -395,7 +395,7 @@ the architecture is for. That lens does not exist, and the reason it matters is 
 the two documents *without* needing a citation or a lexical match, which is more than
 `implements_requirement` can say.
 
-Parked as [YB-029](../todos/entries/YB-029-quality-attribute-views.md): a coverage
+Parked as [YB-029](todos/entries/YB-029-quality-attribute-views.md): a coverage
 census grouped by ISO/IEC 25010 characteristic, a quality-attribute lens, and
 filtering by characteristic. Parked rather than scheduled because the saved fixtures
 predate the profile work it needs — they contain **zero** `QualityAttribute` nodes,
@@ -488,7 +488,7 @@ Recorded so the gaps are choices rather than oversights.
   reports both directions (below). Its matching is lexical —
   no embeddings or model assistance — so a paraphrase with no shared vocabulary
   will never surface; on the real fixture 9 of 13 references are unreachable, which
-  is [YB-027](../todos/entries/YB-027-semantic-reference-matching.md).
+  is [YB-027](todos/entries/YB-027-semantic-reference-matching.md).
 - **Semantic matching.** The matcher is deterministic and explainable on purpose,
   which is what lets a reviewer see *why* a link was proposed. Widening it is a
   change of mechanism, tracked separately.

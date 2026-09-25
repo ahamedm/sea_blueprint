@@ -18,7 +18,7 @@ blocked_by: []
 # YB-029 — Quality-attribute views for the map
 
 > **Closed.** The record is
-> [`ADR-0016`](../decisions/ADR-0016-quality-attribute-views.md). The blocker named
+> [`ADR-0016`](../../decisions/ADR-0016-quality-attribute-views.md). The blocker named
 > below — "the saved fixtures contain zero `QualityAttribute` nodes" — was cleared by
 > the real run of 2026-09-25
 > ([`docs/design/real-run-readings.md`](../../design/real-run-readings.md)), which
@@ -170,7 +170,7 @@ business/requirements/architecture, which are *document* layers, not concerns.
 ### What was built
 
 > Added at closure. The full reasoning is in
-> [`ADR-0016`](../decisions/ADR-0016-quality-attribute-views.md).
+> [`ADR-0016`](../../decisions/ADR-0016-quality-attribute-views.md).
 
 - **The coverage census** (`/quality`, `/api/quality`) — every concern under its ISO
   characteristic, with the four states independent and the empty one named.
@@ -185,9 +185,9 @@ business/requirements/architecture, which are *document* layers, not concerns.
 
 ### Related
 
-- [ADR-0014](../decisions/ADR-0014-map-replaces-c4-view.md) — the map and its lens
+- [ADR-0014](../../decisions/ADR-0014-map-replaces-c4-view.md) — the map and its lens
   mechanism, which this extends.
-- [ADR-0015](../decisions/ADR-0015-retiring-extracted-facts.md) — parked alongside;
+- [ADR-0015](../../decisions/ADR-0015-retiring-extracted-facts.md) — parked alongside;
   both need a fresh run before they can be judged, for the same reason.
 - `docs/design/` has no quality-model design note. The `QualityConcernClass` and
   `QualityAttribute` slots scattered through `requirements_base.yaml` are the

@@ -13,7 +13,7 @@ related: []
 > **Record.** Closed work, preserved verbatim from `TODO.md` v1 (ADR-0007).
 > Legacy source: [`docs/todos/legacy-todo-v1.md`](../todos/legacy-todo-v1.md).
 
-**Legacy status:** ✅ IMPLEMENTED — see [`docs/ui-review-workflow.md`](docs/ui-review-workflow.md) §8
+**Legacy status:** ✅ IMPLEMENTED — see [`docs/ui-review-workflow.md`](../ui-review-workflow.md) §8
 **Legacy priority:** Closed
 **Legacy area:** `app/projections.py`, `app/viewpoints/`, `app/templates/c4.html`
 

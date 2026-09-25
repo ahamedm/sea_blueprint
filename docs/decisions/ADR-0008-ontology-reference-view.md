@@ -13,7 +13,7 @@ related: []
 > **Record.** Closed work, preserved verbatim from `TODO.md` v1 (ADR-0008).
 > Legacy source: [`docs/todos/legacy-todo-v1.md`](../todos/legacy-todo-v1.md).
 
-**Legacy status:** ✅ IMPLEMENTED — see [`docs/ui-review-workflow.md`](docs/ui-review-workflow.md) §8, §8a
+**Legacy status:** ✅ IMPLEMENTED — see [`docs/ui-review-workflow.md`](../ui-review-workflow.md) §8, §8a
 **Legacy priority:** Closed
 **Legacy area:** `core/ontology.py`, `app/ontology_reference.py`, `app/templates/ontology.html`, `tests/test_ontology*.py`
 

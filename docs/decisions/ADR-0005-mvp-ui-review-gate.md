@@ -13,7 +13,7 @@ related: []
 > **Record.** Closed work, preserved verbatim from `TODO.md` v1 (ADR-0005).
 > Legacy source: [`docs/todos/legacy-todo-v1.md`](../todos/legacy-todo-v1.md).
 
-**Legacy status:** ✅ IMPLEMENTED (first slice of the journey) — see [`docs/ui-review-workflow.md`](docs/ui-review-workflow.md)
+**Legacy status:** ✅ IMPLEMENTED (first slice of the journey) — see [`docs/ui-review-workflow.md`](../ui-review-workflow.md)
 **Legacy priority:** Closed for this slice; follow-ups below
 **Legacy area:** `app/`, `core/knowledge/` (`serialise.py`, `review.py`, `store.py`), `tests/`
 

@@ -18,7 +18,7 @@ blocked_by: []
 # YB-023 — Requirements extraction never reports completeness — so REQ-G can never be audited
 
 > **Closed.** The record is
-> [`ADR-0013`](../decisions/ADR-0013-requirements-completeness-reporting.md). The
+> [`ADR-0013`](../../decisions/ADR-0013-requirements-completeness-reporting.md). The
 > write-up below is preserved, with the three corrections the implementation forced
 > marked inline.
 >

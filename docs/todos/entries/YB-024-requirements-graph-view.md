@@ -18,7 +18,7 @@ blocked_by: []
 # YB-024 — Graph view — cover the requirements graph, not only C4
 
 > **Closed.** The record is
-> [`ADR-0014`](../decisions/ADR-0014-map-replaces-c4-view.md). The write-up below is
+> [`ADR-0014`](../../decisions/ADR-0014-map-replaces-c4-view.md). The write-up below is
 > preserved; the section on how it was solved has been corrected in place, because
 > the item as filed proposed the wrong shape.
 >

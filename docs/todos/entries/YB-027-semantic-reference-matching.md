@@ -27,7 +27,7 @@ blocked_by: []
 
 ### What is left over from YB-005
 
-[ADR-0012](../decisions/ADR-0012-req-arc-reconciliation-inversion.md) closed the
+[ADR-0012](../../decisions/ADR-0012-req-arc-reconciliation-inversion.md) closed the
 deterministic half: identifiers, citations, Initiative scoping, and the
 requirement-side audit. This is the residue, and it is a different problem rather
 than a missing feature of that one.
@@ -99,7 +99,7 @@ with a number nobody can inspect, so it is a change of mechanism with a real cos
 ### Related
 
 - [YB-005](YB-005-arcg-reqg-linkage.md) — the closed item this was split from.
-- `ROUTING_ALIASES` and the predicate-vocabulary work ([ADR-0010](../decisions/ADR-0010-predicate-vocabulary.md))
+- `ROUTING_ALIASES` and the predicate-vocabulary work ([ADR-0010](../../decisions/ADR-0010-predicate-vocabulary.md))
   are the same lesson one axis over: the mechanism existed, and nothing used it.
 - The `mislabel_suspected` flag (ADR-0006 decision 4) already catches the case
   where the *predicate* is wrong rather than the target missing. Several of the 9

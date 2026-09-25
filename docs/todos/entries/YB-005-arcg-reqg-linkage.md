@@ -19,7 +19,7 @@ blocked_by: []
 
 > **Closed.** The resolution pass and both directions of the audit are implemented
 > and measured; the record is
-> [`ADR-0012`](../decisions/ADR-0012-req-arc-reconciliation-inversion.md).
+> [`ADR-0012`](../../decisions/ADR-0012-req-arc-reconciliation-inversion.md).
 > Semantic (paraphrase) matching moved to [`YB-027`](YB-027-semantic-reference-matching.md),
 > which was deliberately kept out of this work because it is a different mechanism
 > with a different cost. This file is kept because it carries those open items.
