@@ -105,9 +105,30 @@
     {% endif %}
   </div>
 
+  <div class="card sticky-filters">
+    <div class="filterbar" style="margin:0;">
+      <input type="search" id="census-search" placeholder="Filter attributes, labels and claims…" aria-label="Filter quality attributes">
+      <select id="census-coverage" aria-label="Filter by verdict">
+        <option value="">Any verdict</option>
+        <option value="answered">Stated and delivered</option>
+        <option value="architecture_gap">Stated, nothing delivers</option>
+        <option value="unasked">Delivered, nothing states</option>
+        <option value="unaddressed">Neither stated nor delivered</option>
+      </select>
+      <select id="census-state" aria-label="Filter by coverage state">
+        <option value="">Any state</option>
+        <option value="stated_in_requirements">Stated in requirements</option>
+        <option value="delivered_by_architecture">Delivered by architecture</option>
+        <option value="realized_by_technique">Has a realizing technique</option>
+        <option value="has_quality_scenario">Has a quality scenario</option>
+      </select>
+      <span class="count" id="census-count"></span>
+    </div>
+  </div>
+
   {% for characteristic in report.characteristics %}
-    <div class="card">
-      <div class="card-head">
+    <details class="card collapsible" open data-filter-group>
+      <summary>
         <h2>
           {{ characteristic.label }}
           {% if not characteristic.iso %}<span class="badge badge-unverified">non-ISO</span>{% endif %}
@@ -118,59 +139,71 @@
           {{ characteristic.counts.delivered }} delivered ·
           {{ characteristic.counts.gaps }} gap(s) ·
           {{ characteristic.counts.unasked }} unasked
-          {% if characteristic.category %}
-            · <a href="{{ url_for('map_view', concern=characteristic.category) }}">filter the map →</a>
-          {% endif %}
+          <span class="chevron">▾</span>
         </span>
-      </div>
-      <table class="table-plain">
-        <thead>
-          <tr>
-            <th>Attribute</th>
-            <th>Stated</th>
-            <th>Delivered</th>
-            <th>Technique</th>
-            <th>Scenario</th>
-            <th>Verdict</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for c in characteristic.concerns %}
-            <tr>
-              <td>
-                <a href="{{ url_for('map_view', concern=c.key) }}">{{ c.display }}</a>
-                {% if c.aliases|length > 1 %}
-                  <div class="muted small">
-                    one concern, {{ c.aliases|length }} labels: {{ c.aliases|join(' · ') }}
-                  </div>
-                {% endif %}
-                {% if not c.resolved %}
-                  <div class="muted small">not placed on the taxonomy</div>
-                {% endif %}
-              </td>
-              {% for state in ['stated_in_requirements', 'delivered_by_architecture', 'realized_by_technique', 'has_quality_scenario'] %}
-                <td>
-                  {% for claim in c.state_claims[state] %}
-                    <div class="small">
-                      {{ claim.source_label }}
-                      <span class="muted">({{ claim.source_kind }})</span>
-                    </div>
-                  {% else %}
-                    <span class="muted">—</span>
+      </summary>
+      <div class="card-body">
+        {% if characteristic.category %}
+          {# Outside the summary: a link inside one fights the disclosure toggle. #}
+          <p class="hint" style="margin-top:0;">
+            <a href="{{ url_for('map_view', concern=characteristic.category) }}">Show {{ characteristic.label }} on the map →</a>
+          </p>
+        {% endif %}
+        <div class="table-wrap sm">
+          <table>
+            <thead>
+              <tr>
+                <th>Attribute</th>
+                <th>Stated</th>
+                <th>Delivered</th>
+                <th>Technique</th>
+                <th>Scenario</th>
+                <th>Verdict</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for c in characteristic.concerns %}
+                {% set labels = c.aliases|join(' ') %}
+                <tr data-filter-row
+                    data-coverage="{{ c.coverage }}"
+                    data-states="{% for name, present in c.states.items() %}{% if present %}{{ name }} {% endif %}{% endfor %}"
+                    data-search="{{ (c.display ~ ' ' ~ labels ~ ' ' ~ c.category_label)|lower }}">
+                  <td>
+                    <a href="{{ url_for('map_view', concern=c.key) }}">{{ c.display }}</a>
+                    {% if c.aliases|length > 1 %}
+                      <div class="muted small">
+                        one concern, {{ c.aliases|length }} labels: {{ c.aliases|join(' · ') }}
+                      </div>
+                    {% endif %}
+                    {% if not c.resolved %}
+                      <div class="muted small">not placed on the taxonomy</div>
+                    {% endif %}
+                  </td>
+                  {% for state in ['stated_in_requirements', 'delivered_by_architecture', 'realized_by_technique', 'has_quality_scenario'] %}
+                    <td>
+                      {% for claim in c.state_claims[state] %}
+                        <div class="small">
+                          {{ claim.source_label }}
+                          <span class="muted">({{ claim.source_kind }})</span>
+                        </div>
+                      {% else %}
+                        <span class="muted">—</span>
+                      {% endfor %}
+                    </td>
                   {% endfor %}
-                </td>
+                  <td>
+                    <span class="badge badge-{{ {'answered': 'verified', 'architecture_gap': 'disputed', 'unasked': 'unverified', 'unaddressed': 'retired'}[c.coverage] }}">{{ c.coverage_label }}</span>
+                  </td>
+                </tr>
               {% endfor %}
-              <td>
-                <span class="badge badge-{{ {'answered': 'verified', 'architecture_gap': 'disputed', 'unasked': 'unverified', 'unaddressed': 'retired'}[c.coverage] }}">{{ c.coverage_label }}</span>
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </details>
   {% endfor %}
 
-  <div class="card">
+  <div class="card" data-filter-group>
     <div class="card-head">
       <h2>Delivered, but no requirement states it</h2>
       <span class="muted small">the direction the gap report cannot express</span>
@@ -181,66 +214,134 @@
       from the requirement side, which is why it has its own list.
     </p>
     {% if report.unasked %}
-      <table class="table-plain">
-        <thead><tr><th>Attribute</th><th>Characteristic</th><th>Delivered by</th></tr></thead>
-        <tbody>
-          {% for c in report.unasked %}
-            <tr>
-              <td><a href="{{ url_for('map_view', concern=c.key) }}">{{ c.display }}</a></td>
-              <td>{{ c.category_label }}</td>
-              <td class="small">
-                {% for claim in c.delivered %}{{ claim.source_label }} <span class="muted">({{ claim.source_kind }})</span>{% if not loop.last %}, {% endif %}{% endfor %}
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+      <div class="table-wrap sm">
+        <table>
+          <thead><tr><th>Attribute</th><th>Characteristic</th><th>Delivered by</th></tr></thead>
+          <tbody>
+            {% for c in report.unasked %}
+              {% set labels = c.aliases|join(' ') %}
+              <tr data-filter-row data-coverage="unasked" data-states="delivered_by_architecture"
+                  data-search="{{ (c.display ~ ' ' ~ labels ~ ' ' ~ c.category_label)|lower }}">
+                <td><a href="{{ url_for('map_view', concern=c.key) }}">{{ c.display }}</a></td>
+                <td>{{ c.category_label }}</td>
+                <td class="small">
+                  {% for claim in c.delivered %}{{ claim.source_label }} <span class="muted">({{ claim.source_kind }})</span>{% if not loop.last %}, {% endif %}{% endfor %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     {% else %}
       <p class="hint">None. Every delivered quality is also stated by a requirement.</p>
     {% endif %}
   </div>
 
-  <div class="card">
+  <div class="card" data-filter-group>
     <div class="card-head">
       <h2>Stated, but nothing delivers it</h2>
       <span class="muted small">the architecture gap, from the attribute side</span>
     </div>
     {% if report.architecture_gaps %}
-      <table class="table-plain">
-        <thead><tr><th>Attribute</th><th>Characteristic</th><th>Stated by</th></tr></thead>
-        <tbody>
-          {% for c in report.architecture_gaps %}
-            <tr>
-              <td><a href="{{ url_for('map_view', concern=c.key) }}">{{ c.display }}</a></td>
-              <td>{{ c.category_label }}</td>
-              <td class="small">
-                {% for claim in c.stated %}{{ claim.source_label }}{% if not loop.last %}, {% endif %}{% endfor %}
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+      <div class="table-wrap sm">
+        <table>
+          <thead><tr><th>Attribute</th><th>Characteristic</th><th>Stated by</th></tr></thead>
+          <tbody>
+            {% for c in report.architecture_gaps %}
+              {% set labels = c.aliases|join(' ') %}
+              <tr data-filter-row data-coverage="architecture_gap" data-states="stated_in_requirements"
+                  data-search="{{ (c.display ~ ' ' ~ labels ~ ' ' ~ c.category_label)|lower }}">
+                <td><a href="{{ url_for('map_view', concern=c.key) }}">{{ c.display }}</a></td>
+                <td>{{ c.category_label }}</td>
+                <td class="small">
+                  {% for claim in c.stated %}{{ claim.source_label }}{% if not loop.last %}, {% endif %}{% endfor %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     {% else %}
       <p class="hint">None. Every stated quality has at least one delivering element.</p>
     {% endif %}
   </div>
 
   {% if report.unresolved %}
-    <div class="card">
+    <div class="card" data-filter-group>
       <div class="card-head">
         <h2>Attributes the taxonomy could not place</h2>
         <span class="muted small">grouped under their own label, never folded into a neighbour</span>
       </div>
-      <table class="table-plain">
-        <thead><tr><th>Label</th><th>Grouped as</th></tr></thead>
-        <tbody>
-          {% for c in report.unresolved %}
-            <tr><td>{{ c.label }}</td><td class="mono small">{{ c.key }}</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
+      <div class="table-wrap sm">
+        <table>
+          <thead><tr><th>Label</th><th>Grouped as</th></tr></thead>
+          <tbody>
+            {% for c in report.unresolved %}
+              <tr data-filter-row data-coverage="unresolved_label"
+                  data-search="{{ (c.label ~ ' ' ~ c.key)|lower }}">
+                <td>{{ c.label }}</td><td class="mono small">{{ c.key }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     </div>
   {% endif %}
+
+  <script>
+    // Client-side, over rows already in the DOM. The census for a real working
+    // set is tens of rows; a round trip per keystroke would be slower and would
+    // need the whole filter state in the URL to be shareable, which the map's
+    // concern filter already provides for the case that matters.
+    (function () {
+      var search = document.getElementById('census-search');
+      var coverage = document.getElementById('census-coverage');
+      var state = document.getElementById('census-state');
+      var count = document.getElementById('census-count');
+      var rows = Array.prototype.slice.call(document.querySelectorAll('[data-filter-row]'));
+      var groups = Array.prototype.slice.call(document.querySelectorAll('[data-filter-group]'));
+      if (!rows.length) { return; }
+
+      function matches(row, q, cov, st) {
+        if (cov && row.dataset.coverage !== cov) { return false; }
+        if (st && (' ' + (row.dataset.states || '') + ' ').indexOf(' ' + st + ' ') === -1) { return false; }
+        if (q && (row.dataset.search || row.textContent).toLowerCase().indexOf(q) === -1) { return false; }
+        return true;
+      }
+
+      function apply() {
+        var q = (search && search.value || '').trim().toLowerCase();
+        var cov = coverage && coverage.value || '';
+        var st = state && state.value || '';
+        var shown = 0;
+        rows.forEach(function (row) {
+          var ok = matches(row, q, cov, st);
+          row.classList.toggle('is-hidden', !ok);
+          if (ok) { shown += 1; }
+        });
+        // A characteristic with nothing left in it is noise, not an empty state.
+        groups.forEach(function (group) {
+          var any = Array.prototype.some.call(
+            group.querySelectorAll('[data-filter-row]'),
+            function (row) { return !row.classList.contains('is-hidden'); }
+          );
+          group.classList.toggle('is-hidden', !any);
+        });
+        if (count) {
+          count.textContent = shown === rows.length
+            ? rows.length + ' row(s)'
+            : shown + ' of ' + rows.length + ' row(s) shown';
+        }
+      }
+
+      [search, coverage, state].forEach(function (control) {
+        if (!control) { return; }
+        control.addEventListener('input', apply);
+        control.addEventListener('change', apply);
+      });
+      apply();
+    })();
+  </script>
 
 {% endif %}
 {% endblock %}

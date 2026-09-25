@@ -108,61 +108,101 @@
     </div>
   {% endif %}
 
-  <div class="card">
+  <div class="card graph-card">
     <div class="card-head">
       <h2>{{ view.lens_label }}</h2>
-      <span class="muted small">
-        {% for kind, n in view.kind_counts.items() %}{{ kind }} {{ n }}{% if not loop.last %} · {% endif %}{% endfor %}
-      </span>
+      <div class="row">
+        <button type="button" class="btn btn-sm" id="graph-relayout" title="Restart the force layout, releasing dragged nodes">Re-layout</button>
+        <button type="button" class="btn btn-sm" id="graph-full" title="Draw the graph on the whole screen">Fullscreen</button>
+      </div>
     </div>
     <div class="graph-canvas" id="map"></div>
+    <div class="graph-resize" id="graph-resize" title="Drag to resize the graph"></div>
     <div class="legend" id="legend"></div>
-    <p class="hint" style="margin-top:10px;">
+    <p class="hint graph-footnote" style="margin-top:10px;">
       Solid lines are links the graph holds. Dashed lines are references — an
       <code>implements_requirement</code>, <code>traces_to_goal</code> or similar whose
       referent is text rather than a node. They are the traceability this platform
       exists to expose, and the dashed circles labelled in grey are the open ones.
       Layers: {% for group, n in view.group_counts.items() %}{{ group }} ({{ n }}){% if not loop.last %} · {% endif %}{% endfor %}.
+      The per-kind breakdown lives in <em>Concepts by fact count</em> below, where it is
+      a filter rather than a wall of text above the drawing.
+    </p>
+    <p class="hint graph-footnote">
+      Drag the bar under the graph to resize it; the height is remembered. Drag a
+      node to pin it; <em>Re-layout</em> releases it.
     </p>
     {% if view.excluded_kinds %}
-      <p class="hint">
+      <p class="hint graph-footnote">
         Not shown by this lens: {{ view.excluded_kinds|join(', ') }}.
         <a href="{{ url_for('map_view', lens='all') }}">All concepts</a> shows everything.
       </p>
     {% endif %}
   </div>
 
-  <div class="card">
-    <div class="card-head">
+  <details class="card collapsible" id="concepts-panel">
+    <summary>
       <h2>Concepts by fact count</h2>
-      <a class="small" href="{{ url_for('gaps') }}">what is missing →</a>
+      <span class="muted small">
+        {{ elements|length }}{% if element_total > elements|length %} of {{ element_total }}{% endif %} concept(s)
+        <span class="chevron">▾</span>
+      </span>
+    </summary>
+    <div class="card-body">
+      <div class="filterbar">
+        <input type="search" id="concept-search" placeholder="Filter by name, kind or identifier…" aria-label="Filter concepts">
+        <select id="concept-kind" aria-label="Filter by kind">
+          <option value="">All kinds</option>
+          {% for kind, rows in elements|groupby('kind') %}
+            <option value="{{ kind }}">{{ kind }} ({{ rows|length }})</option>
+          {% endfor %}
+        </select>
+        <span class="count" id="concept-count"></span>
+      </div>
+      {% if view.lens != 'all' or view.focus %}
+        <p class="hint" style="margin-top:0;">
+          The drawing is narrowed by
+          {%- if view.lens != 'all' %} the {{ view.lens_label|lower }} lens{% endif %}
+          {%- if view.lens != 'all' and view.focus %} and{% endif %}
+          {%- if view.focus %} the {{ view.focus.label }} filter{% endif %};
+          this table lists every concept in the graph.
+        </p>
+      {% endif %}
+      {% if element_total > elements|length %}
+        <p class="hint">
+          Showing the {{ elements|length }} most-referenced of {{ element_total }}
+          concepts — the rest are in the graph and on the review page.
+        </p>
+      {% endif %}
+      <div class="table-wrap sm">
+        <table>
+          <thead><tr><th>Concept</th><th>Kind</th><th>External refs</th><th style="text-align:right;">Facts</th></tr></thead>
+          <tbody>
+            {% for e in elements %}
+              <tr data-concept-row data-kind="{{ e.kind }}">
+                <td>{{ e.label }}</td>
+                <td><span class="kind">{{ e.kind }}</span></td>
+                <td class="small muted">
+                  {%- if e.external_references -%}
+                    {%- for r in e.external_references -%}
+                      <code>{{ r.identifier }}</code>
+                      <span class="hint">{% if r.system %}{{ r.system }} · {% endif %}{{ r.reference_type }}{% if not r.is_join_key %} · {{ r.scope|lower }}-scoped{% endif %}</span>
+                      {%- if not loop.last %}<br>{% endif -%}
+                    {%- endfor -%}
+                  {%- else -%}
+                    —
+                  {%- endif -%}
+                </td>
+                <td style="text-align:right;">
+                  <a href="{{ url_for('review') }}?q={{ e.label }}">{{ e.facts }}</a>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     </div>
-    <table class="table-plain">
-      <thead><tr><th>Concept</th><th>Kind</th><th>External refs</th><th style="text-align:right;">Facts</th></tr></thead>
-      <tbody>
-        {% for e in elements %}
-          <tr>
-            <td>{{ e.label }}</td>
-            <td><span class="kind">{{ e.kind }}</span></td>
-            <td class="small muted">
-              {%- if e.external_references -%}
-                {%- for r in e.external_references -%}
-                  <code>{{ r.identifier }}</code>
-                  <span class="hint">{% if r.system %}{{ r.system }} · {% endif %}{{ r.reference_type }}{% if not r.is_join_key %} · {{ r.scope|lower }}-scoped{% endif %}</span>
-                  {%- if not loop.last %}<br>{% endif -%}
-                {%- endfor -%}
-              {%- else -%}
-                —
-              {%- endif -%}
-            </td>
-            <td style="text-align:right;">
-              <a href="{{ url_for('review') }}?q={{ e.label }}">{{ e.facts }}</a>
-            </td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  </details>
 
   <script>
     (function () {
@@ -206,6 +246,27 @@
         .force('charge', d3.forceManyBody().strength(-460))
         .force('center', d3.forceCenter(width / 2, height / 2))
         .force('collide', d3.forceCollide(40));
+
+      // The container is sized by CSS (viewport-relative), by the drag handle and
+      // by fullscreen, so the viewBox has to follow it. A FIXED viewBox that only
+      // scales would letterbox a taller canvas — the graph would look bigger
+      // without having any more room, which is precisely the complaint this fixes.
+      var frame = null;
+      function resize() {
+        var w = el.clientWidth, h = el.clientHeight;
+        if (!w || !h) { return; }
+        svg.attr('viewBox', [0, 0, w, h]);
+        sim.force('center', d3.forceCenter(w / 2, h / 2));
+        sim.alpha(0.25).restart();
+      }
+      if (window.ResizeObserver) {
+        new ResizeObserver(function () {
+          if (frame) { cancelAnimationFrame(frame); }
+          frame = requestAnimationFrame(resize);
+        }).observe(el);
+      } else {
+        window.addEventListener('resize', resize);
+      }
 
       var link = svg.append('g').attr('class', 'link')
         .selectAll('line').data(links).join('line')
@@ -269,6 +330,87 @@
         legend.append('span')
           .html('<span class="swatch" style="background:#fff;border:1px dashed #94a3b8"></span>unresolved reference (' + unresolved + ')');
       }
+
+      // -- the graph's own real estate ---------------------------------------
+      var card = el.closest('.graph-card');
+
+      var handle = document.getElementById('graph-resize');
+      if (handle) {
+        try {
+          var stored = window.localStorage.getItem('sea.map.graphHeight');
+          if (stored) { el.style.setProperty('--graph-height', stored + 'px'); }
+        } catch (err) { /* private mode: the default height is fine */ }
+        handle.addEventListener('pointerdown', function (down) {
+          down.preventDefault();
+          var startY = down.clientY;
+          var startH = el.getBoundingClientRect().height;
+          try { handle.setPointerCapture(down.pointerId); } catch (err) { /* older browsers */ }
+          function move(e) {
+            el.style.setProperty('--graph-height',
+              Math.max(260, startH + (e.clientY - startY)) + 'px');
+          }
+          function up() {
+            handle.removeEventListener('pointermove', move);
+            handle.removeEventListener('pointerup', up);
+            try {
+              window.localStorage.setItem('sea.map.graphHeight',
+                String(Math.round(el.getBoundingClientRect().height)));
+            } catch (err) { /* not fatal: the height simply will not persist */ }
+          }
+          handle.addEventListener('pointermove', move);
+          handle.addEventListener('pointerup', up);
+        });
+      }
+
+      var full = document.getElementById('graph-full');
+      if (full) {
+        if (card && card.requestFullscreen) {
+          full.addEventListener('click', function () {
+            if (document.fullscreenElement) { document.exitFullscreen(); }
+            else { card.requestFullscreen(); }
+          });
+          document.addEventListener('fullscreenchange', function () {
+            full.textContent = document.fullscreenElement ? 'Exit fullscreen' : 'Fullscreen';
+            requestAnimationFrame(resize);
+          });
+        } else {
+          full.hidden = true;   // no Fullscreen API: hide rather than lie
+        }
+      }
+
+      var relayout = document.getElementById('graph-relayout');
+      if (relayout) {
+        relayout.addEventListener('click', function () {
+          nodes.forEach(function (n) { n.fx = null; n.fy = null; });
+          sim.alpha(1).restart();
+        });
+      }
+
+      // -- the concept table, demoted and filtered ---------------------------
+      var panelSearch = document.getElementById('concept-search');
+      var panelKind = document.getElementById('concept-kind');
+      var panelCount = document.getElementById('concept-count');
+      var conceptRows = Array.prototype.slice.call(document.querySelectorAll('[data-concept-row]'));
+      function applyConceptFilter() {
+        var q = (panelSearch && panelSearch.value || '').trim().toLowerCase();
+        var kind = panelKind && panelKind.value || '';
+        var shown = 0;
+        conceptRows.forEach(function (row) {
+          var ok = (!kind || row.dataset.kind === kind)
+                && (!q || row.textContent.toLowerCase().indexOf(q) !== -1);
+          row.classList.toggle('is-hidden', !ok);
+          if (ok) { shown += 1; }
+        });
+        if (panelCount) { panelCount.textContent = shown + ' of ' + conceptRows.length + ' shown'; }
+      }
+      [panelSearch, panelKind].forEach(function (control) {
+        if (!control) { return; }
+        control.addEventListener('input', applyConceptFilter);
+        control.addEventListener('change', applyConceptFilter);
+      });
+      applyConceptFilter();
+
+      resize();
     })();
   </script>
 {% endif %}

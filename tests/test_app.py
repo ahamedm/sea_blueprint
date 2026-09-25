@@ -97,6 +97,57 @@ def test_the_quality_page_renders_the_states_and_the_merge(tmp_path):
     assert payload["summary"]["states"]["has_quality_scenario"] == 0
     assert "has_quality_scenario" in payload["summary"]["unpopulated_states"]
 
+    # Collapsible + filterable: every concern row carries the keys the client-side
+    # filter reads, and the section is a `<details>` so it can be folded away.
+    assert b'id="census-search"' in page.data
+    assert b'id="census-coverage"' in page.data
+    assert b'id="census-state"' in page.data
+    assert b"data-filter-row" in page.data
+    assert b"data-filter-group" in page.data
+    assert b'<details class="card collapsible" open data-filter-group>' in page.data
+    assert b'data-coverage="answered"' in page.data
+    assert b"table-wrap sm" in page.data
+
+
+def test_the_quality_census_filter_rows_carry_their_states(tmp_path):
+    """The state filter is only as good as the data attribute behind it."""
+    import re
+
+    from app import create_app
+    from tests.conftest import FakeExtractor
+
+    output = {
+        "entities": [
+            {
+                "name": "Uptime",
+                "ontology_class": "NonFunctionalRequirement",
+                "quality_attribute": "Availability",
+            }
+        ],
+        "elements": [
+            {
+                "name": "Gateway",
+                "element_type": "SoftwareSystem",
+                "satisfies_attributes": ["High Availability"],
+            }
+        ],
+    }
+    root = tmp_path / "quality-states"
+    app = create_app(
+        {"TESTING": True, "STORE_ROOT": str(root)},
+        store_root=str(root),
+        extractor_factory=lambda doc_type: FakeExtractor(output),
+    )
+    app.test_client().post("/ingest", data={"text": "quality body", "type": "requirements"})
+
+    html = app.test_client().get("/quality").data.decode()
+    row = re.search(r"<tr data-filter-row[^>]*>", html).group(0)
+    assert 'data-coverage="answered"' in row
+    assert "stated_in_requirements" in row
+    assert "delivered_by_architecture" in row
+    # The state names are space-delimited so a substring cannot match by accident.
+    assert 'data-states="stated_in_requirements delivered_by_architecture "' in row
+
 
 def test_the_map_quality_filter_is_a_url_not_a_script(client):
     """The filter has to survive a reload and a shared link, and an unknown value
@@ -149,6 +200,45 @@ def test_map_page_draws_a_requirements_graph(client):
     assert response.status_code == 200
     assert b"Payment Acceptance" in response.data
     assert b"Nothing to draw" not in response.data
+
+
+def test_map_graph_gets_the_real_estate_and_the_table_is_demoted(client, load_working):
+    """The graph is the page; the browse table is a collapsed, filtered panel.
+
+    A fixed 560px canvas wasted a large monitor, and a 200-row table underneath
+    pushed everything else off the screen. The controls are asserted here because
+    they are what makes the taller canvas usable rather than merely taller.
+    """
+    client.post("/ingest", data={"text": "architecture body", "type": "architecture"})
+
+    html = client.get("/map?lens=all").data
+    assert b'id="graph-resize"' in html, "no drag handle to claim more height"
+    assert b'id="graph-full"' in html, "no fullscreen control"
+    assert b'id="graph-relayout"' in html
+    # `<details>` with no `open` attribute: collapsed by default, so the graph
+    # owns the first screen. The marker is HTML, not CSS, and `hidden` would have
+    # been invisible to in-page search.
+    assert b'<details class="card collapsible" id="concepts-panel">' in html
+    assert b"<details class=\"card collapsible\" id=\"concepts-panel\" open>" not in html
+    assert b'id="concept-search"' in html
+    assert b'id="concept-kind"' in html
+    assert b"data-concept-row" in html
+    assert b"Payment Orchestrator" in html, "the panel still carries the concepts"
+
+
+def test_the_map_table_reports_the_total_when_it_truncates(client, load_working, monkeypatch):
+    """A filter over a silently truncated list answers "no match" for a concept
+    that exists, so the page has to say what it is not showing."""
+    import app as app_module
+
+    monkeypatch.setattr(app_module, "MAP_CONCEPT_ROWS", 2)
+    client.post("/ingest", data={"text": "architecture body", "type": "architecture"})
+
+    html = client.get("/map").data
+    assert b"most-referenced of" in html
+    # `<tr data-concept-row`, not the bare attribute: the filter script names the
+    # selector too, and counting that would make the cap look one row larger.
+    assert html.count(b"<tr data-concept-row") == 2, "the cap is what the hint reports"
 
 
 def test_gap_report_page_shows_unresolved_references(seeded_client):

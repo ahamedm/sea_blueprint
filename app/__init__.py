@@ -95,6 +95,12 @@ from core.ontology import (
 DEFAULT_STORE_ROOT = "data/sea"
 MAX_UPLOAD_BYTES = 4 * 1024 * 1024
 
+# How many concepts the map's browse table renders. High enough that it is not a
+# filter in disguise, low enough that one page cannot grow without bound; the
+# template reports the remainder when it bites. Server-side filtering is the next
+# step if a graph ever exceeds this.
+MAP_CONCEPT_ROWS = 2000
+
 
 # ============================================================================
 # Extraction strategy — injectable so the app is testable without an LLM
@@ -472,10 +478,16 @@ def create_app(
     def map_view():
         snapshot = state()
         lens = request.args.get("lens", DEFAULT_LENS)
+        # The concept table is collapsed, scrollable and filterable, which is what
+        # makes a long list usable — so the cap is high and, when it bites, the
+        # page says how many rows it is not showing. A filter over a silently
+        # truncated list answers "no match" for a concept that exists.
+        index = project_node_index(snapshot.graph)
         return render_template(
             "map.html",
             view=merged_view(snapshot.graph, lens, request.args.get("concern", "")),
-            elements=project_node_index(snapshot.graph)[:200],
+            elements=index[:MAP_CONCEPT_ROWS],
+            element_total=len(index),
             gaps=project_gap_report(snapshot.graph),
         )
 
