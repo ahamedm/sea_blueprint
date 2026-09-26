@@ -289,3 +289,42 @@ def summarise(outcomes: Sequence[PassOutcome], chunks: int, passes: int) -> Pass
             if o.path == "text":
                 s.text_fallbacks += 1
     return s
+
+
+def outcome_records(outcomes: Sequence[PassOutcome]) -> List[Any]:
+    """One `PassRecord` per pass attempt, so a run can report its own completeness.
+
+    `summarise` gives a profile the aggregate counts; this gives it the records
+    those counts were made of. A profile that emits only the counts leaves ingest
+    to reconstruct `pass_name="(unspecified)"` entries, which is how the
+    architecture profile lost the identity of every pass it ran — ADR-0013's
+    "the run describes itself", applied to the profile that was written before
+    it. The outcome already carries the name, chunk, path, timing and error; this
+    only maps it to the record the graph stores.
+    """
+    from core.knowledge.model import PassRecord  # local: keeps agents off core's import path
+
+    records: List[PassRecord] = []
+    for o in outcomes:
+        if o.error:
+            state = "failed"
+        elif o.empty or o.result is None:
+            state = "empty"
+        else:
+            state = "ok"
+        triples = 0
+        if o.result is not None:
+            triples = len(getattr(o.result, "triples", []) or [])
+        records.append(
+            PassRecord(
+                pass_name=o.pass_name,
+                chunk_label=o.chunk.label,
+                outcome=state,
+                path=o.path,
+                elapsed=round(o.elapsed, 1),
+                error=(o.error or "")[:200],
+                triples_produced=triples,
+                temperature=o.temperature,
+            )
+        )
+    return records

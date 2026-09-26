@@ -25,6 +25,8 @@ import yaml
 
 import pytest
 
+from agents.architecture_extraction.agent import ArchitectureExtractionAgent
+from agents.architecture_extraction.passes import ElementRecord, StructurePassResult
 from agents.base_agent import AgentConfig, console
 from agents.knowledge_extraction.agent import (
     ExtractedEntity,
@@ -332,3 +334,82 @@ def test_a_bare_metadata_envelope_is_still_unknown():
     """Backward compatibility, stated as an expectation rather than assumed: the
     saved fixture predates this and will keep reading UNKNOWN until it is re-run."""
     assert _run({"document_type": "requirements"}) .completeness == RUN_UNKNOWN
+
+
+# ============================================================================
+# 5. The architecture profile — the last one reconstructing `(unspecified)`
+# ============================================================================
+
+
+def _architecture_agent(handler):
+    """A real architecture agent with only the model seam replaced.
+
+    The requirements profile above makes one structured attempt; this one runs
+    four passes over every chunk. It emitted the aggregate counters but none of
+    the records, so ingest reconstructed every attempt as
+    `pass_name="(unspecified)"` with `triples_produced=0` — a run that could not
+    say which pass lost content, or which model produced it.
+    """
+    agent = ArchitectureExtractionAgent(AgentConfig(
+        name="Architecture Extraction Agent",
+        description="test",
+        model_provider="openai_compatible",
+        model_id="arch-test-model",
+        base_url="http://127.0.0.1:9/v1",
+        api_key="stub",
+        ontology_path="ontology/architecture_base.yaml",
+        ontology_dir="ontology",
+    ))
+    agent.invoke_structured = handler          # the seam, replaced
+    agent.invoke = lambda prompt: ""           # no text fallback in tests
+    return agent
+
+
+def _arch_handler(prompt, schema):
+    """Answer the structure pass; return a valid empty answer for the other three.
+
+    An empty result is a legitimate pass outcome, not a failure, so this stubs the
+    seam without pretending the run produced more than it did.
+    """
+    if schema is StructurePassResult:
+        return StructurePassResult(
+            elements=[ElementRecord(name="Payment Gateway Platform",
+                                    element_type="SoftwareSystem")],
+            triples=[ExtractedTriple(subject="Payment Orchestrator", predicate="part_of",
+                                     object="Payment Gateway Platform", confidence=0.9)],
+        )
+    return schema()
+
+
+def test_the_architecture_metadata_carries_the_model_and_its_real_passes():
+    result = _architecture_agent(_arch_handler).run(
+        {"document": "The platform contains a Payment Orchestrator.",
+         "document_type": "architecture"}
+    )
+
+    assert result.success
+    meta = result.metadata
+    assert meta["model_id"] == "arch-test-model"
+    # The defect: this key did not exist, so no consumer could read a real pass.
+    assert meta["model_calls"] == len(meta["passes"])
+    assert {p["pass_name"] for p in meta["passes"]} == {
+        "structure", "connections", "technology", "traceability"
+    }
+    assert all(p["chunk_label"] for p in meta["passes"])
+    assert any(p["triples_produced"] >= 1 for p in meta["passes"])
+
+
+def test_the_architecture_run_no_longer_ingests_as_unspecified():
+    """The reader that matters: the real pass names survive into the stored run."""
+    result = _architecture_agent(_arch_handler).run(
+        {"document": "The platform contains a Payment Orchestrator.",
+         "document_type": "architecture"}
+    )
+    records = _passes_from_metadata(result.metadata)
+
+    assert records
+    assert all(r.pass_name != "(unspecified)" for r in records)
+    assert {r.pass_name for r in records} == {
+        "structure", "connections", "technology", "traceability"
+    }
+    assert sum(r.triples_produced for r in records) == 1

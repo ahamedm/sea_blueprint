@@ -303,11 +303,21 @@ Rules:
    **ExternalSystem**. Infrastructure (OpenShift, data centre, cluster) is a
    **DeploymentNode** with no C4 level.
 4. Set `parent` for every contained element, AND emit the matching
-   `<contained> --part_of--> <parent>` triple. Both are required.
+   `<contained> --part_of--> <parent>` triple. Both are required. If this
+   excerpt does not say where a Container, Component or DataStore sits, attach
+   it to the system under design — never leave `parent` empty, because a
+   contained element with no parent cannot be placed in the hierarchy.
 5. Capture `responsibilities` — what each element is accountable for — where the
    document states them.
 6. Several SoftwareSystems is expected: the system under design plus the
    enterprise platforms it depends on. Classify each with `system_class`.
+7. An architectural STYLE or pattern the document names (microservices, layered,
+   event-driven, hexagonal, modular monolith, SOA) is NOT an element — do not
+   emit it here. A named technology, framework, tool or platform is a
+   TechnologyStack, also not an element.
+8. Use the concrete name the document gives (PostgreSQL, Valkey, OpenShift).
+   Never emit a bare category word — "Database", "Cache", "Services",
+   "Microservices" — as an element when the document names the specific thing.
 
 Name concepts; never emit a sentence as an element name. Do not invent elements
 the excerpt does not describe.""",

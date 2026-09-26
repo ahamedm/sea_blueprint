@@ -52,7 +52,7 @@ from ..extraction import (
     merge_triples,
     named_key,
 )
-from ..extraction.passes import Chunk, collect, run_passes, summarise
+from ..extraction.passes import Chunk, collect, outcome_records, run_passes, summarise
 from .passes import design_passes
 from .validators import (
     check_grounded_elements,
@@ -322,34 +322,11 @@ class DesignAssistantAgent(ArchitectureExtractionAgent):
     def _outcome_records(outcomes) -> List[Any]:
         """One `PassRecord` per pass attempt, so the run can report its own completeness.
 
-        The architecture profile reconstructs `pass_name="(unspecified)"` for these;
-        the Design Assistant has the real outcomes in hand and records them. This is
-        what ADR-0013 asked for, applied to the profile that was written after it.
+        Shared with the architecture profile, which now records its real passes
+        too rather than leaving ingest to reconstruct `(unspecified)` entries.
+        This is what ADR-0013 asked for, applied to every profile that runs passes.
         """
-        from core.knowledge.model import PassRecord
-
-        records: List[PassRecord] = []
-        for outcome in outcomes:
-            if outcome.error:
-                state = "failed"
-            elif outcome.empty or outcome.result is None:
-                state = "empty"
-            else:
-                state = "ok"
-            triples = 0
-            if outcome.result is not None:
-                triples = len(getattr(outcome.result, "triples", []) or [])
-            records.append(PassRecord(
-                pass_name=outcome.pass_name,
-                chunk_label=outcome.chunk.label,
-                outcome=state,
-                path=outcome.path,
-                elapsed=round(outcome.elapsed, 1),
-                error=(outcome.error or "")[:200],
-                triples_produced=triples,
-                temperature=outcome.temperature,
-            ))
-        return records
+        return outcome_records(outcomes)
 
 
 def create_design_assistant_agent() -> DesignAssistantAgent:

@@ -43,7 +43,8 @@ from ..extraction import (
     check_enum_membership,
     check_object_contract,
 )
-from ..extraction.passes import collect, run_passes, summarise
+from ..extraction.passes import collect, outcome_records, run_passes, summarise
+from .repair import merge_style_elements, repair_containment, style_as_element
 from .passes import (
     ARCHITECTURE_PASSES,
     ElementRecord,
@@ -154,6 +155,10 @@ class ArchitectureExtractionAgent(KnowledgeExtractionAgent):
             outcomes = run_passes(self, ARCHITECTURE_PASSES, chunks, shared,
                                   log=self.log)
             summary = summarise(outcomes, len(chunks), len(ARCHITECTURE_PASSES))
+            # The real per-attempt records, not just the totals below. Without
+            # them ingest reconstructs `pass_name="(unspecified)"` and the run
+            # cannot say which pass lost content.
+            pass_records = outcome_records(outcomes)
             self.log(summary.describe(len(chunks), len(ARCHITECTURE_PASSES)),
                      level="success" if summary.failed == 0 else "warning")
 
@@ -188,13 +193,32 @@ class ArchitectureExtractionAgent(KnowledgeExtractionAgent):
                 f"{len(conventions)} conventions, {len(references)} references"
             )
 
+            # ---- 3b. repair structure across chunk boundaries ----
+            # A pass sees one chunk, so a container named in another chunk cannot be
+            # attached by the model. Repaired here, where the whole document is in
+            # view, and recorded as findings rather than silently rewritten.
+            #
+            # The style merge runs first: an element that should not exist at all is
+            # folded into the system before the containment repair decides what is
+            # unplaced, so its edges are re-pointed once.
+            elements, styles, triples, style_flags = merge_style_elements(
+                elements, styles, triples)
+            if style_flags:
+                self.log(f"  {len(style_flags)} architectural style(s) merged into "
+                         f"the system under design", level="warning")
+            elements, triples, repair_flags = repair_containment(elements, triples)
+            if repair_flags:
+                self.log(f"  {len(repair_flags)} unplaced element(s) attached to the "
+                         f"system under design", level="warning")
+
             # ---- 4. validate (Option B) ----
-            flags = []
+            flags = list(style_flags) + list(repair_flags)
             flags += check_object_contract(triples)
             flags += check_containment(elements, triples)
             flags += check_element_types(elements)
             flags += check_deployment_levels(elements)
             flags += check_enum_membership(elements)
+            flags += style_as_element(elements)
             flag_dicts = [f.to_dict() for f in flags]
             if flag_dicts:
                 self.log(f"  {len(flag_dicts)} findings flagged for review",
@@ -240,12 +264,18 @@ class ArchitectureExtractionAgent(KnowledgeExtractionAgent):
                     "extraction_path": "passes",
                     "document_chars": len(document),
                     "chunks": len(chunks),
+                    # Completeness input. Without the model and the per-attempt
+                    # records, this run cannot say what produced it or which pass
+                    # lost content — ingest falls back to `(unspecified)` records
+                    # reconstructed from the counters.
+                    "model_id": self.config.model_id,
                     "model_calls": summary.total_calls,
                     "text_fallback_calls": summary.text_fallbacks,
                     "failed_calls": summary.failed,
                     "empty_calls": summary.empty,
                     "elapsed_seconds": round(summary.elapsed, 1),
                     "findings": len(flag_dicts),
+                    "passes": [self._pass_record_dict(r) for r in pass_records],
                     # What the run cost. A hosted endpoint bills per token, and this
                     # is the profile that makes the most calls — four passes over
                     # every chunk — so it is the one whose usage matters most.

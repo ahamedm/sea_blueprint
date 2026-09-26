@@ -138,6 +138,21 @@ def inv_no_tech_leak(res, out):
     return _ok(not leaked, f"{len(leaked)} used-not-run items became elements: {leaked or 'none'}")
 
 
+def inv_no_style_as_element(res, out):
+    """An architectural style is not an element — it is an ArchitectureStyle.
+
+    Reads `ArchitectureStyleName` from the ontology rather than a hardcoded list,
+    the same way the agent's own validator does. A style emitted as a Container
+    collects technology and technique edges that describe no deployable thing,
+    and it is the one containment defect the parent-repair does NOT fix: the
+    element gets placed, but it should not have been an element at all.
+    """
+    from agents.architecture_extraction.repair import style_as_element
+
+    flagged = [f.subject for f in style_as_element(out.get("elements") or [])]
+    return _ok(not flagged, f"styles emitted as elements: {flagged or 'none'}")
+
+
 def inv_software_systems_classified(res, out):
     """Several SoftwareSystems is correct; UNCLASSIFIED ones are the finding.
 
@@ -409,7 +424,8 @@ CASES: List[Dict[str, Any]] = [
             "Settlement Job Orchestrator",
         ],
         "invariants": [inv_success, inv_triples_present, inv_elements_present,
-                       inv_no_tech_leak, inv_containment_present, inv_part_of_edges,
+                       inv_no_tech_leak, inv_no_style_as_element,
+                       inv_containment_present, inv_part_of_edges,
                        inv_valid_element_types, inv_deployment_nodes_unlevelled,
                        inv_responsibilities_populated, inv_software_systems_classified,
                        inv_datastores_typed, inv_technology_captured,
