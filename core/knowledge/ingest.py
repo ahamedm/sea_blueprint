@@ -344,6 +344,10 @@ def graph_from_extraction(
         completed_at=utc_now(),
         chunk_count=int(metadata.get("chunks") or 1),
         passes=list(pass_records or _passes_from_metadata(metadata)),
+        # Token usage, when the profile reported it. Absent is recorded as absent
+        # rather than as zero — a run predating this, or one whose provider
+        # returned no usage, is not a free run.
+        usage=_usage_from_metadata(metadata),
     )
     run.completeness = run.compute_completeness()
     graph.runs[run.id] = run
@@ -769,11 +773,28 @@ def _enum_values(value: Any) -> List[str]:
     — keep it and let a validator report it, rather than drop it here. Whether a
     part is a real enum member is `check_enum_membership`'s question, not this
     function's; this one only refuses to let a LIST hide behind a scalar.
+
+    A value with no separator comes back as the single element it always was, so
+    the sixteen technique nodes that were already clean are untouched — and a
+    value that legitimately contains a comma is not a case this field has.
     """
     text = str(value or "").strip()
     if not text:
         return []
     return [part.strip() for part in text.split(",") if part.strip()]
+
+
+def _usage_from_metadata(metadata: Dict[str, Any]) -> Dict[str, Any]:
+    """Token usage as the profile reported it, or empty.
+
+    Passed through rather than normalised: the keys are the profile's, the numbers
+    are the provider's, and a layer between them that invented a shape would be
+    the place a wrong total goes unnoticed. Empty means NOT RECORDED.
+    """
+    raw = metadata.get("usage")
+    if not isinstance(raw, dict) or not raw:
+        return {}
+    return {str(k): v for k, v in raw.items()}
 
 
 def _passes_from_metadata(metadata: Dict[str, Any]) -> List[PassRecord]:

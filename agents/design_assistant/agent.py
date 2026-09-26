@@ -262,6 +262,9 @@ class DesignAssistantAgent(ArchitectureExtractionAgent):
                     "design_base": digest.base_ref,
                     "design_caveats": list(digest.caveats),
                     "pattern_catalogue": catalogue.path,
+                    # What the run cost. A hosted endpoint bills per token, and
+                    # the run that cannot say what it consumed cannot be budgeted.
+                    "usage": self.usage_totals(),
                 },
             )
 

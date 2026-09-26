@@ -246,6 +246,10 @@ class ArchitectureExtractionAgent(KnowledgeExtractionAgent):
                     "empty_calls": summary.empty,
                     "elapsed_seconds": round(summary.elapsed, 1),
                     "findings": len(flag_dicts),
+                    # What the run cost. A hosted endpoint bills per token, and this
+                    # is the profile that makes the most calls — four passes over
+                    # every chunk — so it is the one whose usage matters most.
+                    "usage": self.usage_totals(),
                 },
             )
 

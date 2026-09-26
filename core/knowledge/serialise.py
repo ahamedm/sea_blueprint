@@ -150,6 +150,7 @@ def run_to_dict(r: ExtractionRun) -> Dict[str, Any]:
         "completed_at": r.completed_at,
         "chunk_count": r.chunk_count,
         "passes": [pass_record_to_dict(p) for p in r.passes],
+        "usage": dict(r.usage or {}),
         "completeness": r.completeness,
     }
 
@@ -167,6 +168,7 @@ def run_from_dict(data: Dict[str, Any]) -> ExtractionRun:
         completed_at=data.get("completed_at") or "",
         chunk_count=int(data.get("chunk_count") or 0),
         passes=[pass_record_from_dict(p) for p in (data.get("passes") or [])],
+        usage=dict(data.get("usage") or {}),
         completeness=data.get("completeness") or "UNKNOWN",
     )
 

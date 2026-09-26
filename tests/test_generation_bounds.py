@@ -98,7 +98,10 @@ def test_the_per_agent_config_declares_generation_bounds():
     """The source values exist, and are not the server's defaults."""
     config = get_default_agent_config("design_assistant")
     assert config["temperature"] == 0.3
-    assert config["max_tokens"] == 8192
+    # 16384, not 8192: a hosted model's non-thinking default is 8K too, and an
+    # architecture structure pass over a real document can exceed it. A truncated
+    # structured call is a failed one.
+    assert config["max_tokens"] == 16384
 
 
 def test_those_bounds_survive_into_agent_config():
@@ -106,7 +109,7 @@ def test_those_bounds_survive_into_agent_config():
     and nothing failed — the bound was believed to be in force and was not."""
     config = AgentConfig(**get_default_agent_config("design_assistant"))
     assert config.temperature == 0.3
-    assert config.max_tokens == 8192
+    assert config.max_tokens == 16384
 
 
 def test_they_are_sent_to_the_model():

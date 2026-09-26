@@ -7,6 +7,7 @@ Integrates Strands Agents SDK with SEA-specific capabilities.
 Strands SDK Reference: https://strandsagents.com/llms.txt
 """
 
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 from pathlib import Path
 import contextlib
@@ -27,6 +28,93 @@ from core.ontology import (
     relationship_predicates,
     visible_layer_keys,
 )
+
+@dataclass
+class UsageTotals:
+    """Tokens consumed by every model call this agent has made.
+
+    **Why not the provider's bill.** A provider reports usage per REQUEST, and a
+    profile makes many — six passes for a design, four per chunk for an
+    architecture document — so the number a caller wants is the run's, not the
+    call's. Accumulating here also means the figure survives a pass whose result
+    was discarded, which is exactly the case worth knowing about: work that was
+    paid for and thrown away.
+
+    `estimated_cost` is derived from configured prices rather than a built-in
+    table, because a price table in source is wrong within weeks, and silently
+    wrong is worse than absent.
+    """
+
+    calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+
+    def add(self, usage: Any) -> None:
+        """Fold one request's `Usage` in. Tolerates a provider that reports none."""
+        if not usage:
+            return
+        self.calls += 1
+        # The Strands `Usage` uses camelCase keys; a provider that returns nothing
+        # yields zeros, which is recorded rather than skipped — "we asked and got
+        # nothing" and "we never asked" are different facts.
+        self.input_tokens += int(_usage_get(usage, "inputTokens") or 0)
+        self.output_tokens += int(_usage_get(usage, "outputTokens") or 0)
+        self.total_tokens += int(_usage_get(usage, "totalTokens") or 0)
+        self.cache_read_tokens += int(_usage_get(usage, "cacheReadInputTokens") or 0)
+        self.cache_write_tokens += int(_usage_get(usage, "cacheWriteInputTokens") or 0)
+
+    def to_dict(
+        self,
+        input_price_per_mtok: Optional[float] = None,
+        output_price_per_mtok: Optional[float] = None,
+        cache_read_price_per_mtok: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        out: Dict[str, Any] = {
+            "calls": self.calls,
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "total_tokens": self.total_tokens,
+            "cache_read_tokens": self.cache_read_tokens,
+            "cache_write_tokens": self.cache_write_tokens,
+        }
+        # Cache reads are billed below the input rate — on DeepSeek, by a factor of
+        # about thirty. Charging them at the full rate would overstate a bill that
+        # a repeated prompt prefix makes smaller, so when a cache price is given it
+        # is used; when it is not, the fallback is stated in the output rather than
+        # left for someone to discover from their invoice.
+        if input_price_per_mtok is not None and output_price_per_mtok is not None:
+            cache_price = (
+                cache_read_price_per_mtok
+                if cache_read_price_per_mtok is not None
+                else input_price_per_mtok
+            )
+            billable_input = max(0, self.input_tokens - self.cache_read_tokens)
+            out["estimated_cost"] = round(
+                billable_input / 1_000_000 * input_price_per_mtok
+                + self.cache_read_tokens / 1_000_000 * cache_price
+                + self.output_tokens / 1_000_000 * output_price_per_mtok,
+                6,
+            )
+            out["price_input_per_mtok"] = input_price_per_mtok
+            out["price_output_per_mtok"] = output_price_per_mtok
+            if cache_read_price_per_mtok is not None:
+                out["price_cache_read_per_mtok"] = cache_read_price_per_mtok
+            elif self.cache_read_tokens:
+                out["cost_basis"] = (
+                    "cache reads charged at the input rate — no cache price configured"
+                )
+        return out
+
+
+def _usage_get(usage: Any, key: str) -> Any:
+    """Read one field off a `Usage`, which is a TypedDict in this SDK version."""
+    if isinstance(usage, dict):
+        return usage.get(key)
+    return getattr(usage, key, 0)
+
 
 console = Console()
 
@@ -143,6 +231,39 @@ class AgentConfig(BaseModel):
             "Ceiling on tokens generated per call. This is the bound that makes a "
             "degenerate generation terminate — the turn cap cannot, because a model "
             "looping inside one generation never advances a turn."
+        ),
+    )
+    request_max_retries: int = Field(
+        default=3,
+        ge=0,
+        le=10,
+        description=(
+            "Transport-level retries for a failing HTTP request. The OpenAI SDK "
+            "already retries twice on 429 and 5xx; this is for a hosted endpoint "
+            "where a rate limit or a blip would otherwise cost a whole pass. Set "
+            "to 0 to disable."
+        ),
+    )
+    price_input_per_mtok: Optional[float] = Field(
+        default=None,
+        description=(
+            "What the provider charges per million input tokens, for the run's "
+            "estimated cost. Deliberately not a table in source: a hard-coded "
+            "price is wrong within weeks, and silently wrong is worse than absent."
+        ),
+    )
+    price_output_per_mtok: Optional[float] = Field(
+        default=None,
+        description="What the provider charges per million output tokens.",
+    )
+    price_cache_read_per_mtok: Optional[float] = Field(
+        default=None,
+        description=(
+            "What the provider charges per million CACHED input tokens. Usually a "
+            "fraction of the input rate, and worth setting: these profiles repeat "
+            "the ontology context in every pass, which is exactly what a provider's "
+            "prompt cache is for, so charging cached tokens at the full input rate "
+            "would overstate the bill."
         ),
     )
     extra_params: Dict[str, Any] = Field(
@@ -309,6 +430,7 @@ class SEABaseAgent:
         self.log(
             f"  sampling: {params or '[SERVER DEFAULTS — generation is unbounded]'}"
         )
+        self.log(f"  request retries: {self.config.request_max_retries}")
         
         if provider == "openai_compatible":
             # Local inference servers (llama.cpp, unsloth, vLLM, Ollama, etc.)
@@ -324,6 +446,9 @@ class SEABaseAgent:
                     # Transport-level timeout: the only way to bound a single
                     # long generation. cancel_signal only fires between turns.
                     "timeout": self.config.request_timeout_seconds,
+                    # A hosted endpoint rate-limits; the SDK default of 2 is thin
+                    # for a run that makes a dozen paid calls.
+                    "max_retries": self.config.request_max_retries,
                 },
                 model_id=self.config.model_id,
                 # `params` is spread into the request body verbatim, which is the
@@ -335,7 +460,11 @@ class SEABaseAgent:
         
         elif provider == "openai":
             from strands.models.openai import OpenAIModel
-            model = OpenAIModel(model_id=self.config.model_id, params=params)
+            model = OpenAIModel(
+                client_args={"max_retries": self.config.request_max_retries},
+                model_id=self.config.model_id,
+                params=params,
+            )
             self.log("  ✓ OpenAI model created", level="success")
             return model
         
@@ -347,6 +476,7 @@ class SEABaseAgent:
                 client_args={
                     "base_url": base_url,
                     "api_key": self.config.api_key or "ollama",
+                    "max_retries": self.config.request_max_retries,
                 },
                 model_id=self.config.model_id,
                 params=params,
@@ -719,6 +849,7 @@ class SEABaseAgent:
         Returns:
             Strands AgentResult object
         """
+        self._reset_conversation()
         limits: Dict[str, Any] = {"turns": self.config.max_structured_turns}
         if self.config.max_structured_tokens:
             limits["total_tokens"] = self.config.max_structured_tokens
@@ -735,15 +866,105 @@ class SEABaseAgent:
 
         try:
             if structured_output_model:
-                return self.agent(
+                result = self.agent(
                     prompt,
                     structured_output_model=structured_output_model,
                     limits=limits,
                     cancel_signal=cancel_signal,
                 )
-            return self.agent(prompt, limits=limits, cancel_signal=cancel_signal)
+            else:
+                result = self.agent(prompt, limits=limits, cancel_signal=cancel_signal)
         finally:
             timer.cancel()
+        self._record_usage(result)
+        return result
+
+    def _reset_conversation(self) -> None:
+        """Drop the Strands agent's message history before an independent call.
+
+        THE AGENT IS LONG-LIVED AND ITS HISTORY IS NOT. One Strands `Agent` is built
+        per SEA agent and reused for every pass and every chunk, and the SDK appends
+        each exchange to `agent.messages` — which is then re-sent on the next call.
+        Measured: `messages` grows 3 -> 6 -> 9 across three calls, and on a real
+        twelve-call architecture run that turned into roughly 2 million input tokens
+        where the prompts themselves account for a fraction of it. The growth is
+        quadratic in the number of passes.
+
+        It is a correctness problem before it is a cost problem. Every call this
+        class makes is an INDEPENDENT request — one pass over one chunk, or one
+        design pass — so carrying the previous pass's question and answer into the
+        next one shows the model its own earlier output as context. The connections
+        pass should not be reading the structure pass's transcript.
+
+        Retries WITHIN a call are untouched: those turns are appended by the SDK
+        during the call, after this reset, which is exactly where a schema-retry
+        loop needs them.
+        """
+        messages = getattr(self.agent, "messages", None)
+        if isinstance(messages, list):
+            messages.clear()
+
+    @property
+    def _usage(self) -> UsageTotals:
+        """The running token total, created on first use.
+
+        Lazy on purpose. Agents are built by `__init__` in production and by
+        `__new__` in the unit tests that deliberately do not construct a model, so
+        an accumulator that must be set up in one specific place is one that three
+        test helpers have to know about — and the fourth would forget.
+        """
+        totals = self.__dict__.get("_usage_totals")
+        if totals is None:
+            totals = UsageTotals()
+            self.__dict__["_usage_totals"] = totals
+        return totals
+
+    def usage_totals(self) -> Dict[str, Any]:
+        """This agent's token usage, with a cost when prices are configured.
+
+        A fresh agent is built per run by every entry point — the ingest route, the
+        design route, the CLI — so the totals are the run's. Nothing resets them
+        mid-run, deliberately: a pass that failed after spending tokens still spent
+        them, and excluding it would make the figure optimistic.
+        """
+        return self._usage.to_dict(
+            input_price_per_mtok=self.config.price_input_per_mtok,
+            output_price_per_mtok=self.config.price_output_per_mtok,
+            cache_read_price_per_mtok=self.config.price_cache_read_per_mtok,
+        )
+
+    def _record_usage(self, result: Any) -> None:
+        """Fold one call's token usage into the running total.
+
+        PER INVOCATION, NOT `accumulated_usage`. That field is documented as
+        "accumulated across all model invocations (across all requests)" and the
+        SDK's `reset_usage_metrics` only APPENDS a new invocation — it never zeroes
+        the lifetime total. Reading it per call therefore sums a running total, and
+        a twelve-call architecture run reported 2,042,992 input tokens against a
+        true figure near 314,000: an overstatement of more than six times, on the
+        number someone would use to decide whether a run is affordable.
+
+        `latest_agent_invocation().usage` is this call's own total across however
+        many internal cycles it took, including any schema-retry turns — which is
+        what "one call" should mean for costing.
+
+        Called on the plain path too, not only the structured one: the text
+        fallback is a full generation and costs the same as any other call.
+        """
+        metrics = getattr(result, "metrics", None)
+        if metrics is None:
+            return
+        # `latest_agent_invocation` is a PROPERTY on EventLoopMetrics, not a method.
+        # Guarding it with `callable()` reads as defensive and is not: it silently
+        # took the fallback branch on every call, which is how the cumulative-total
+        # bug survived its own fix.
+        invocation = getattr(metrics, "latest_agent_invocation", None)
+        if callable(invocation):                 # tolerate a method in another SDK
+            invocation = invocation()
+        usage = getattr(invocation, "usage", None) if invocation is not None else None
+        # Fall back to the lifetime figure only when there is no invocation to read,
+        # which means an SDK shape change rather than a normal call.
+        self._usage.add(usage or getattr(metrics, "accumulated_usage", None))
     
     def invoke_structured(self, prompt: str, model_cls):
         """
@@ -769,6 +990,7 @@ class SEABaseAgent:
             The validated instance (`AgentResult.structured_output`), or None if
             the model failed to satisfy the schema within budget.
         """
+        self._reset_conversation()
         limits = {"turns": self.config.max_structured_turns}
         if self.config.max_structured_tokens:
             limits["total_tokens"] = self.config.max_structured_tokens
@@ -811,7 +1033,12 @@ class SEABaseAgent:
             return None
         finally:
             timer.cancel()
-        
+
+        # Recorded before the stop_reason checks: a call that hit the turn cap or
+        # the wall-clock budget still consumed tokens, and those are exactly the
+        # calls worth accounting for.
+        self._record_usage(result)
+
         stop_reason = getattr(result, "stop_reason", None)
         
         if stop_reason == "cancelled":

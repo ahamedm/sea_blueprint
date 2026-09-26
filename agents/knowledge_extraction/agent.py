@@ -10,6 +10,13 @@ Uses Strands structured output for type-safe, validated extraction results.
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field, field_validator
 from ..base_agent import SEABaseAgent, AgentConfig, AgentResult
+from ..extraction import (
+    chunk_document,
+    completeness,
+    merge_records,
+    merge_triples,
+    summarise_chunks,
+)
 from ..extraction.quality import enrich_entities
 from core.knowledge.model import PassRecord
 
@@ -273,6 +280,42 @@ class ExtractionResult(BaseModel):
 # Agent Implementation
 # ============================================================================
 
+
+def _entity_key(record: Any) -> tuple:
+    """Identity of an entity across chunks: its name within its own class.
+
+    The class is part of the key on purpose. Two chunks can name the same string
+    as different things, and collapsing them here would decide a conflict that
+    ingest reports as a finding instead.
+    """
+    return (
+        str(record.get("name") or "").strip().lower(),
+        str(record.get("ontology_class") or "").strip(),
+    )
+
+
+def _relationship_key(record: Any) -> tuple:
+    """Identity of a relationship across chunks: source, predicate, target."""
+    return (
+        str(record.get("source") or "").strip().lower(),
+        str(record.get("predicate") or "").strip().lower(),
+        str(record.get("target") or "").strip().lower(),
+    )
+
+
+def _as_records(record_cls: Any, items: Any) -> List[Any]:
+    """Rebuild typed records from the dicts `merge_records`/`merge_triples` return.
+
+    The merge layer works in dicts so it can be shared between profiles; the rest of
+    this module works in pydantic records, because the deterministic classifiers and
+    the output envelope both expect attributes rather than keys.
+    """
+    out: List[Any] = []
+    for item in items or []:
+        out.append(item if isinstance(item, record_cls) else record_cls(**item))
+    return out
+
+
 class KnowledgeExtractionAgent(SEABaseAgent):
     """
     Agent for extracting structured knowledge from unstructured documents.
@@ -378,53 +421,74 @@ class KnowledgeExtractionAgent(SEABaseAgent):
                 )
             
             self.log(f"Extracting knowledge from {document_type} document...")
-            
-            extraction_prompt = self._build_extraction_prompt(document, document_type, domain)
-            
+
+            # ---- 1. chunk ----
+            #
+            # THIS PROFILE USED TO BE ONE CALL. The architecture profile has always
+            # chunked and merged; this one sent the whole document and asked for
+            # every collection back in one response. That was survivable while the
+            # corpus was samples, and is the wrong shape for a real PRD: the output
+            # budget is the document's, one dropped collection cannot be recovered,
+            # and a truncated response is a failed run rather than a partial one.
+            #
+            # A document that fits one chunk takes EXACTLY the old path — the same
+            # prompt, no merge, no conversion — so nothing about small-document
+            # behaviour moves. Only a document that does not fit is chunked.
+            max_chars = int(input_data.get("chunk_max_chars", 7000))
+            chunks = chunk_document(document, max_chars=max_chars)
+            if len(chunks) > 1:
+                self.log(f"Document: {len(document):,} chars — {summarise_chunks(chunks)}")
+
             use_structured = self.config.use_structured_output and not force_text
             path = "text_parsing"
-            triples: List[ExtractedTriple] = []
-            entities: List[ExtractedEntity] = []
-            relationships: List[ExtractedRelationship] = []
             structured_obj = None
             structured_error: Optional[str] = None
-            
-            # ---- Attempt 1: structured output (guarded) ----
-            if use_structured:
-                self.log(
-                    f"Attempting structured output "
-                    f"(turn cap: {self.config.max_structured_turns})..."
+            pass_records: List[Any] = []
+            per_chunk: List[tuple] = []
+            extras: dict = {}
+
+            # ---- 2. extract each chunk ----
+            for chunk in chunks:
+                prompt = self._build_extraction_prompt(chunk.text, document_type, domain)
+                c_triples, c_entities, c_relationships, c_path, c_error, c_obj = (
+                    self._extract_from_prompt(prompt, use_structured)
                 )
-                structured = self.invoke_structured(extraction_prompt, self._schema())
-                
-                if structured is not None:
-                    structured_obj = structured
-                    triples, entities, relationships = self._unpack_structured(structured)
-                    if triples or entities:
-                        path = "structured_output"
-                        self.log(
-                            f"  Structured output accepted: {len(triples)} triples, "
-                            f"{len(entities)} entities, {len(relationships)} relationships",
-                            level="success",
-                        )
-                    else:
-                        structured_error = "structured output returned empty"
-                        self.log(
-                            "  Structured output empty — falling back to text parsing",
-                            level="warning",
-                        )
-                else:
-                    structured_error = "model did not satisfy schema within turn budget"
-                    self.log("  Falling back to text parsing", level="warning")
-            
-            # ---- Attempt 2: text parsing fallback ----
-            if path == "text_parsing":
-                text_result = self.invoke(extraction_prompt)
-                response_text = str(text_result)
-                
-                entities = self._parse_entities_from_text(response_text)
-                relationships = self._parse_relationships_from_text(response_text)
-                triples = self._parse_triples_from_text(response_text)
+                per_chunk.append((c_triples, c_entities, c_relationships))
+                if c_path == "structured_output":
+                    path = "structured_output"
+                if c_error and not structured_error:
+                    structured_error = c_error
+                if c_obj is not None:
+                    structured_obj = structured_obj or c_obj
+                    for key, values in (self._extra_collections(c_obj) or {}).items():
+                        extras.setdefault(key, []).extend(values or [])
+                pass_records.extend(self._pass_records(
+                    path=c_path,
+                    structured_error=c_error,
+                    triples=len(c_triples),
+                    entities=len(c_entities),
+                    chunk_label=chunk.label if len(chunks) > 1 else "",
+                ))
+
+            # ---- 3. merge across chunks ----
+            if len(chunks) == 1:
+                triples, entities, relationships = per_chunk[0]
+            else:
+                triples = _as_records(
+                    ExtractedTriple, merge_triples([g[0] for g in per_chunk])
+                )
+                entities = _as_records(
+                    ExtractedEntity,
+                    merge_records([g[1] for g in per_chunk], _entity_key, completeness),
+                )
+                relationships = _as_records(
+                    ExtractedRelationship,
+                    merge_records([g[2] for g in per_chunk], _relationship_key, completeness),
+                )
+                self.log(
+                    f"  Merged {len(chunks)} chunks: {len(triples)} triples, "
+                    f"{len(entities)} entities, {len(relationships)} relationships"
+                )
             
             # ---- Normalise ----
             # Derive entities from triples if none were produced. Subjects and
@@ -517,20 +581,14 @@ class KnowledgeExtractionAgent(SEABaseAgent):
             }
             
             # Profile-specific extra collections (e.g. ARC-G technology stacks
-            # and architecture styles, which are neither nodes nor edges).
-            if structured_obj is not None:
-                for key, values in (self._extra_collections(structured_obj) or {}).items():
-                    output[key] = [
-                        v.model_dump() if hasattr(v, "model_dump") else v
-                        for v in (values or [])
-                    ]
+            # and architecture styles, which are neither nodes nor edges). Gathered
+            # across every chunk by the loop above, so a collection split by a chunk
+            # boundary is reunited rather than half-lost.
+            for key, values in extras.items():
+                output[key] = [
+                    v.model_dump() if hasattr(v, "model_dump") else v for v in values
+                ]
 
-            pass_records = self._pass_records(
-                path=path,
-                structured_error=structured_error,
-                triples=len(triples),
-                entities=len(entities),
-            )
             fell_back_to_text = any(p.path == "text" for p in pass_records)
             
             return AgentResult(
@@ -557,6 +615,10 @@ class KnowledgeExtractionAgent(SEABaseAgent):
                     "empty_calls": sum(1 for p in pass_records if p.outcome == "empty"),
                     "text_fallback_calls": int(fell_back_to_text),
                     "passes": [self._pass_record_dict(p) for p in pass_records],
+                    # What the run cost. A hosted endpoint bills per token, and a
+                    # run that cannot say what it consumed cannot be budgeted or
+                    # compared against a cheaper one.
+                    "usage": self.usage_totals(),
                 },
             )
             
@@ -572,12 +634,72 @@ class KnowledgeExtractionAgent(SEABaseAgent):
     # Completeness — what this run actually managed to read
     # ------------------------------------------------------------------
 
+    def _extract_from_prompt(
+        self, extraction_prompt: str, use_structured: bool
+    ) -> tuple:
+        """One extraction attempt-pair over one prompt: structured, then text.
+
+        Returns `(triples, entities, relationships, path, structured_error, obj)`.
+        Extracted from `run()` so a chunked document runs the SAME two attempts per
+        chunk rather than a second, drifting copy of them.
+
+        Both attempts live together on purpose: the text fallback exists because the
+        structured path fails often on a weak model, and splitting them across
+        methods is how one of them silently stops being called.
+        """
+        path = "text_parsing"
+        triples: List[ExtractedTriple] = []
+        entities: List[ExtractedEntity] = []
+        relationships: List[ExtractedRelationship] = []
+        structured_obj = None
+        structured_error: Optional[str] = None
+
+        # ---- Attempt 1: structured output (guarded) ----
+        if use_structured:
+            self.log(
+                f"Attempting structured output "
+                f"(turn cap: {self.config.max_structured_turns})..."
+            )
+            structured = self.invoke_structured(extraction_prompt, self._schema())
+
+            if structured is not None:
+                structured_obj = structured
+                triples, entities, relationships = self._unpack_structured(structured)
+                if triples or entities:
+                    path = "structured_output"
+                    self.log(
+                        f"  Structured output accepted: {len(triples)} triples, "
+                        f"{len(entities)} entities, {len(relationships)} relationships",
+                        level="success",
+                    )
+                else:
+                    structured_error = "structured output returned empty"
+                    self.log(
+                        "  Structured output empty — falling back to text parsing",
+                        level="warning",
+                    )
+            else:
+                structured_error = "model did not satisfy schema within turn budget"
+                self.log("  Falling back to text parsing", level="warning")
+
+        # ---- Attempt 2: text parsing fallback ----
+        if path == "text_parsing":
+            text_result = self.invoke(extraction_prompt)
+            response_text = str(text_result)
+
+            entities = self._parse_entities_from_text(response_text)
+            relationships = self._parse_relationships_from_text(response_text)
+            triples = self._parse_triples_from_text(response_text)
+
+        return triples, entities, relationships, path, structured_error, structured_obj
+
     def _pass_records(
         self,
         path: str,
         structured_error: Optional[str],
         triples: int,
         entities: int,
+        chunk_label: str = "",
     ) -> List[PassRecord]:
         """One record per model attempt, so the run can report its own completeness.
 
@@ -606,7 +728,7 @@ class KnowledgeExtractionAgent(SEABaseAgent):
             return [
                 PassRecord(
                     pass_name="structured",
-                    chunk_label="",
+                    chunk_label=chunk_label,
                     outcome="ok",
                     path="structured",
                     triples_produced=triples,
@@ -626,7 +748,7 @@ class KnowledgeExtractionAgent(SEABaseAgent):
             records.append(
                 PassRecord(
                     pass_name="structured",
-                    chunk_label="",
+                    chunk_label=chunk_label,
                     outcome="empty",
                     path="structured" if "empty" in structured_error else "none",
                     error=structured_error,
@@ -636,7 +758,7 @@ class KnowledgeExtractionAgent(SEABaseAgent):
         records.append(
             PassRecord(
                 pass_name="text_fallback",
-                chunk_label="",
+                chunk_label=chunk_label,
                 outcome="ok" if content else "empty",
                 path="text",
                 triples_produced=triples,

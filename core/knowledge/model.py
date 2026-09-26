@@ -357,6 +357,13 @@ class ExtractionRun:
     completed_at: str = ""
     chunk_count: int = 0
     passes: List[PassRecord] = field(default_factory=list)
+    # Token usage for the whole run, as the provider reported it. A hosted model
+    # bills per token, and a run that cannot say what it consumed cannot be
+    # budgeted or compared against a cheaper one — which is the first question
+    # asked when moving off a local server onto a paid endpoint. Empty means the
+    # provider reported nothing (older runs, or a text-only path); that is not the
+    # same as zero, so it is not defaulted to a number.
+    usage: Dict[str, Any] = field(default_factory=dict)
     completeness: str = RUN_COMPLETE
 
     def compute_completeness(self) -> str:

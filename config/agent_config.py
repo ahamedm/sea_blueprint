@@ -57,6 +57,15 @@ class EnvironmentConfig(BaseModel):
     openai_baseurl: str = Field(default="", alias="OPENAI_BASEURL")  # Alternative naming
     local_model_id: str = Field(default="", alias="LOCAL_MODEL_ID")
     local_api_key: str = Field(default="dummy", alias="LOCAL_API_KEY")
+    deepseek_api_key: str = Field(
+        default="",
+        alias="DEEPSEEK_API_KEY",
+        description=(
+            "Key for a hosted DeepSeek endpoint. Kept separate from LOCAL_API_KEY "
+            "because the two are different secrets with different blast radii, and "
+            "a file that names both is one somebody can rotate without guessing."
+        ),
+    )
     
     # Model defaults
     default_model_provider: str = Field(default="anthropic")
@@ -96,6 +105,12 @@ class EnvironmentConfig(BaseModel):
     max_structured_turns: int = Field(default=3, alias="MAX_STRUCTURED_TURNS")
     structured_timeout_seconds: int = Field(default=180, alias="STRUCTURED_TIMEOUT_SECONDS")
     request_timeout_seconds: int = Field(default=300, alias="REQUEST_TIMEOUT_SECONDS")
+    request_max_retries: int = Field(default=3, alias="REQUEST_MAX_RETRIES")
+    price_input_per_mtok: float = Field(default=0.0, alias="MODEL_PRICE_INPUT_PER_MTOK")
+    price_output_per_mtok: float = Field(default=0.0, alias="MODEL_PRICE_OUTPUT_PER_MTOK")
+    price_cache_read_per_mtok: float = Field(
+        default=0.0, alias="MODEL_PRICE_CACHE_READ_PER_MTOK"
+    )
 
     # Generation bounds. Per-agent `temperature` / `max_tokens` live in the config
     # blocks below and now actually reach the model; this is the escape hatch for
@@ -160,6 +175,7 @@ def load_environment() -> EnvironmentConfig:
         "openai_baseurl": os.getenv("OPENAI_BASEURL", ""),
         "local_model_id": os.getenv("LOCAL_MODEL_ID", ""),
         "local_api_key": os.getenv("LOCAL_API_KEY", "dummy"),
+        "deepseek_api_key": os.getenv("DEEPSEEK_API_KEY", ""),
         "default_model_provider": os.getenv("DEFAULT_MODEL_PROVIDER", "anthropic"),
         "default_model_id": os.getenv("DEFAULT_MODEL_ID", "claude-3-5-sonnet-20241022"),
         "ontology_path": os.getenv("ONTOLOGY_PATH", "ontology/requirements_base.yaml"),
@@ -173,6 +189,12 @@ def load_environment() -> EnvironmentConfig:
         "max_structured_turns": int(os.getenv("MAX_STRUCTURED_TURNS", "3")),
         "structured_timeout_seconds": int(os.getenv("STRUCTURED_TIMEOUT_SECONDS", "180")),
         "request_timeout_seconds": int(os.getenv("REQUEST_TIMEOUT_SECONDS", "300")),
+        "request_max_retries": int(os.getenv("REQUEST_MAX_RETRIES", "3")),
+        "price_input_per_mtok": float(os.getenv("MODEL_PRICE_INPUT_PER_MTOK", "0") or 0),
+        "price_output_per_mtok": float(os.getenv("MODEL_PRICE_OUTPUT_PER_MTOK", "0") or 0),
+        "price_cache_read_per_mtok": float(
+            os.getenv("MODEL_PRICE_CACHE_READ_PER_MTOK", "0") or 0
+        ),
         "model_extra_params": _as_json_object("MODEL_EXTRA_PARAMS", {}),
     }
     
@@ -200,11 +222,19 @@ def get_default_agent_config(agent_name: str) -> Dict[str, Any]:
     # Determine model provider and settings
     base_url = env_config.get_openai_base_url()
     if base_url:
-        # Use local inference server
+        # An OpenAI-compatible endpoint, which is now as likely to be a hosted
+        # service as a local server. The distinction matters because the KEY
+        # differs: sending a llama.cpp dummy to a paid endpoint fails auth, and
+        # sending a paid key to a local server is a secret on the wire for nothing.
         model_provider = "openai_compatible"
         model_id = env_config.local_model_id or "local-model"
-        api_key = env_config.local_api_key
-        console.log(f"[green]✓ Using local inference server:[/green] {base_url}")
+        hosted = "localhost" not in base_url and "127.0.0.1" not in base_url
+        if hosted and env_config.deepseek_api_key:
+            api_key = env_config.deepseek_api_key
+        else:
+            api_key = env_config.local_api_key
+        label = "hosted endpoint" if hosted else "local inference server"
+        console.log(f"[green]✓ Using {label}:[/green] {base_url}")
     else:
         # Use default provider
         model_provider = env_config.default_model_provider
@@ -222,7 +252,7 @@ def get_default_agent_config(agent_name: str) -> Dict[str, Any]:
             "base_url": base_url,
             "api_key": api_key,
             "temperature": 0.3,
-            "max_tokens": 8192,
+            "max_tokens": 16384,
             "system_prompt": """You are the Ontology Engineer Agent for the SEA Platform.
 Your role is to define and maintain the authoritative semantic schema using LinkML.
 You create, validate, and version ontologies for business requirements.
@@ -269,7 +299,12 @@ Focus on understanding the business domain and proposing accurate ontological st
             "base_url": base_url,
             "api_key": api_key,
             "temperature": 0.2,
-            "max_tokens": 8192,
+            # 8192 was the ceiling while the local server defaulted to unbounded
+            # and truncation was the least of the problems. A hosted model's
+            # non-thinking default is 8K too, and an architecture structure pass
+            # over a real document can exceed it — a truncated structured call is
+            # a failed one.
+            "max_tokens": 16384,
             "system_prompt": """You are the Knowledge Extraction Agent for the SEA Platform.
 Your role is to transform unstructured human language into structured knowledge graph triples.
 
@@ -307,7 +342,7 @@ Output should be structured as JSON with triples and metadata.""",
             # the other five emit merge names that have to stay stable. Expect to
             # see 0.6 in that pass's log line and 0.3 in the rest.
             "temperature": 0.3,
-            "max_tokens": 8192,
+            "max_tokens": 16384,
             "system_prompt": """You are the Design Assistant Agent for the SEA Platform.
 Your role is to propose a CORE solution architecture from a verified requirements
 graph (REQ-G) and the architecture that already exists.
@@ -367,7 +402,12 @@ Provide clear, actionable feedback for resolving identified issues.""",
             "base_url": base_url,
             "api_key": api_key,
             "temperature": 0.2,
-            "max_tokens": 8192,
+            # 8192 was the ceiling while the local server defaulted to unbounded
+            # and truncation was the least of the problems. A hosted model's
+            # non-thinking default is 8K too, and an architecture structure pass
+            # over a real document can exceed it — a truncated structured call is
+            # a failed one.
+            "max_tokens": 16384,
             "system_prompt": """You are the Architecture Extraction Agent for the SEA Platform.
 Your role is to transform architecture documents into a structured, C4-aligned
 solution-architecture knowledge graph.
@@ -398,6 +438,12 @@ architecture the document does not describe.""",
         "max_structured_turns": env_config.max_structured_turns,
         "structured_timeout_seconds": env_config.structured_timeout_seconds,
         "request_timeout_seconds": env_config.request_timeout_seconds,
+        "request_max_retries": env_config.request_max_retries,
+        # Zero means "not configured", and `to_dict` then reports tokens without
+        # inventing a cost.
+        "price_input_per_mtok": env_config.price_input_per_mtok or None,
+        "price_output_per_mtok": env_config.price_output_per_mtok or None,
+        "price_cache_read_per_mtok": env_config.price_cache_read_per_mtok or None,
         # Sampling parameters the per-agent blocks do not name, passed through to
         # the server verbatim. Uniform, because a repetition loop is not specific
         # to one profile: the Designer found it, every agent is exposed to it.

@@ -4,6 +4,7 @@ CLI for running SEA agents.
 
 import json
 from pathlib import Path
+from typing import Any
 import click
 from rich.console import Console
 from rich.panel import Panel
@@ -143,6 +144,30 @@ def run(agent: str, input_file: str, output_file: str, domain_pack: str,
             console.print(f"[red]Error: {error}[/red]")
 
 
+def _report_usage(usage: Any) -> None:
+    """Print a run's token usage and estimated cost, when it reported any.
+
+    Silent when there is nothing to say: a local server reports no usage, and a
+    line of zeroes on every local run would train the reader to ignore it.
+    """
+    if not usage:
+        return
+    if usage.get("estimated_cost") is None:
+        console.print(
+            f"[dim]Tokens: {usage.get('input_tokens', 0):,} in / "
+            f"{usage.get('output_tokens', 0):,} out "
+            f"({usage.get('calls', 0)} call(s)) — no price configured[/dim]"
+        )
+        return
+    console.print(
+        f"[dim]Tokens: {usage.get('input_tokens', 0):,} in / "
+        f"{usage.get('output_tokens', 0):,} out "
+        f"({usage.get('cache_read_tokens', 0):,} cached, "
+        f"{usage.get('calls', 0)} call(s)) — estimated "
+        f"${usage['estimated_cost']}[/dim]"
+    )
+
+
 def _run_design_assistant(store_root: str, output_file: str, domain_pack: str) -> None:
     """Run the Design Assistant headlessly against a working set.
 
@@ -198,6 +223,11 @@ def _run_design_assistant(store_root: str, output_file: str, domain_pack: str) -
         for finding in output["findings"][:20]:
             console.print(f"  [{finding['kind']}] {finding['subject']}: "
                           f"{'; '.join(finding['reasons'])}")
+
+    # What the run cost. This path does not write a draft — the /design route
+    # does — so without printing it here the token spend of a CLI run would exist
+    # only in the provider's dashboard, which is the wrong place to notice it.
+    _report_usage(result.metadata.get("usage"))
 
     if output_file:
         output_path = Path(output_file)

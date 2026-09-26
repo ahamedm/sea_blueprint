@@ -90,5 +90,14 @@ def test_structured_output_settings_reach_every_agent():
             "structured_timeout_seconds",
             "request_timeout_seconds",
             "ontology_dir",
+            # Hosted-endpoint settings, injected the same way. `extra_params` is
+            # how a provider-specific field (DeepSeek's thinking mode, for one)
+            # reaches the request at all, and the price keys are what let a run
+            # report a cost — an agent missing either degrades silently.
+            "request_max_retries",
+            "extra_params",
+            "price_input_per_mtok",
+            "price_output_per_mtok",
+            "price_cache_read_per_mtok",
         ):
             assert key in config, f"{agent} is missing {key}"
