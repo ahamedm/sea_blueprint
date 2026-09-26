@@ -3,7 +3,7 @@
 
 Open work only. Each item is one file under `docs/todos/entries/` — that file is the source of truth and this index is generated from it.
 
-**16 active · 1 parked · 2 superseded · 25 closed records**
+**25 active · 1 parked · 2 superseded · 25 closed records**
 
 | Where | What |
 |---|---|
@@ -14,6 +14,14 @@ Open work only. Each item is one file under `docs/todos/entries/` — that file 
 | `docs/todos/id-map.md` | legacy item number → current id |
 
 Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/todo.py check`.
+
+## Critical
+
+| ID | Item | Status | Area |
+|---|---|---|---|
+| [YB-042](docs/todos/entries/YB-042-workspace-structure.md) | Workspace structure — many products/systems per workspace, each with a baseline and its own initiatives | open | `core/knowledge/store.py`, `app/__init__.py`, `core/knowledge/model.py`, `core/knowledge/ingest.py`, `app/templates/` |
+| [YB-043](docs/todos/entries/YB-043-system-of-record.md) | System of record — a concurrent multi-user store for 50+ architects on 200+ products | open | `core/knowledge/store.py`, `app/__init__.py`, `run.py`, new store backend |
+| [YB-047](docs/todos/entries/YB-047-enterprise-governance-layer.md) | Enterprise governance layer — Policy, Principle, Control, Risk, and Standard clauses | in-progress | `ontology/requirements_base.yaml`, `ontology/enterprise_structure.yaml`, extraction grounding, shared workspace scope |
 
 ## High
 
@@ -27,6 +35,9 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [YB-027](docs/todos/entries/YB-027-semantic-reference-matching.md) | Semantic reference matching — bridge the paraphrase the deterministic scorer cannot | open | `core/knowledge/reconcile.py`, possibly `core/knowledge/realization.py`, `app/` |
 | [YB-036](docs/todos/entries/YB-036-modular-run-streaming.md) | Modular run streaming — one progress mechanism for the browser and for unattended runs | open | `agents/knowledge_extraction/agent.py`, `agents/extraction/passes.py`, `core/knowledge/store.py` (run journal), `app/__init__.py` |
 | [YB-037](docs/todos/entries/YB-037-background-workflow-management.md) | Background workflow management — durable execution for runs nobody is waiting for | open | new `core/workflow/` or `app/worker.py`, `core/knowledge/store.py`, `app/__init__.py`, `app/templates/` (jobs page) |
+| [YB-044](docs/todos/entries/YB-044-platform-instances.md) | Platform instances and deployment topology — one platform type, many instances, each with a sharing scope | open | `ontology/architecture_base.yaml` (DeploymentNode, sharing scope), `agents/architecture_extraction/passes.py`, `core/knowledge/ingest.py` |
+| [YB-045](docs/todos/entries/YB-045-ontology-version-provenance.md) | Ontology version is not recorded per run — a graph cannot be attributed to the vocabulary that produced it | open | `core/knowledge/model.py`, `core/knowledge/ingest.py`, `core/ontology.py`, `agents/base_agent.py` |
+| [YB-046](docs/todos/entries/YB-046-branching-and-promotion.md) | Branching and guarded promotion — two architects on one initiative, and the merge between them | open | `core/knowledge/store.py`, `core/knowledge/model.py`, `core/knowledge/review.py`, `core/knowledge/ingest.py` |
 
 ## Medium
 
@@ -39,12 +50,15 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [YB-025](docs/todos/entries/YB-025-c4-specification-view.md) | Dedicated C4 specification view — text notation plus rendered diagram | open | new `app/viewpoints/c4_spec.py` (or a `notation/` renderer), `app/templates/`, possibly a Kroki/PlantUML endpoint |
 | [YB-033](docs/todos/entries/YB-033-event-ingress.md) | Event ingress — an external system's event starts graph work, without a browser in the loop | open | new `app/events.py` or `integrations/` (receiver + adapters), `app/__init__.py`, `core/knowledge/ingest.py` |
 | [YB-034](docs/todos/entries/YB-034-initiative-delivery-phase.md) | Initiative delivery phase — the graph cannot represent "this Initiative is in Design" | open | `ontology/requirements_base.yaml` (Initiative, InitiativeStatus), `core/knowledge/ingest.py`, `app/projections.py` |
+| [YB-040](docs/todos/entries/YB-040-technology-ring.md) | Technology Ring — the adoption axis is in the ontology, but nothing writes it | open | `ontology/architecture_base.yaml`, `agents/architecture_extraction/passes.py`, `core/knowledge/ingest.py` |
+| [YB-041](docs/todos/entries/YB-041-pattern-catalogue-reach.md) | The architecture pattern catalogue reaches the Design Assistant only — never ARC-G extraction, and no verifier | open | `core/patterns.py`, `agents/architecture_extraction/`, `config/agent_config.py`, `core/knowledge/ingest.py` |
 
 ## Low
 
 | ID | Item | Status | Area |
 |---|---|---|---|
 | [YB-004](docs/todos/entries/YB-004-model-output-not-structurally-stable.md) | Model output is not structurally stable across runs | open | `agents/base_agent.py`, `agents/knowledge_extraction/agent.py` |
+| [YB-039](docs/todos/entries/YB-039-ontology-class-on-intra-graph-slots.md) | `ontology_class` on intra-graph slots is undefined — so the coverage invariant counts edges it cannot classify | open | `core/knowledge/ingest.py`, `core/knowledge/model.py`, `scripts/run_extraction_tests.py` |
 
 ## Parked
 

@@ -59,3 +59,12 @@
 | None | Modular run streaming — one progress mechanism for the browser and for unattended runs | [YB-036](entries/YB-036-modular-run-streaming.md) | entry (open) |
 | None | Background workflow management — durable execution for runs nobody is waiting for | [YB-037](entries/YB-037-background-workflow-management.md) | entry (open) |
 | None | The Design Assistant's techniques pass echoes requirements and links no quality attribute | [YB-038](entries/YB-038-techniques-pass-echoes-requirements.md) | entry (done) |
+| None | `ontology_class` on intra-graph slots is undefined — so the coverage invariant counts edges it cannot classify | [YB-039](entries/YB-039-ontology-class-on-intra-graph-slots.md) | entry (open) |
+| None | Technology Ring — the adoption axis is in the ontology, but nothing writes it | [YB-040](entries/YB-040-technology-ring.md) | entry (open) |
+| None | The architecture pattern catalogue reaches the Design Assistant only — never ARC-G extraction, and no verifier | [YB-041](entries/YB-041-pattern-catalogue-reach.md) | entry (open) |
+| None | Workspace structure — many products/systems per workspace, each with a baseline and its own initiatives | [YB-042](entries/YB-042-workspace-structure.md) | entry (open) |
+| None | System of record — a concurrent multi-user store for 50+ architects on 200+ products | [YB-043](entries/YB-043-system-of-record.md) | entry (open) |
+| None | Platform instances and deployment topology — one platform type, many instances, each with a sharing scope | [YB-044](entries/YB-044-platform-instances.md) | entry (open) |
+| None | Ontology version is not recorded per run — a graph cannot be attributed to the vocabulary that produced it | [YB-045](entries/YB-045-ontology-version-provenance.md) | entry (open) |
+| None | Branching and guarded promotion — two architects on one initiative, and the merge between them | [YB-046](entries/YB-046-branching-and-promotion.md) | entry (open) |
+| None | Enterprise governance layer — Policy, Principle, Control, Risk, and Standard clauses | [YB-047](entries/YB-047-enterprise-governance-layer.md) | entry (in-progress) |

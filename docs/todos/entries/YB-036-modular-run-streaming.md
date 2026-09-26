@@ -6,7 +6,7 @@ status: open
 priority: high
 area: "`agents/knowledge_extraction/agent.py`, `agents/extraction/passes.py`, `core/knowledge/store.py` (run journal), `app/__init__.py`"
 created: 2026-09-25
-updated: 2026-09-25
+updated: 2026-09-26
 design: docs/design/event-driven-integration.md
 record: null
 superseded_by: []
@@ -102,6 +102,43 @@ agent.run(..., progress=sink)        # the pipeline emits, and knows nothing els
 - A subscriber that disconnects mid-run does not affect the run's outcome.
 - Every run's journal ends with an explicit completeness verdict.
 - Partial progress never renders as completion.
+
+### Added 2026-09-26 — the transport, answered
+
+The AWS deployment shape
+([`docs/design/deployment-architecture.md`](../../design/deployment-architecture.md) §3.4)
+resolves two of the decisions above: agents publish minimal status to **Valkey**, and
+Flask fans out to browsers. That is the right decoupling — the pipeline still imports
+no web framework, and the browser transport becomes Flask's concern rather than the
+agent's.
+
+- **Where the journal lives (decision 1):** one Valkey **Stream** per run
+  (`XADD run:<id> MAXLEN ~ …`), TTL'd once the run is terminal. Keeps journals out
+  of `data/sea`, gives retention for free, and lets several Flask replicas tail one
+  run.
+- **Which transport (decision 4):** Stream, tailed by Flask, fanned out to the
+  browser.
+
+**It must be a Stream, not Pub/Sub.** Pub/Sub is fire-and-forget with no replay, so
+it fails three acceptance criteria already written above: a late subscriber misses
+the backlog, a restart loses the stream, and a dropped terminal event leaves a run
+that looks finished — the false assurance this item exists to prevent. Streams give
+ordered replay (`XRANGE` from the subscriber's last id) and consumer groups.
+
+Two things to settle when this is implemented:
+
+1. **The payload is transitions, not state.** Run id, product id, phase/pass, chunk
+   label, counters, outcome, elapsed, usage — never the extracted content. The record
+   stays the source of truth; the stream says it changed. Version the envelope
+   (`event_version`), because agents and Flask deploy independently.
+2. **The terminal verdict is persisted, not only published.** ElastiCache for
+   Valkey's asynchronous durability risks up to 10 s of uncommitted writes, so a lost
+   terminal event must not be the only place a run's completeness lives. Write the
+   `ExtractionRun`, then publish.
+
+**Failure contract:** if Valkey is unavailable, runs still execute and their results
+still land in the record — only *live* progress degrades, and the UI falls back to
+reading state.
 
 ### Related
 
