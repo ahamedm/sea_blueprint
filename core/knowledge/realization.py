@@ -57,7 +57,7 @@ from .model import (
     Node,
     reference_targets_a_node,
 )
-from .reconcile import reference_candidates
+from .reconcile import SIDE_REQUIREMENTS, node_sides, reference_candidates
 
 # Predicates that assert a requirement-ish thing is answered by something. A
 # superset of `CROSS_GRAPH_PREDICATES`, deliberately: `satisfies_attribute` and
@@ -110,10 +110,20 @@ def realization_edges(graph: KnowledgeGraph) -> List[Tuple[Any, Node]]:
     assertion holds a node id (what reconciliation writes) or a node with exactly
     that label already exists. A reference nothing answers by either route is a
     claim, not a link, and is reported as one.
+
+    A link only counts when the thing claiming it is on the ARCHITECTURE side.
+    `reference_targets_a_node` resolves a label as readily as an id, so on a
+    requirements-only graph the system node of the requirements document resolves
+    its own `implements_requirement` straight back onto the requirement's label and
+    the requirement reads as answered by an architecture that does not exist
+    (YB-030). Excluding a requirements-side source is what makes that impossible.
     """
+    sides = node_sides(graph)
     out: List[Tuple[Any, Node]] = []
     for a in graph.active():
         if a.predicate not in REALIZATION_PREDICATES:
+            continue
+        if sides.get(a.subject, "") == SIDE_REQUIREMENTS:
             continue
         node = reference_targets_a_node(graph, a)
         if node is not None:
@@ -241,11 +251,20 @@ def realization_state(graph: KnowledgeGraph) -> List[RequirementRealization]:
     # list when `reference_targets_a_node` finds the node it names, and in
     # `unbound` otherwise — which is also where a claim naming nothing extracted
     # stays visible instead of disappearing.
+    #
+    # A REQUIREMENTS-SIDE SOURCE CAN NEVER BIND (YB-030). Label resolution is
+    # generous on purpose — a reference to `FR-PM-001` should find the requirement
+    # without reconciliation — but that generosity let the requirements document's
+    # own system node answer its own requirements, so a graph with no architecture
+    # at all reported eleven of twelve requirements realized. The claim is not
+    # deleted: it still shows as an unmet obligation from the source side, which is
+    # the reading a requirements document citing its own answer deserves.
+    sides = node_sides(graph)
     for a in graph.active():
         if a.predicate not in REALIZATION_PREDICATES:
             continue
         node = reference_targets_a_node(graph, a)
-        if node is not None:
+        if node is not None and sides.get(a.subject, "") != SIDE_REQUIREMENTS:
             record = records.get(node.id)
             if record is not None:
                 record.bound.append(_claim_record(a, graph))

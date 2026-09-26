@@ -45,7 +45,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, FrozenSet, List, Optional, Tuple
 
 import re
 import warnings
@@ -1408,16 +1408,26 @@ _PREDICATE_EXCLUDE = frozenset({"provenance", "external_references"})
 PREDICATE_LAYERS = ("requirements", "architecture")
 
 
-def relationship_predicates(model: OntologyModel) -> Dict[str, List[str]]:
+def relationship_predicates(
+    model: OntologyModel, layers: Optional[Any] = None
+) -> Dict[str, List[str]]:
     """Declared relationship predicates and the classes they may point at.
 
     The target kinds matter as much as the names: a predicate whose range is known
     is checkable, and the reconciler already uses exactly this pairing to refuse a
     link to the wrong kind of thing.
+
+    `layers` restricts the vocabulary to the layers an agent may actually speak.
+    The filter is on the layer that DECLARES the slot, not on its range: a
+    predicate belongs to the profile whose schema defines it, and that is what
+    stops the requirements profile being taught the architecture join (YB-030).
     """
+    allowed = frozenset(layers) if layers else None
     found: Dict[str, set] = {}
     for spec in model.classes.values():
         if spec.layer not in PREDICATE_LAYERS:
+            continue
+        if allowed is not None and spec.layer not in allowed:
             continue
         for slot in spec.attributes:
             if slot.range_kind != "class" or slot.name in _PREDICATE_EXCLUDE:
@@ -1426,6 +1436,56 @@ def relationship_predicates(model: OntologyModel) -> Dict[str, List[str]]:
                 continue
             found.setdefault(slot.name, set()).add(slot.range)
     return {name: sorted(targets) for name, targets in sorted(found.items())}
+
+
+def entry_layer_key(model: OntologyModel, entry: Any) -> str:
+    """The layer key an agent's entry schema names, or "" when it names none.
+
+    `ontology_path` is how an agent says which layer it speaks; this turns that
+    filename back into the loader's own key so the two cannot drift apart in a
+    second lookup table.
+    """
+    if not entry:
+        return ""
+    stem = Path(str(entry)).stem
+    for layer in model.layers:
+        if Path(layer.filename).stem == stem:
+            return layer.key
+    return ""
+
+
+def visible_layer_keys(model: OntologyModel, entry: Any) -> FrozenSet[str]:
+    """The layer keys reachable from an entry schema by following `imports:`.
+
+    WHAT THIS FIXES. `_predicate_vocabulary_context` loaded the ontology ROOT, so
+    every profile was handed the same vocabulary — including the architecture
+    layer's, whatever layer it declared for itself. That is how the requirements
+    profile came to emit `implements_requirement`, the join only an architecture
+    element can make, and report eleven of twelve requirements realized on a graph
+    with no architecture in it at all (YB-030).
+
+    A schema that does not import the architecture layer is not shown the
+    architecture layer's predicates. `architecture_base` imports the other three,
+    so the architecture profiles see everything and are unchanged; the
+    requirements profile sees its own layer and the two beneath it.
+
+    Empty means "no entry schema named", which callers read as unscoped rather
+    than as "no vocabulary".
+    """
+    start = entry_layer_key(model, entry)
+    if not start:
+        return frozenset()
+    seen: set = set()
+    stack = [start]
+    while stack:
+        key = stack.pop()
+        if key in seen:
+            continue
+        seen.add(key)
+        layer = model.layer(key)
+        if layer is not None:
+            stack.extend(layer.imports)
+    return frozenset(seen)
 
 
 def predicate_vocabulary_findings(model: OntologyModel) -> List[str]:
@@ -1489,11 +1549,24 @@ CORE_ROUTED_PREDICATES = frozenset({
 # `traces_to_goal`, and reconciliation has always accepted it. Saying which aliases
 # exist is more honest than claiming a general singular/plural rule — there is no
 # such rule, and implying one would invite spellings nothing recognises.
+#
+# THE TABLE WAS INCOMPLETE, AND THAT WAS THE BUG (YB-031). `ROUTING_ALIASES` was
+# only ever read to DESCRIBE aliases in the prompt; nothing resolved through it at
+# ingest. So a declared name with no entry here was taught to the model, written
+# into the graph as a local edge, and made invisible to reconciliation, the map and
+# the census — while looking perfectly present. Three relationships had no entry at
+# all, and they are the ones that matter most: the join itself
+# (`implements_requirements`), and two of the four traceability axes
+# (`addresses_goals`, `delivers_initiatives`). Measured on the merged working set:
+# 1 `implements_requirements` and 4 `satisfies_quality_attributes` had gone that way.
 ROUTING_ALIASES: Dict[str, Tuple[str, ...]] = {
+    "implements_requirements": ("implements_requirement",),
     "traces_to_goals": ("traces_to_goal",),
     "traces_to_capabilities": ("traces_to_capability",),
     "traces_to_processes": ("traces_to_process",),
     "supports_capabilities": ("supports_capability",),
+    "addresses_goals": ("addresses_goal",),
+    "delivers_initiatives": ("delivers_initiative",),
     "satisfies_quality_attributes": ("satisfies_quality_attribute",),
     "realizes_attribute": ("realizes_quality_attribute",),
 }
@@ -1511,3 +1584,69 @@ ABSORBED_DRIFT_PREDICATES = {
     "implements_non_functional_requirement": "implements_requirements",
     "supports_business_capability": "supports_capabilities",
 }
+
+# The names the router actually routes. Duplicated from
+# `core.knowledge.model.CROSS_GRAPH_PREDICATES` for the same import reason as
+# `CORE_ROUTED_PREDICATES`; `tests/test_ontology.py` proves the two agree.
+_ROUTED_PREDICATES = frozenset({
+    "implements_requirement",
+    "implements_functional_requirement",
+    "implements_non_functional_requirement",
+    "satisfies_quality_attribute",
+    "realizes_quality_attribute",
+    "traces_to_goal",
+    "traces_to_capability",
+    "traces_to_process",
+    "supports_capability",
+    "supports_business_capability",
+    "addresses_goal",
+    "delivers_initiative",
+    "governed_by_rule",
+    "governed_by_rules",
+    "mandated_by",
+})
+
+
+# Taught predicates that are deliberately LOCAL — the graph writes them as an edge
+# to a node in the SAME graph, never as a cross-graph reference. Listed so a test can
+# tell "intentionally local" apart from "silently unrouted", which is the whole
+# distinction YB-031 turns on: the defect was never that a predicate was local, it
+# was that nobody could tell which ones were meant to be.
+LOCAL_PREDICATES = frozenset({
+    # An element or pattern declaring the quality attribute it delivers. Ingest
+    # materialises the attribute as a node and writes `satisfies_attribute`; the
+    # plural here is the schema slot name the model is shown.
+    "satisfies_attributes",
+})
+
+
+def canonical_predicate(name: str) -> str:
+    """The one name this relationship is written under, whatever the model wrote.
+
+    A predicate the prompt teaches must route, and one relationship must not exist
+    in the graph under two names — both were false before this (YB-031). The
+    model was handed the schema's plural spellings and the router knew the
+    singular, so an edge could be written, drawn by the map, and invisible to
+    every consumer that routes on the cross-graph set.
+
+    TWO RULES, AND THE SECOND IS THE IMPORTANT ONE:
+
+    1. An alias is followed to its routed target.
+    2. **A predicate the router already routes is never rewritten.** The alias
+       table is not a normalisation of the schema — it rescues spellings that do
+       not route. `implements_functional_requirement` is routed with the target
+       `FunctionalRequirement`, and rewriting it to the general
+       `implements_requirement` would lose that precision for no gain. Only an
+       unrouted name moves.
+
+    Returns the input unchanged when no rule applies, so a local predicate
+    (`part_of`, `uses_technology`) is untouched — this canonicalises the
+    cross-graph boundary, not the whole vocabulary.
+    """
+    key = (name or "").strip()
+    if not key or key in _ROUTED_PREDICATES:
+        return key
+    for alias in ROUTING_ALIASES.get(key, ()):
+        if alias in _ROUTED_PREDICATES:
+            return alias
+    return key

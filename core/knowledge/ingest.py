@@ -23,6 +23,7 @@ values, and `unresolved_references()` finds them.
 
 from typing import Any, Dict, List, Optional, Tuple
 
+from ..ontology import canonical_predicate
 from .model import (
     CROSS_GRAPH_PREDICATES,
     MANAGED_REFERENCE_TYPES,
@@ -413,8 +414,8 @@ def graph_from_extraction(
             graph.add_assertion(nid, "satisfies_attribute", obj=aid,
                                 confidence=1.0, provenance=p, scope=scope, initiative_id=init_id)
         for attr in ("quality_category", "subcharacteristic"):
-            if e.get(attr):
-                graph.add_assertion(nid, attr, value=str(e[attr]),
+            for part in _enum_values(e.get(attr)):
+                graph.add_assertion(nid, attr, value=part,
                                     confidence=1.0, provenance=p, scope=scope, initiative_id=init_id)
 
     # ---- technology / style usage ----
@@ -458,12 +459,10 @@ def graph_from_extraction(
         if d.get("mechanism"):
             graph.add_assertion(did, "mechanism", value=str(d["mechanism"]),
                                 confidence=1.0, provenance=p)
-        if d.get("quality_category"):
-            graph.add_assertion(did, "quality_category", value=str(d["quality_category"]),
-                                confidence=1.0, provenance=p)
-        if d.get("subcharacteristic"):
-            graph.add_assertion(did, "subcharacteristic", value=str(d["subcharacteristic"]),
-                                confidence=1.0, provenance=p)
+        for attr in ("quality_category", "subcharacteristic"):
+            for part in _enum_values(d.get(attr)):
+                graph.add_assertion(did, attr, value=part,
+                                    confidence=1.0, provenance=p)
         # The attribute a technique delivers, as a node. Together with the NFR
         # literal link below this gives both directions: "what does this technique
         # deliver?" (here) and "which techniques answer this stated NFR?"
@@ -653,9 +652,9 @@ def graph_from_extraction(
                                     confidence=1.0, provenance=p,
                                     scope=default_scope, initiative_id=initiative_id)
         for attr in ("quality_category", "subcharacteristic"):
-            if e.get(attr):
+            for part in _enum_values(e.get(attr)):
                 p = prov("triples")
-                graph.add_assertion(nid, attr, value=str(e[attr]),
+                graph.add_assertion(nid, attr, value=part,
                                     confidence=1.0, provenance=p,
                                     scope=default_scope, initiative_id=initiative_id)
 
@@ -707,7 +706,7 @@ def graph_from_extraction(
         if not isinstance(t, dict):
             continue
         subject = (t.get("subject") or "").strip()
-        predicate = (t.get("predicate") or "").strip()
+        predicate = canonical_predicate(t.get("predicate") or "")
         obj = (t.get("object") or "").strip()
         if not (subject and predicate):
             continue
@@ -753,6 +752,28 @@ def graph_from_extraction(
                                 provenance=p, initiative_id=initiative_id)
 
     return graph, run
+
+
+def _enum_values(value: Any) -> List[str]:
+    """One declared enum value, or the several the model joined into one string.
+
+    THE FIELD IS DECLARED SCALAR AND THE MODEL WRITES A LIST. `quality_category`
+    and `subcharacteristic` hold a single ISO 25010 member each, and two
+    assertions in `data/sea` arrived as
+    `'RELIABILITY, PERFORMANCE_EFFICIENCY, FLEXIBILITY'` — one token that matches
+    no enum member, which a consumer grouping by the axis reads as unclassified,
+    and which the census would report as a class of its own (YB-032).
+
+    Splitting is lossless: every value the model did emit survives. That is the
+    posture this repo takes everywhere else with vocabulary it does not recognise
+    — keep it and let a validator report it, rather than drop it here. Whether a
+    part is a real enum member is `check_enum_membership`'s question, not this
+    function's; this one only refuses to let a LIST hide behind a scalar.
+    """
+    text = str(value or "").strip()
+    if not text:
+        return []
+    return [part.strip() for part in text.split(",") if part.strip()]
 
 
 def _passes_from_metadata(metadata: Dict[str, Any]) -> List[PassRecord]:

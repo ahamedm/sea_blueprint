@@ -19,7 +19,7 @@ an "extract what the document says" framing on a document of requirements produc
 a design that merely restates them.
 """
 
-from typing import List, Literal
+from typing import List, Literal, Sequence
 
 from pydantic import BaseModel, Field
 
@@ -123,29 +123,64 @@ class TechniquePassResult(BaseModel):
     )
 
 
-DESIGN_TECHNIQUE_PASS = PassSpec(
-    name="techniques",
-    schema=TechniquePassResult,
-    output_keys={"design_techniques": "design_techniques", "triples": "triples"},
-    instructions="""# Task: propose the mechanisms that deliver the quality attributes
+def design_technique_pass(quality_attributes: Sequence[str] = ()) -> PassSpec:
+    """The techniques pass, with the attributes REQ-G actually states interpolated.
 
-For each quality attribute Input 1 states for this system, propose the concrete
-mechanism the architecture uses to deliver it. A stated quality with no mechanism is
-the gap this pass exists to close.
+    Built per run rather than kept as a module constant, for the same reason the
+    patterns pass is: the closed list IS the fix (YB-038).
+
+    WHAT IT REPLACES. Asked for an open-ended list of mechanisms, the live model
+    returned the requirements' own names — `Role-Based Access Control Enforcement`,
+    `Horizontal Scaling`, `Payment Request Validation` — eight of eight, with every
+    quality field empty. `DesignTechnique` exists for exactly one reason: to supply
+    the edge between a required quality attribute and the design claiming to deliver
+    it. A renamed requirement with no link adds a node and no information, and the
+    census then reports the attribute as having a mechanism on the strength of a
+    restatement — a false assurance about coverage.
+
+    Asking for ONE mechanism per attribute turns an unbounded generation into a
+    bounded one whose completeness is checkable: an attribute with no technique is
+    visible as a missing list item rather than as silence. It also shrinks the ask,
+    which matters because this is the pass observed burning twenty minutes on a
+    retry loop.
+    """
+    listed = "\n".join(f"- {name}" for name in quality_attributes) or (
+        "- (REQ-G states no quality attribute — return no techniques at all)"
+    )
+    return PassSpec(
+        name="techniques",
+        schema=TechniquePassResult,
+        output_keys={"design_techniques": "design_techniques", "triples": "triples"},
+        instructions=f"""# Task: name the mechanism that delivers each stated quality attribute
+
+Below is the closed list of quality attributes Input 1 states for this system.
+Propose the concrete mechanism the design uses to deliver EACH one. A stated
+attribute with no mechanism is the gap this pass exists to close, so the list is
+the job: one technique per attribute, with the attribute's exact name in the link.
+
+Quality attributes stated by REQ-G:
+{listed}
 
 Rules:
-1. Name the MECHANISM, not the attribute: "Stateless Services", "Redundancy /
-   Replicas", "Active-Active Multi-DataCentre", "Connection Pooling", "Read
-   Replicas", "Caching", "Asynchronous Offload", "Batching", "Transactional Outbox".
-   "High Availability" is a requirement, not a technique — do not emit it as one.
-2. `applies_to` names the elements the technique is applied to; usually several.
-3. `realizes_quality_attributes` names the NFR (by identifier where Input 1 gives
-   one) this technique is the mechanism for. Emit the link even when the NFR is only
-   implied, with a lower confidence.
+1. Name the MECHANISM, never the attribute and never the requirement. Good:
+   "Stateless Services", "Redundancy / Replicas", "Active-Active Multi-DataCentre",
+   "Connection Pooling", "Read Replicas", "Caching", "Asynchronous Offload",
+   "Batching", "Transactional Outbox", "Rule-Based Routing". Bad — these restate a
+   requirement and are rejected: "High Availability", "Horizontal Scaling",
+   "TLS 1.2+ Transport Security", "Role-Based Access Control Enforcement",
+   "Payment Request Validation".
+   **A technique name may never be a requirement's name.**
+2. `realizes_quality_attributes` MUST contain the attribute from the list above,
+   spelled exactly as it appears there. A technique with this field empty is not a
+   contribution — it is an attribute the design does not answer, which is a finding
+   the reviewer needs, not a technique.
+3. `applies_to` names the elements the technique is applied to; usually several —
+   statelessness and redundancy are platform-wide decisions.
 4. Set `quality_category` and `subcharacteristic` from the ISO 25010 model shown in
-   the ontology context. Set `mechanism` — how it works, concretely enough to check.
-5. Do not propose a technique for a quality attribute nobody asked for. Answer the
-   attributes in Input 1.""")
+   the ontology context, and `mechanism` — how it works, concretely enough to check.
+5. If an attribute genuinely has no mechanism in this design, omit that attribute
+   rather than inventing a technique named after it. An honest gap is worth more
+   than a fabricated answer.""")
 
 
 # ============================================================================
@@ -329,12 +364,19 @@ Rules:
    auditor cannot report a gap that was never recorded.""")
 
 
-def design_passes(catalogue_context: str = "") -> List[PassSpec]:
-    """The design pass list, with the pattern catalogue bound into the one pass that needs it."""
+def design_passes(
+    catalogue_context: str = "", quality_attributes: Sequence[str] = ()
+) -> List[PassSpec]:
+    """The design pass list, with each per-run input bound into the pass that needs it.
+
+    Two passes are built rather than declared: the catalogue goes to the pass that
+    chooses patterns, and the stated quality attributes to the pass that has to
+    answer them. Both are inputs of the run, not of the profile.
+    """
     return [
         DESIGN_STRUCTURE_PASS,
         DESIGN_CONNECTION_PASS,
-        DESIGN_TECHNIQUE_PASS,
+        design_technique_pass(quality_attributes),
         design_pattern_pass(catalogue_context),
         DESIGN_SCENARIO_PASS,
         DESIGN_TRACEABILITY_PASS,

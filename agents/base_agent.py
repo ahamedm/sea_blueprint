@@ -25,6 +25,7 @@ from core.ontology import (
     quality_attribute_catalog,
     quality_model_findings,
     relationship_predicates,
+    visible_layer_keys,
 )
 
 console = Console()
@@ -490,7 +491,15 @@ class SEABaseAgent:
         except OntologyError:
             return ""
 
-        vocabulary = relationship_predicates(model)
+        # SCOPED TO THE LAYER THIS AGENT SPEAKS (YB-030). Loading the ontology root
+        # gave every profile the whole vocabulary, so the requirements profile was
+        # taught `implements_requirement` — the join only an architecture element
+        # can make — and wrote it against the requirements document's own system
+        # node. `architecture_base` imports the layers beneath it, so the
+        # architecture profiles still see everything; the requirements profile
+        # stops being offered a predicate its schema does not declare.
+        layers = visible_layer_keys(model, self.config.ontology_path)
+        vocabulary = relationship_predicates(model, layers=layers)
         if not vocabulary:
             return ""
 

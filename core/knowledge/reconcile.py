@@ -402,7 +402,7 @@ SIDE_REQUIREMENTS = "requirements"
 SIDE_ARCHITECTURE = "architecture"
 
 
-def _node_sides(graph: KnowledgeGraph) -> Dict[str, str]:
+def node_sides(graph: KnowledgeGraph) -> Dict[str, str]:
     """Which side each node came from — the document that DECLARED it, or failing
     that, the runs that asserted things about it.
 
@@ -514,7 +514,7 @@ def reference_candidates(
     """Propose target nodes for each unresolved cross-graph reference."""
     wanted = set(assertion_ids) if assertion_ids is not None else None
     table = _node_table(graph)
-    sides = _node_sides(graph)
+    sides = node_sides(graph)
     initiatives = _initiative_of(graph)
 
     out: List[ReferenceCandidates] = []

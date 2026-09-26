@@ -195,6 +195,42 @@ def check_techniques_are_mechanisms(
     return flags
 
 
+def check_techniques_are_linked(techniques: Sequence[Any]) -> List[Flag]:
+    """A technique linked to no quality concern answers nothing (YB-038).
+
+    `check_techniques_are_mechanisms` catches the echo — a technique named after a
+    requirement. This catches the other half of the same live failure: every
+    quality field left empty. A technique with no `realizes_quality_attributes`,
+    `quality_category` or `subcharacteristic` is a node with an incoming
+    `applies_technique` edge and no outgoing claim, so `core.knowledge.quality`
+    reports the attribute as having no mechanism. That reading is the honest one,
+    which is exactly why the technique has to be flagged rather than accepted: it
+    looks like coverage on the page.
+
+    The two checks together ARE the operational definition of "fixed" — the harness
+    invariant `inv_design_techniques_linked` asserts this same condition.
+    """
+    flags: List[Flag] = []
+    for technique in as_record_dicts(techniques):
+        name = str(technique.get("name") or "").strip()
+        if not name:
+            continue
+        linked = any(
+            technique.get(key)
+            for key in ("realizes_quality_attributes", "quality_category",
+                        "subcharacteristic")
+        )
+        if not linked:
+            flags.append(
+                Flag("unlinked", name, [
+                    "names no quality attribute, characteristic or sub-characteristic; "
+                    "this layer exists to link the design to the quality it delivers, so "
+                    "an unlinked technique is an attribute the design does not answer"
+                ])
+            )
+    return flags
+
+
 def check_name_collisions(
     elements: Sequence[Any],
     existing_kinds: Dict[str, str],

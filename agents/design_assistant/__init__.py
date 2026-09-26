@@ -11,7 +11,6 @@ from .passes import (
     DESIGN_CONNECTION_PASS,
     DESIGN_SCENARIO_PASS,
     DESIGN_STRUCTURE_PASS,
-    DESIGN_TECHNIQUE_PASS,
     DESIGN_TRACEABILITY_PASS,
     ArchitecturePatternRecord,
     PatternPassResult,
@@ -20,6 +19,7 @@ from .passes import (
     TechniquePassResult,
     design_passes,
     design_pattern_pass,
+    design_technique_pass,
 )
 from .validators import (
     check_grounded_elements,
@@ -27,6 +27,7 @@ from .validators import (
     check_pattern_resolution,
     check_quality_linkage,
     check_scenario_shape,
+    check_techniques_are_linked,
     check_techniques_are_mechanisms,
 )
 
@@ -35,9 +36,9 @@ __all__ = [
     "create_design_assistant_agent",
     "design_passes",
     "design_pattern_pass",
+    "design_technique_pass",
     "DESIGN_STRUCTURE_PASS",
     "DESIGN_CONNECTION_PASS",
-    "DESIGN_TECHNIQUE_PASS",
     "DESIGN_SCENARIO_PASS",
     "DESIGN_TRACEABILITY_PASS",
     "ArchitecturePatternRecord",
@@ -49,6 +50,7 @@ __all__ = [
     "check_scenario_shape",
     "check_pattern_resolution",
     "check_quality_linkage",
+    "check_techniques_are_linked",
     "check_techniques_are_mechanisms",
     "check_name_collisions",
 ]

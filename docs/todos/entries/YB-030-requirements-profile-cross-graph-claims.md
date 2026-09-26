@@ -2,13 +2,13 @@
 id: YB-030
 legacy: null
 title: "The requirements profile claims architecture-side realization — the join reads as answered when no architecture exists"
-status: open
+status: done
 priority: high
 area: "`agents/knowledge_extraction/agent.py` (prompt vocabulary), `core/knowledge/realization.py`, `core/knowledge/ingest.py`"
 created: 2026-09-25
-updated: 2026-09-25
+updated: 2026-09-26
 design: docs/design/real-run-readings.md
-record: null
+record: docs/decisions/ADR-0018-cross-graph-vocabulary.md
 superseded_by: []
 related: ["YB-005", "YB-031", "YB-029", "YB-007"]
 blocks: []
@@ -16,6 +16,11 @@ blocked_by: []
 ---
 
 # YB-030 — The requirements profile claims architecture-side realization
+
+> **Closed 2026-09-26.** The record is
+> [`ADR-0018-cross-graph-vocabulary`](../../decisions/ADR-0018-cross-graph-vocabulary.md), which carries the decision and
+> the evidence. The write-up below is preserved as it stood when the item
+> was written.
 
 > **Found by the real run of 2026-09-25**, not by a fixture. The measurement and
 > the reproduction are in

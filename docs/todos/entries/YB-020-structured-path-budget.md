@@ -3,7 +3,7 @@ id: YB-020
 legacy: "20"
 title: "Structured-path budget — decide, don't retry into the timeout"
 status: open
-priority: high
+priority: medium
 area: "`config/agent_config.py`, `.env.example`, `agents/base_agent.py`, `agents/knowledge_extraction/agent.py`"
 created: 2026-09-23
 updated: 2026-09-26
@@ -106,6 +106,10 @@ questions are instead:
    from single runs of a non-deterministic model.
 
 ### Bound generation, not just turns — DONE (2026-09-26)
+
+> **Reprioritised 2026-09-26: high → medium.** The lever this item identified —
+> `max_tokens` never reaching the model — is pulled. What is left is the re-measurement
+> its acceptance asks for, not a live defect.
 
 The lever above was pulled, and pulling it exposed why the earlier numbers varied by an
 order of magnitude.

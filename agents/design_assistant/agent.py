@@ -60,6 +60,7 @@ from .validators import (
     check_pattern_resolution,
     check_quality_linkage,
     check_scenario_shape,
+    check_techniques_are_linked,
     check_techniques_are_mechanisms,
 )
 
@@ -124,8 +125,21 @@ class DesignAssistantAgent(ArchitectureExtractionAgent):
                             heading_path="REQ-G + baseline ARC-G")]
 
             # ---- 2. run every pass over that one chunk ----
+            #
+            # The quality attributes REQ-G STATES are the techniques pass's job
+            # list, so they are gathered here and bound into that pass rather than
+            # left for the model to infer from prose. This is the YB-038 fix: an
+            # open-ended request for "mechanisms" came back as the requirements'
+            # own names, because the task had no closed set to answer.
+            stated_attributes = self._stated_quality_attributes(graph)
+            self.log(
+                f"Stated quality attributes to answer: "
+                f"{', '.join(stated_attributes) if stated_attributes else '(none)'}"
+            )
             shared = self._format_ontology_context()
-            passes = design_passes(pattern_prompt_context(catalogue))
+            passes = design_passes(
+                pattern_prompt_context(catalogue), quality_attributes=stated_attributes
+            )
             outcomes = run_passes(self, passes, chunks, shared, log=self.log)
             summary = summarise(outcomes, len(chunks), len(passes))
             self.log(summary.describe(len(chunks), len(passes)),
@@ -179,6 +193,7 @@ class DesignAssistantAgent(ArchitectureExtractionAgent):
             flags += check_techniques_are_mechanisms(
                 techniques, self._requirement_labels(graph)
             )
+            flags += check_techniques_are_linked(techniques)
             flags += check_name_collisions(elements, self._existing_kinds(graph))
             findings = [f.to_dict() for f in flags]
             if findings:
@@ -255,6 +270,29 @@ class DesignAssistantAgent(ArchitectureExtractionAgent):
             return AgentResult(success=False, output=None, errors=[str(exc)])
 
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _stated_quality_attributes(graph: KnowledgeGraph) -> List[str]:
+        """The quality attributes REQ-G states, as the closed list the design must answer.
+
+        Read through `quality_report` rather than off the NFR nodes directly,
+        because the census is what already decides that `Availability` and
+        `High Availability` are ONE concern. Two spellings of one attribute would
+        otherwise become two list items and the pass would answer it twice.
+
+        "Stated" specifically: an attribute the architecture delivers and no
+        requirement asks for is not a gap for this pass to close, and asking for a
+        technique for it would invent work.
+        """
+        from core.knowledge.quality import quality_report
+
+        report = quality_report(graph)
+        return [
+            str(entry.get("label") or "").strip()
+            for entry in report.get("attributes", [])
+            if (entry.get("states") or {}).get("stated_in_requirements")
+            and str(entry.get("label") or "").strip()
+        ]
 
     @staticmethod
     def _existing_kinds(graph: KnowledgeGraph) -> Dict[str, str]:

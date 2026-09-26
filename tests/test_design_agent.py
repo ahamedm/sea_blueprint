@@ -467,6 +467,90 @@ def test_a_null_parent_is_read_as_no_parent():
 
 
 # ============================================================================
+# YB-038 — the techniques pass answers a closed list, not an open question
+# ============================================================================
+
+
+def test_the_techniques_pass_is_told_which_attributes_to_answer():
+    """The closed list IS the fix.
+
+    Asked for an open-ended list of "mechanisms", the live model returned the
+    requirements' own names eight times out of eight with every quality field empty.
+    Binding the attributes REQ-G states into the prompt turns that into one bounded
+    task — one mechanism per attribute — so a missing attribute shows up as a
+    missing list item instead of as silence.
+    """
+    prompts = []
+    agent = make_agent(good_handler(prompts))
+    agent.run({"graph": requirement_graph()})
+
+    technique_prompts = [p for schema, p in prompts if schema is TechniquePassResult]
+    assert len(technique_prompts) == 1
+    prompt = technique_prompts[0]
+
+    assert "Quality attributes stated by REQ-G" in prompt
+    # The attribute the fixture's NFR states, listed as a thing to answer.
+    assert "Time Behaviour" in prompt
+    # And the failure mode named explicitly, since it is the one the model chose.
+    assert "may never be a requirement's name" in prompt
+    assert "realizes_quality_attributes` MUST contain" in prompt
+
+
+def test_the_stated_attributes_are_read_through_the_census_not_off_the_nodes():
+    """One concern, one list item.
+
+    `quality_report` is what already decides that `Availability` and
+    `High Availability` are one concern. Reading NFR labels directly would list the
+    same attribute twice under two spellings and the pass would answer it twice.
+    """
+    from agents.design_assistant.agent import DesignAssistantAgent
+
+    graph, _ = graph_from_extraction(
+        {"entities": [
+            {"name": "Availability NFR", "ontology_class": "NonFunctionalRequirement",
+             "quality_attribute": "Availability"},
+            {"name": "Uptime NFR", "ontology_class": "NonFunctionalRequirement",
+             "quality_attribute": "High Availability"},
+        ]},
+        {"document_type": "requirements", "model_id": "t"},
+        document_ref="req.md",
+    )
+    assert DesignAssistantAgent._stated_quality_attributes(graph) == ["Availability"]
+
+
+def test_a_technique_linked_to_no_quality_concern_is_flagged():
+    """The other half of the live failure: every quality field left empty."""
+    from agents.design_assistant import check_techniques_are_linked
+
+    flags = check_techniques_are_linked([
+        {"name": "Connection Pooling", "realizes_quality_attributes": ["Time Behaviour"]},
+        {"name": "Caching", "subcharacteristic": "TIME_BEHAVIOUR"},
+        {"name": "Read Replicas", "quality_category": "PERFORMANCE_EFFICIENCY"},
+        {"name": "Something Vague"},
+    ])
+    assert [f.subject for f in flags] == ["Something Vague"]
+    assert flags[0].kind == "unlinked"
+
+
+def test_an_unlinked_technique_reaches_the_run_findings():
+    """Visible on the page, not only in a validator nobody calls."""
+    def handler(prompt, schema):
+        if schema is TechniquePassResult:
+            return TechniquePassResult(design_techniques=[
+                DesignTechniqueRecord(name="Connection Pooling",
+                                      realizes_quality_attributes=["Time Behaviour"]),
+                DesignTechniqueRecord(name="Read Replicas"),
+            ])
+        return good_handler()(prompt, schema)
+
+    agent = make_agent(handler)
+    result = agent.run({"graph": requirement_graph()})
+
+    unlinked = [f for f in result.output["findings"] if f["kind"] == "unlinked"]
+    assert [f["subject"] for f in unlinked] == ["Read Replicas"]
+
+
+# ============================================================================
 # End to end: a proposal becomes graph facts, without a model
 # ============================================================================
 

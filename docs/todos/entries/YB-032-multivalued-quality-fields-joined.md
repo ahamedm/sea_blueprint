@@ -2,13 +2,13 @@
 id: YB-032
 legacy: null
 title: "Multivalued quality fields arrive as one comma-joined string on a single assertion"
-status: open
+status: done
 priority: low
 area: "`agents/architecture_extraction/` (profile schema and prompt), `core/knowledge/ingest.py`"
 created: 2026-09-25
-updated: 2026-09-25
+updated: 2026-09-26
 design: docs/design/real-run-readings.md
-record: null
+record: docs/decisions/ADR-0019-split-joined-enum-values.md
 superseded_by: []
 related: ["YB-029", "YB-030"]
 blocks: []
@@ -16,6 +16,11 @@ blocked_by: []
 ---
 
 # YB-032 — Comma-joined values in a multivalued field
+
+> **Closed 2026-09-26.** The record is
+> [`ADR-0019-split-joined-enum-values`](../../decisions/ADR-0019-split-joined-enum-values.md), which carries the decision and
+> the evidence. The write-up below is preserved as it stood when the item
+> was written.
 
 > **Found by the real run of 2026-09-25**, in the merged working set.
 

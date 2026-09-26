@@ -3,7 +3,7 @@
 
 Open work only. Each item is one file under `docs/todos/entries/` — that file is the source of truth and this index is generated from it.
 
-**20 active · 1 parked · 2 superseded · 17 closed records**
+**16 active · 1 parked · 2 superseded · 20 closed records**
 
 | Where | What |
 |---|---|
@@ -15,12 +15,6 @@ Open work only. Each item is one file under `docs/todos/entries/` — that file 
 
 Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/todo.py check`.
 
-## Critical
-
-| ID | Item | Status | Area |
-|---|---|---|---|
-| [YB-012](docs/todos/entries/YB-012-c4-notation-parser.md) | C4 notation parser — deterministic extraction from structured architecture sources | open | new `agents/extraction/c4_parser.py`, integration with architecture extraction agent |
-
 ## High
 
 | ID | Item | Status | Area |
@@ -29,14 +23,10 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [YB-009](docs/todos/entries/YB-009-architecture-gaps.md) | Architecture gaps — canonical model, correction merge, incompleteness | open | `core/knowledge/`, `core/ontology.py`, `docs/architecture-review.md` |
 | [YB-011](docs/todos/entries/YB-011-domain-ontology-layer.md) | Domain ontology layer — the ontology of the SUBJECT MATTER, not the artifact | in-progress | `ontology/domains/`, `core.ontology` overlay loader, extraction grounding |
 | [YB-018](docs/todos/entries/YB-018-review-batches.md) | Review batches — scope the review gate to a run, without fragmenting the graph | open | `core/knowledge/store.py`, `app/projections.py`, `app/__init__.py`, `core/knowledge/review.py` |
-| [YB-020](docs/todos/entries/YB-020-structured-path-budget.md) | Structured-path budget — decide, don't retry into the timeout | open | `config/agent_config.py`, `.env.example`, `agents/base_agent.py`, `agents/knowledge_extraction/agent.py` |
 | [YB-026](docs/todos/entries/YB-026-asynchronous-progress.md) | Asynchronous progress — stream pass and tool-call completion to the view | open | `app/__init__.py` (ingest route), `app/templates/ingest.html`, `agents/extraction/passes.py`, `agents/knowledge_extraction/agent.py` |
 | [YB-027](docs/todos/entries/YB-027-semantic-reference-matching.md) | Semantic reference matching — bridge the paraphrase the deterministic scorer cannot | open | `core/knowledge/reconcile.py`, possibly `core/knowledge/realization.py`, `app/` |
-| [YB-030](docs/todos/entries/YB-030-requirements-profile-cross-graph-claims.md) | The requirements profile claims architecture-side realization — the join reads as answered when no architecture exists | open | `agents/knowledge_extraction/agent.py` (prompt vocabulary), `core/knowledge/realization.py`, `core/knowledge/ingest.py` |
-| [YB-031](docs/todos/entries/YB-031-cross-graph-predicate-plural-routing.md) | The predicate vocabulary is taught in its plural schema form and routed only in the singular | open | `core/knowledge/model.py` (`CROSS_GRAPH_PREDICATES`), `core/ontology.py` (`CORE_ROUTED_PREDICATES`, `ROUTING_ALIASES`), `agents/base_agent.py` |
 | [YB-036](docs/todos/entries/YB-036-modular-run-streaming.md) | Modular run streaming — one progress mechanism for the browser and for unattended runs | open | `agents/knowledge_extraction/agent.py`, `agents/extraction/passes.py`, `core/knowledge/store.py` (run journal), `app/__init__.py` |
 | [YB-037](docs/todos/entries/YB-037-background-workflow-management.md) | Background workflow management — durable execution for runs nobody is waiting for | open | new `core/workflow/` or `app/worker.py`, `core/knowledge/store.py`, `app/__init__.py`, `app/templates/` (jobs page) |
-| [YB-038](docs/todos/entries/YB-038-techniques-pass-echoes-requirements.md) | The Design Assistant's techniques pass echoes requirements and links no quality attribute | open | `agents/design_assistant/passes.py` (the techniques instruction), `agents/design_assistant/validators.py`, `agents/base_agent.py` |
 
 ## Medium
 
@@ -44,6 +34,8 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 |---|---|---|---|
 | [YB-006](docs/todos/entries/YB-006-c4-structurizr-importer.md) | Extract from C4 Structurizr (model / DSL), not just prose | open | new importer alongside `agents/architecture_extraction/` |
 | [YB-010](docs/todos/entries/YB-010-rdf-knowledge-layer.md) | Adopt RDF for the knowledge layer (rdflib first, Jena later) | open | `core/knowledge/serialise.py`, `core/knowledge/rdf.py` |
+| [YB-012](docs/todos/entries/YB-012-c4-notation-parser.md) | C4 notation parser — deterministic extraction from structured architecture sources | open | new `agents/extraction/c4_parser.py`, integration with architecture extraction agent |
+| [YB-020](docs/todos/entries/YB-020-structured-path-budget.md) | Structured-path budget — decide, don't retry into the timeout | open | `config/agent_config.py`, `.env.example`, `agents/base_agent.py`, `agents/knowledge_extraction/agent.py` |
 | [YB-025](docs/todos/entries/YB-025-c4-specification-view.md) | Dedicated C4 specification view — text notation plus rendered diagram | open | new `app/viewpoints/c4_spec.py` (or a `notation/` renderer), `app/templates/`, possibly a Kroki/PlantUML endpoint |
 | [YB-033](docs/todos/entries/YB-033-event-ingress.md) | Event ingress — an external system's event starts graph work, without a browser in the loop | open | new `app/events.py` or `integrations/` (receiver + adapters), `app/__init__.py`, `core/knowledge/ingest.py` |
 | [YB-034](docs/todos/entries/YB-034-initiative-delivery-phase.md) | Initiative delivery phase — the graph cannot represent "this Initiative is in Design" | open | `ontology/requirements_base.yaml` (Initiative, InitiativeStatus), `core/knowledge/ingest.py`, `app/projections.py` |
@@ -53,7 +45,6 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | ID | Item | Status | Area |
 |---|---|---|---|
 | [YB-004](docs/todos/entries/YB-004-model-output-not-structurally-stable.md) | Model output is not structurally stable across runs | open | `agents/base_agent.py`, `agents/knowledge_extraction/agent.py` |
-| [YB-032](docs/todos/entries/YB-032-multivalued-quality-fields-joined.md) | Multivalued quality fields arrive as one comma-joined string on a single assertion | open | `agents/architecture_extraction/` (profile schema and prompt), `core/knowledge/ingest.py` |
 
 ## Parked
 
@@ -77,7 +68,11 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [YB-024](docs/todos/entries/YB-024-requirements-graph-view.md) | Graph view — cover the requirements graph, not only C4 | [ADR-0014-map-replaces-c4-view](docs/decisions/ADR-0014-map-replaces-c4-view.md) |
 | [YB-028](docs/todos/entries/YB-028-remove-extracted-facts.md) | Remove a fact the extractor invented — and stop a dispute withholding the audit | [ADR-0015-retiring-extracted-facts](docs/decisions/ADR-0015-retiring-extracted-facts.md) |
 | [YB-029](docs/todos/entries/YB-029-quality-attribute-views.md) | Quality-attribute views for the map — the architect's primary focus has no view of its own | [ADR-0016-quality-attribute-views](docs/decisions/ADR-0016-quality-attribute-views.md) |
+| [YB-030](docs/todos/entries/YB-030-requirements-profile-cross-graph-claims.md) | The requirements profile claims architecture-side realization — the join reads as answered when no architecture exists | [ADR-0018-cross-graph-vocabulary](docs/decisions/ADR-0018-cross-graph-vocabulary.md) |
+| [YB-031](docs/todos/entries/YB-031-cross-graph-predicate-plural-routing.md) | The predicate vocabulary is taught in its plural schema form and routed only in the singular | [ADR-0018-cross-graph-vocabulary](docs/decisions/ADR-0018-cross-graph-vocabulary.md) |
+| [YB-032](docs/todos/entries/YB-032-multivalued-quality-fields-joined.md) | Multivalued quality fields arrive as one comma-joined string on a single assertion | [ADR-0019-split-joined-enum-values](docs/decisions/ADR-0019-split-joined-enum-values.md) |
 | [YB-035](docs/todos/entries/YB-035-design-assistant.md) | Design Assistant — draft an initial architecture from REQ-G, on request or on an event | [ADR-0017-design-assistant-proposes-arc-g](docs/decisions/ADR-0017-design-assistant-proposes-arc-g.md) |
+| [YB-038](docs/todos/entries/YB-038-techniques-pass-echoes-requirements.md) | The Design Assistant's techniques pass echoes requirements and links no quality attribute | [ADR-0020-techniques-pass-closed-list](docs/decisions/ADR-0020-techniques-pass-closed-list.md) |
 
 ## Closed work — records
 
@@ -100,5 +95,8 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [ADR-0015](docs/decisions/ADR-0015-retiring-extracted-facts.md) | Removing a fact the extractor invented — retire, and what withholds the audit | 2026-09-24 | item — |
 | [ADR-0016](docs/decisions/ADR-0016-quality-attribute-views.md) | Quality-attribute views — the census groups by canonical concern, and one taxonomy serves both layers | 2026-09-25 | item — |
 | [ADR-0017](docs/decisions/ADR-0017-design-assistant-proposes-arc-g.md) | The Design Assistant proposes an ARC-G draft — a profile over the knowledge layer, and a proposal is not an extraction | 2026-09-25 | item — |
+| [ADR-0018](docs/decisions/ADR-0018-cross-graph-vocabulary.md) | The cross-graph vocabulary — one routed name per relationship, and the profile that may speak it | 2026-09-26 | item — |
+| [ADR-0019](docs/decisions/ADR-0019-split-joined-enum-values.md) | A scalar enum field written as a list is split at ingest, not stored as one token | 2026-09-26 | item — |
+| [ADR-0020](docs/decisions/ADR-0020-techniques-pass-closed-list.md) | The techniques pass answers a closed list of the quality attributes REQ-G states | 2026-09-26 | item — |
 
 The index is generated from the entries — do not edit `TODO.md` by hand.

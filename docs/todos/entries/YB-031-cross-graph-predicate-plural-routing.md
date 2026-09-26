@@ -2,13 +2,13 @@
 id: YB-031
 legacy: null
 title: "The predicate vocabulary is taught in its plural schema form and routed only in the singular"
-status: open
+status: done
 priority: high
 area: "`core/knowledge/model.py` (`CROSS_GRAPH_PREDICATES`), `core/ontology.py` (`CORE_ROUTED_PREDICATES`, `ROUTING_ALIASES`), `agents/base_agent.py`"
 created: 2026-09-25
-updated: 2026-09-25
+updated: 2026-09-26
 design: docs/design/real-run-readings.md
-record: null
+record: docs/decisions/ADR-0018-cross-graph-vocabulary.md
 superseded_by: []
 related: ["YB-010", "YB-030", "YB-005"]
 blocks: []
@@ -16,6 +16,11 @@ blocked_by: []
 ---
 
 # YB-031 — Taught plurals, routed singulars
+
+> **Closed 2026-09-26.** The record is
+> [`ADR-0018-cross-graph-vocabulary`](../../decisions/ADR-0018-cross-graph-vocabulary.md), which carries the decision and
+> the evidence. The write-up below is preserved as it stood when the item
+> was written.
 
 > **Found by the real run of 2026-09-25.** The measured table is in
 > [`docs/design/real-run-readings.md`](../../design/real-run-readings.md) §Reading 2.

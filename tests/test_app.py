@@ -313,6 +313,32 @@ def test_api_realization_reports_both_directions(reconcile_client):
     assert {"unrealized", "obligations", "claims", "requirements"} <= set(payload)
 
 
+def test_a_requirements_only_graph_realizes_nothing(requirements_only_client):
+    """YB-030, pinned — and it has to be pinned here.
+
+    The defect cannot be reproduced from a fixture replay of a two-document run:
+    it needs a graph with NO architecture in it, which is the one shape a saved
+    architecture fixture can never produce. The requirements document's own
+    `System` node claims `implements_requirement` against a requirement whose label
+    resolves, so before the guard the requirement read as answered by an
+    architecture that does not exist.
+    """
+    payload = requirements_only_client.get("/api/realization").get_json()
+    summary = payload["summary"]
+
+    assert summary["requirements"] == 2
+    assert summary["realized"] == 0, (
+        "a requirements-side source must never be a realization — that is the "
+        "requirements document answering itself"
+    )
+    assert summary["bound_edges"] == 0
+    assert summary["coverage"]["none"] == 2
+    # Not deleted, just not a realization: the claim still surfaces from the
+    # source side as an obligation, which is the honest reading of a requirements
+    # document naming the system that will implement it.
+    assert {o["source_label"] for o in payload["obligations"]} == {"Payment Gateway Platform"}
+
+
 def test_ingest_records_the_document_type_on_the_run(seeded_client, load_working):
     """Which document a run read is what tells the two sides of the audit apart,
     and it cannot be recovered after ingest — so it has to be written down."""
@@ -819,9 +845,62 @@ RECONCILE_OUTPUT = {
 CAPABILITY_NODE = "businesscapability:unified_payment_processing"
 REQUIREMENT_NODE = "functionalrequirement:payment_acceptance"
 
+# The architecture side of the same story. It exists because `RECONCILE_OUTPUT`
+# alone CANNOT realize anything: it is one requirements document, and the claim it
+# carries comes from the document's own `System` node. That is the YB-030 defect —
+# a requirements-side source answering its own requirement — and a fixture that
+# asserted it as the expected number is what kept the defect invisible. Realization
+# needs an architecture document, so the fixture now has one.
+RECONCILE_ARCH_OUTPUT = {
+    "elements": [
+        {"name": "Payment Orchestrator", "element_type": "Container"},
+    ],
+    "triples": [
+        {
+            "subject": "Payment Orchestrator",
+            "predicate": "implements_requirement",
+            "object": "FR-PM-001",
+            "confidence": 0.9,
+            "source_text": "routes and validates payment requests",
+        },
+    ],
+}
+
+
+class TwoDocumentExtractor:
+    """Answers per document type, the way the real agent stack does."""
+
+    def __call__(self, _doc_type):
+        return self
+
+    def run(self, input_data):
+        doc_type = input_data.get("document_type") or "requirements"
+        output = RECONCILE_ARCH_OUTPUT if doc_type == "architecture" else RECONCILE_OUTPUT
+        return FakeResult(output, {"document_type": doc_type, "model_id": "fake"})
+
 
 @pytest.fixture
 def reconcile_client(store_root):
+    from app import create_app
+
+    application = create_app(
+        {"TESTING": True, "STORE_ROOT": str(store_root), "REVIEWER": "tester"},
+        store_root=str(store_root),
+        extractor_factory=TwoDocumentExtractor(),
+    )
+    client = application.test_client()
+    client.post("/ingest", data={"text": "doc", "type": "requirements"})
+    client.post("/ingest", data={"text": "arch doc", "type": "architecture"})
+    return client
+
+
+@pytest.fixture
+def requirements_only_client(store_root):
+    """One requirements document, and no architecture whatsoever.
+
+    The graph YB-030 is about: its `System` node claims the requirement, the label
+    resolves straight back onto the requirement, and nothing architectural exists.
+    """
     from app import create_app
 
     application = create_app(

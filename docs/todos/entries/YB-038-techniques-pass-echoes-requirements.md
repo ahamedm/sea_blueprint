@@ -2,13 +2,13 @@
 id: YB-038
 legacy: null
 title: "The Design Assistant's techniques pass echoes requirements and links no quality attribute"
-status: open
+status: done
 priority: high
 area: "`agents/design_assistant/passes.py` (the techniques instruction), `agents/design_assistant/validators.py`, `agents/base_agent.py`"
 created: 2026-09-25
-updated: 2026-09-25
+updated: 2026-09-26
 design: docs/design/design-assistant.md
-record: null
+record: docs/decisions/ADR-0020-techniques-pass-closed-list.md
 superseded_by: []
 related: ["YB-035", "ADR-0011", "ADR-0017", "YB-027", "ADR-0016"]
 blocks: []
@@ -17,7 +17,10 @@ blocked_by: []
 
 # YB-038 — The techniques pass echoes requirements
 
-> **Open work.** Found by the first real Design Assistant run (2026-09-25); the
+> **Closed 2026-09-26.** The record is
+> [`ADR-0020-techniques-pass-closed-list`](../../decisions/ADR-0020-techniques-pass-closed-list.md), which carries the decision and
+> the evidence. The write-up below is preserved as it stood when the item
+> was written. Found by the first real Design Assistant run (2026-09-25); the
 > measurement is in
 > [`ADR-0017`](../../decisions/ADR-0017-design-assistant-proposes-arc-g.md) §Measured.
 

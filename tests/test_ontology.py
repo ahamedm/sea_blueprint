@@ -497,27 +497,66 @@ def test_every_routed_predicate_named_in_the_prompt_is_actually_declared(ontolog
 
 
 def test_the_core_list_covers_what_reconciliation_routes_on(ontology):
-    """Anything `CROSS_GRAPH_PREDICATES` routes must be represented in the prompt's
-    core list — by the declared name or a documented alias — or the model is never
-    told the name that would get its edge into the other graph."""
+    """No predicate the prompt teaches may be silently unrouted (YB-031).
+
+    THIS TEST USED TO COMPARE THE TWO VOCABULARIES AFTER `rstrip("s")`. That strips
+    exactly the letter separating the taught plural (`implements_requirements`) from
+    the routed singular (`implements_requirement`), so it passed while ingest —
+    which compares literal strings — turned every plural edge into a local one. It
+    asserted the drift was *tolerable*, which was never the claim: the claim is that
+    the alias map the prompt describes is the map ingest resolves with.
+
+    A predicate is acceptable if it canonicalises onto something routed, or is
+    documented as deliberately local. Nothing else — an unrouted taught name is a
+    traceability edge that exists in the graph and reaches no consumer.
+    """
     from core.knowledge.model import CROSS_GRAPH_PREDICATES
-    from core.ontology import CORE_ROUTED_PREDICATES, ROUTING_ALIASES
-
-    represented = set(CORE_ROUTED_PREDICATES)
-    for aliases in ROUTING_ALIASES.values():
-        represented.update(aliases)
-
-    from core.ontology import ABSORBED_DRIFT_PREDICATES
-
-    normalize = lambda s: s.rstrip("s")  # noqa: E731
-    represented_norm = {normalize(p) for p in represented}
-    uncovered = sorted(
-        p
-        for p in CROSS_GRAPH_PREDICATES
-        if normalize(p) not in represented_norm
-        and p not in ABSORBED_DRIFT_PREDICATES
+    from core.ontology import (
+        CORE_ROUTED_PREDICATES,
+        LOCAL_PREDICATES,
+        canonical_predicate,
     )
-    assert uncovered == [], f"routed predicates not represented in the prompt: {uncovered}"
+
+    unrouted = sorted(
+        name for name in CORE_ROUTED_PREDICATES
+        if canonical_predicate(name) not in CROSS_GRAPH_PREDICATES
+        and name not in LOCAL_PREDICATES
+    )
+    assert unrouted == [], (
+        f"the prompt teaches predicates nothing routes: {unrouted} — these become "
+        f"local edges invisible to reconciliation, the map and the census"
+    )
+
+
+def test_the_taught_vocabulary_resolves_onto_the_routed_one(ontology):
+    """The acceptance criterion, stated directly: taught ⇒ routed.
+
+    Every name the prompt offers with a target must resolve into the router's own
+    set under `canonical_predicate` — the same function ingest calls. Before YB-031
+    three relationships failed this: the join itself, and two traceability axes.
+    """
+    from core.knowledge.model import CROSS_GRAPH_PREDICATES
+    from core.ontology import (
+        CORE_ROUTED_PREDICATES,
+        LOCAL_PREDICATES,
+        canonical_predicate,
+        relationship_predicates,
+    )
+
+    vocabulary = relationship_predicates(ontology)
+    # Every taught-and-routed name, not just the core list: the "Also declared"
+    # block is taught too, and a relationship is no less lost for being listed
+    # second.
+    for name in sorted(vocabulary):
+        resolved = canonical_predicate(name)
+        if resolved == name:
+            continue
+        assert resolved in CROSS_GRAPH_PREDICATES, (
+            f"{name} canonicalises to {resolved}, which the router does not route"
+        )
+    for name in sorted(LOCAL_PREDICATES):
+        assert canonical_predicate(name) not in CROSS_GRAPH_PREDICATES
+    assert CORE_ROUTED_PREDICATES  # the list is not vacuous
 
 
 def test_declared_aliases_are_ones_the_router_actually_accepts(ontology):
