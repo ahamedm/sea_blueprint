@@ -57,10 +57,13 @@ def test_layer_chain_is_ordered_and_labels_its_imports(ontology):
         "common",
         "enterprise",
         "requirements",
+        "governance",
         "architecture",
     ]
     assert chain[0]["imports_labeled"] == []
-    assert [i["label"] for i in chain[3]["imports_labeled"]] == [
+    # Architecture is now the last link and imports three layers; governance is a
+    # peer above requirements, not beneath architecture.
+    assert [i["label"] for i in chain[4]["imports_labeled"]] == [
         "Common",
         "Enterprise",
         "Business Requirements",
@@ -72,7 +75,9 @@ def test_overview_reports_diagnostics_and_the_special_classes(ontology):
     view = ontology_overview(ontology)
     assert view["diagnostics"]["is_clean"] is True
     assert view["mixins"] == ["ExternallyReferenced", "Provenanced"]
-    assert view["abstract"] == ["EnterpriseConstruct", "Requirement", "ArchitectureElement"]
+    assert view["abstract"] == [
+        "EnterpriseConstruct", "Requirement", "GovernanceInstrument", "ArchitectureElement",
+    ]
 
 
 def test_overview_counts_instances_per_layer_when_a_graph_is_given(ontology, req_extraction):
@@ -92,7 +97,7 @@ def test_overview_counts_instances_per_layer_when_a_graph_is_given(ontology, req
 
 def test_class_rows_cover_the_base_schema(ontology):
     """Base-layer classes only. Domain packs are reported separately, not counted here."""
-    assert len(class_rows(ontology)) == 63
+    assert len(class_rows(ontology)) == 70
 
 
 def test_class_rows_filter_by_layer(ontology):
@@ -133,6 +138,7 @@ def test_only_filter_selects_the_special_classes(ontology):
     assert {r["name"] for r in class_rows(ontology, only="abstract")} == {
         "EnterpriseConstruct",
         "Requirement",
+        "GovernanceInstrument",
         "ArchitectureElement",
     }
     assert {r["name"] for r in class_rows(ontology, only="mixin")} == {
@@ -331,9 +337,9 @@ def test_payload_is_complete_and_serialisable(ontology, req_extraction):
 
     payload = ontology_payload(ontology, req_extraction)
     assert set(payload) == {"overview", "classes", "enums", "subsets"}
-    assert len(payload["classes"]) == 63
-    assert len(payload["enums"]) == 42
-    assert len(payload["subsets"]) == 13
+    assert len(payload["classes"]) == 70
+    assert len(payload["enums"]) == 48
+    assert len(payload["subsets"]) == 15
     json.dumps(payload)  # must not contain anything a JSON encoder refuses
 
 
@@ -345,7 +351,7 @@ def test_payload_is_complete_and_serialisable(ontology, req_extraction):
 def test_the_pack_is_reported_separately_from_the_base_layers(ontology, ontology_dir):
     """The distinction the whole design rests on.
 
-    A pack must never appear as a fifth chain layer: the base layers are fixed and
+    A pack must never appear as a chain layer: the base layers are fixed and
     present for every Initiative, while a pack is conditional and swappable. Merging
     them would say the base ontology depends on one domain.
     """
@@ -355,19 +361,19 @@ def test_the_pack_is_reported_separately_from_the_base_layers(ontology, ontology
     view = ontology_overview(ontology, None, pack=pack)
 
     assert [layer["key"] for layer in view["layers"]] == [
-        "common", "enterprise", "requirements", "architecture",
+        "common", "enterprise", "requirements", "governance", "architecture",
     ]
     assert view["pack"]["spec"] == "payment_processing"
     assert view["pack"]["version"]
     # The base class list is untouched by the pack being present.
-    assert view["stats"]["classes"] == 63
+    assert view["stats"]["classes"] == 70
 
 
 def test_no_pack_reports_none_rather_than_an_empty_layer(ontology):
     view = ontology_overview(ontology)
     assert view["pack"] is None
     assert view["pack_instances"] == {}
-    assert view["stats"]["layers"] == 4
+    assert view["stats"]["layers"] == 5
 
 
 def test_the_coverage_census_counts_instances_of_pack_classes_only(ontology, ontology_dir):

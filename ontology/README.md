@@ -435,20 +435,40 @@ The ontology is split into layers with a **strict one-way import rule**. This
 keeps each layer reusable and prevents circular dependencies.
 
 ```
-enterprise_structure.yaml          (no imports except linkml:types)
+sea_common.yaml                    (identity and provenance; no imports but linkml:types)
+        ▲
+        │  imports
+enterprise_structure.yaml          (Product, System, Application, Platform)
         ▲
         │  imports
 requirements_base.yaml             (may reference Product/System/Application/Platform)
         ▲
         │  imports
-architecture_base.yaml  (future)   (may reference both enterprise + requirements)
+governance_base.yaml               (may reference requirements)
+        ▲
+        │  imports
+architecture_base.yaml             (may reference enterprise + requirements)
 ```
 
 | Layer | Contains | May reference |
 |-------|----------|---------------|
-| `enterprise_structure.yaml` | Product, SubProduct, System, Application, Platform, PlatformContract + topology/contract/lifecycle enums | nothing external |
+| `sea_common.yaml` | Identity, Provenance, ExternalReference + their enums | nothing external |
+| `enterprise_structure.yaml` | Product, SubProduct, System, Application, Platform, PlatformContract + topology/contract/lifecycle enums | sea_common |
 | `requirements_base.yaml` | Requirements hierarchy, business context, quality model | enterprise_structure |
-| `architecture_base.yaml` (future) | Components, patterns, deployments, interfaces | enterprise_structure + requirements_base |
+| `governance_base.yaml` | Strategy, Principle, Policy, Control, Risk, StandardClause + their enums | enterprise_structure + requirements_base |
+| `architecture_base.yaml` | C4-aligned elements, patterns, deployments, RequirementRealization | enterprise_structure + requirements_base |
+
+**Governance is a peer of architecture, not a layer beneath it.** A policy mandates
+a requirement (`Policy.mandates`), and a control discharges a standard clause
+(`Control.satisfies`) — but an architecture element does not yet reference them, so
+`architecture_base` does not import `governance_base`. When conformance slots land
+that import is added, and the prompt-budget consequence has to be handled then:
+class names are scoped by `visible_layer_keys`, so a layer architecture imports is a
+layer every architecture prompt pays for (YB-007).
+
+`governance_base.yaml` declares the **classes**, not ACME's content. The enterprise's
+actual policies, standards and controls are graph data in the workspace-level shared
+scope, the same split `catalogues/architecture_patterns.yaml` argues for.
 
 ### Why the split exists
 

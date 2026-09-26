@@ -156,6 +156,12 @@ def test_visible_layers_follow_imports():
     assert visible_layer_keys(model, "ontology/architecture_base.yaml") == frozenset(
         {"common", "enterprise", "requirements", "architecture"}
     )
+    # Governance is a peer concern, not a layer beneath architecture: the
+    # architecture schema does not import it, so an architecture run is not handed
+    # the policy/control vocabulary. `governance_base` imports requirements.
+    assert visible_layer_keys(model, "ontology/governance_base.yaml") == frozenset(
+        {"common", "enterprise", "requirements", "governance"}
+    )
     # No entry schema named means UNSCOPED, not "no vocabulary" — an agent whose
     # `ontology_path` is unset must keep working.
     assert visible_layer_keys(model, None) == frozenset()

@@ -89,7 +89,7 @@ def test_the_schema_reader_is_reachable_from_core_not_agents():
 
     from core.ontology import load_ontology
 
-    assert load_ontology(REPO_ROOT / "ontology").stats()["classes"] == 63
+    assert load_ontology(REPO_ROOT / "ontology").stats()["classes"] == 70
 
 
 def test_the_canonical_graph_is_reachable_from_core_not_agents():

@@ -1,0 +1,370 @@
+# ============================================================================
+# SEA Platform — Enterprise Governance Ontology (LinkML)
+# ============================================================================
+# The enterprise's OWN decisions and instruments: Strategy, Principle, Policy,
+# Control, Risk, and the clauses of a Standard.
+#
+# WHY THIS IS A LAYER OF ITS OWN
+# ------------------------------
+# `Regulation` and `Standard` already exist one layer down, and they are
+# deliberately *external* referents — named, versioned things outside the system
+# that a requirement answers to. This layer is the other half: what the
+# enterprise itself has decided, and what it does about it.
+#
+# That distinction is the whole point. "PCI-DSS v4.0" is a Regulation; "ACME
+# forbids direct database access from the DMZ, enforced by network segmentation"
+# is a Policy with a Control behind it. Collapsing the two loses the ability to
+# ask whether ACME's own controls actually discharge the obligations it is under.
+#
+# IMPORT DIRECTION
+# ----------------
+#   common -> enterprise -> requirements -> governance -> architecture
+#
+# Governance sits ABOVE requirements because a policy mandates requirements
+# (`Policy.mandates`) and answers a standard clause; it sits BELOW architecture
+# because an architecture element is what conforms to a clause and realises a
+# control. The one-way rule holds: nothing below references this layer.
+#
+# WHAT THIS FILE DELIBERATELY DOES NOT DO
+# ---------------------------------------
+# It declares the CLASSES, not ACME's instances. ACME's actual policies are graph
+# data curated into the workspace-level shared scope, not ontology content — the
+# same split `ontology/catalogues/architecture_patterns.yaml` argues for.
+# ============================================================================
+
+id: https://sea.platform/ontology/governance
+name: governance-base
+title: SEA Enterprise Governance Ontology
+version: 0.1.0
+description: >-
+  The enterprise's own governance instruments — Strategy, Principle, Policy,
+  Control and Risk — and the clauses of a Standard that architecture conforms
+  to. Distinct from the external referents (`Regulation`, `Standard`) declared
+  in the requirements layer.
+
+license: MIT
+default_curi_maps:
+  - semweb_context
+
+prefixes:
+  linkml: https://w3id.org/linkml/
+  sea-gov: https://sea.platform/ontology/governance/
+  sea-req: https://sea.platform/ontology/requirements/
+  schema: https://schema.org/
+  dcterms: http://purl.org/dc/terms/
+
+default_prefix: sea-gov
+default_range: string
+
+imports:
+  - linkml:types
+  - sea_common
+  - enterprise_structure
+  - requirements_base
+
+# ============================================================================
+# SUBSETS
+# ============================================================================
+
+subsets:
+
+  Governance:
+    description: Classes describing how the enterprise directs and constrains change.
+
+  Compliance:
+    description: Constructs that make an obligation checkable against architecture.
+
+# ============================================================================
+# ENUMERATIONS
+# ============================================================================
+
+enums:
+
+  GovernanceStatus:
+    description: >-
+      Where an instrument stands in its own lifecycle. Separate from
+      `VerificationStatus`, which is about whether a human has confirmed the
+      extraction: a policy can be correctly extracted and still be superseded.
+    permissible_values:
+      DRAFT:
+        description: Authored, not yet binding.
+      APPROVED:
+        description: Ratified but not yet in force.
+      ACTIVE:
+        description: In force and binding.
+      SUPERSEDED:
+        description: Replaced by a later instrument.
+      RETIRED:
+        description: Withdrawn, with no replacement.
+
+  PolicyDomain:
+    description: >-
+      The concern a policy governs. Aligns with the axes enterprises actually
+      organise governance by.
+    permissible_values:
+      TECHNOLOGY:
+        description: Technology choice, standards and lifecycle.
+      ENTERPRISE:
+        description: Architecture, integration and delivery practice.
+      SECURITY:
+        description: Cyber security, access and threat management.
+      DATA:
+        description: Data classification, residency, retention and privacy.
+      OPERATIONS:
+        description: Run, support and resilience obligations.
+
+  ControlNature:
+    description: >-
+      How a control acts, following the standard
+      preventive / detective / corrective split.
+    permissible_values:
+      PREVENTIVE:
+        description: Stops the unwanted event occurring.
+      DETECTIVE:
+        description: Finds it after it has occurred.
+      CORRECTIVE:
+        description: Limits or repairs the consequence.
+
+  RiskLevel:
+    description: Assessed severity of a risk, as the source states it.
+    permissible_values:
+      LOW:
+        description: Tolerable without specific action.
+      MEDIUM:
+        description: Managed and monitored.
+      HIGH:
+        description: Requires a control and an owner.
+      CRITICAL:
+        description: Blocks approval until mitigated.
+
+  ClauseLevel:
+    description: >-
+      How binding a clause is. Kept explicit because "must" and "should" are
+      different obligations and an audit reads the difference: a missing
+      MANDATORY clause is a finding, a missing RECOMMENDED one is not.
+    permissible_values:
+      MANDATORY:
+        description: 'Must — absence is a conformance gap.'
+      RECOMMENDED:
+        description: 'Should — absence is a deviation to justify.'
+      OPTIONAL:
+        description: 'May — no conformance claim either way.'
+
+  ControlDomain:
+    description: >-
+      The concern a control protects, mirroring PolicyDomain so a policy and its
+      controls can be grouped.
+    permissible_values:
+      TECHNOLOGY:
+        description: Technology and platform controls.
+      SECURITY:
+        description: Cyber security controls.
+      DATA:
+        description: Data protection controls.
+      OPERATIONS:
+        description: Operational and resilience controls.
+      ENTERPRISE:
+        description: Architecture and delivery controls.
+
+# ============================================================================
+# CLASSES
+# ============================================================================
+
+classes:
+
+  GovernanceInstrument:
+    description: >-
+      Anything the enterprise adopts to direct or constrain change — a strategy,
+      principle, policy, control or risk. Abstract: it exists so the shared
+      attributes (owner, lifecycle, provenance) are declared once, and so a
+      query can range over "everything the enterprise has decided".
+    abstract: true
+    mixins:
+      - ExternallyReferenced
+    attributes:
+      id:
+        identifier: true
+        description: Stable identifier for the instrument, e.g. "POL-SEC-014".
+        range: string
+        required: true
+      name:
+        range: string
+        required: true
+      description:
+        description: What the instrument says or does.
+        range: string
+      owner:
+        description: >-
+          Who is accountable for it — a role, board or organisational unit
+          ("Architecture Board", "CISO"). Free text while the organisational
+          unit construct is parked (YB-008).
+        range: string
+      status:
+        range: GovernanceStatus
+      effective_from:
+        description: When it came into force, as stated.
+        range: string
+      effective_to:
+        description: When it stopped applying. Empty means still in force.
+        range: string
+      version:
+        description: The revision the source states ("2.1", "2026-03").
+        range: string
+
+  Strategy:
+    description: >-
+      A long-horizon direction the enterprise has chosen — where it intends to
+      go and why. Distinct from `BusinessGoal`, which states an outcome: a
+      strategy is the chosen route to outcomes, and initiatives answer to it.
+    is_a: GovernanceInstrument
+    attributes:
+      time_horizon:
+        description: The period it covers, as stated ("2026-2029", "3 years").
+        range: string
+      drivers:
+        description: What motivates it — regulation, cost, market, technology shift.
+        range: string
+        multivalued: true
+      directs:
+        description: Capabilities or goals the strategy directs.
+        range: BusinessCapability
+        multivalued: true
+
+  Principle:
+    description: >-
+      A durable rule that shapes decisions rather than dictating a specific
+      implementation — "zero trust", "no shared databases", "buy before build".
+      Principles are what a policy operationalises and what makes two teams'
+      decisions reconcilable.
+    is_a: GovernanceInstrument
+    attributes:
+      rationale:
+        description: Why the enterprise holds it. Without this a principle is a slogan.
+        range: string
+      implications:
+        description: What it rules out or requires in practice.
+        range: string
+        multivalued: true
+      informs:
+        description: Policies that operationalise this principle.
+        range: Policy
+        multivalued: true
+
+  Policy:
+    description: >-
+      A binding rule the enterprise imposes, with a stated scope and an owner.
+      The operational floor beneath a principle: checkable, and answerable by
+      controls.
+    is_a: GovernanceInstrument
+    attributes:
+      policy_domain:
+        range: PolicyDomain
+      statement:
+        description: The rule itself, as the source states it.
+        range: string
+      applies_to_scope:
+        description: >-
+          What the policy covers, as stated ("all CDE systems", "customer-facing
+          APIs", "the payments domain"). Free text on purpose: scope is worded
+          in more ways than an enum holds, and deriving membership from a rule is
+          a later concern.
+        range: string
+        multivalued: true
+      mandates:
+        description: Requirements this policy imposes. The link from governance to REQ-G.
+        range: Requirement
+        multivalued: true
+      enforced_by:
+        description: Controls that discharge it. A policy with no control is an intention.
+        range: Control
+        multivalued: true
+
+  Control:
+    description: >-
+      Something the enterprise does to discharge an obligation — a safeguard,
+      not a requirement. First-class deliberately: a `ConstraintRequirement`
+      states the obligation, a Control is what satisfies it, and collapsing them
+      makes "which control satisfies this clause?" unanswerable, which is the
+      main audit question.
+
+      KEPT ALONGSIDE `StandardClause` AS A CONFORMANCE TARGET. An architecture
+      element answers to both, and they are different claims: conforming to a
+      clause is a statement about the external standard, realising a control is a
+      statement about the enterprise's own decision. Keeping them apart is what
+      lets "which clause has no control?" (a governance gap) be asked separately
+      from "which control has no implementation?" (a deployment gap). The
+      architecture-side slots that make those questions answerable are NOT wired
+      yet — see YB-047, where the prompt-budget consequence is the open part.
+    is_a: GovernanceInstrument
+    attributes:
+      control_nature:
+        range: ControlNature
+      control_domain:
+        range: ControlDomain
+      implementation_guidance:
+        description: How it is expected to be implemented, where the source says.
+        range: string
+      verification_method:
+        description: >-
+          How conformance is evidenced — a test, an attestation, a scan, a
+          configuration check. Empty means the control cannot currently be
+          verified, which is itself worth reporting.
+        range: string
+      satisfies:
+        description: The standard clauses this control discharges.
+        range: StandardClause
+        multivalued: true
+      mitigates:
+        description: Risks this control addresses.
+        range: Risk
+        multivalued: true
+
+  Risk:
+    description: >-
+      Something the enterprise has assessed as a threat to its objectives,
+      managed through controls. Modelling it is what lets a control be justified
+      rather than merely present.
+    is_a: GovernanceInstrument
+    attributes:
+      risk_level:
+        range: RiskLevel
+      likelihood:
+        description: How likely, as the source states it. Free text — scales differ.
+        range: string
+      impact:
+        description: What the consequence would be.
+        range: string
+      mitigated_by:
+        description: Controls that address it.
+        range: Control
+        multivalued: true
+
+  StandardClause:
+    description: >-
+      A numbered part of a `Standard`, so conformance can be claimed and audited
+      per clause rather than in bulk. Without this a graph can record "conforms
+      to ISO/IEC 27001" but not "satisfies A.8.3.1" — and a clause is what an
+      audit actually asks for.
+
+      Kept alongside `Control` as a conformance target: a clause is the external
+      obligation, a control is the enterprise's answer to it. See `Control` for
+      why the two claims stay separate.
+    mixins:
+      - ExternallyReferenced
+    attributes:
+      id:
+        identifier: true
+        description: The clause identifier as the standard prints it ("A.8.3.1", "Req-8.3.1").
+        range: string
+        required: true
+      standard:
+        description: The standard this clause belongs to.
+        range: Standard
+        required: true
+      title:
+        range: string
+      text:
+        description: The clause text, or the part of it the obligation rests on.
+        range: string
+      level:
+        range: ClauseLevel

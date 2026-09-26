@@ -17,11 +17,12 @@ from core.ontology import LAYER_ORDER, OntologyError, load_ontology
 # ============================================================================
 
 
-def test_all_four_layers_load_in_dependency_order(ontology):
+def test_all_layers_load_in_dependency_order(ontology):
     assert [layer.key for layer in ontology.layers] == [
         "common",
         "enterprise",
         "requirements",
+        "governance",
         "architecture",
     ]
 
@@ -49,13 +50,19 @@ def test_totals(ontology):
     named by sources in more ways than a closed list can hold. Without them a
     document naming GDPR or PCI-DSS v4.0 had nowhere to put the instrument but
     `Concept` — the graph's own marker for "unclassified".
+
+    The governance layer is the newest: +7 classes (`GovernanceInstrument`, and
+    `Strategy`, `Principle`, `Policy`, `Control`, `Risk`, `StandardClause` beneath
+    it), +6 enums, +2 subsets, and a fifth base layer. It is the enterprise's own
+    instruments, as distinct from the external `Regulation`/`Standard` referents
+    one layer down — see `ontology/governance_base.yaml`.
     """
     stats = ontology.stats()
-    assert stats["classes"] == 63
-    assert stats["enums"] == 42
-    assert stats["subsets"] == 13
-    assert stats["layers"] == 4
-    assert stats["abstract"] == 3
+    assert stats["classes"] == 70
+    assert stats["enums"] == 48
+    assert stats["subsets"] == 15
+    assert stats["layers"] == 5
+    assert stats["abstract"] == 4
     assert stats["mixins"] == 2
 
 
@@ -64,6 +71,7 @@ def test_classes_are_attributed_to_the_layer_that_declares_them(ontology):
         "common": 4,
         "enterprise": 7,
         "requirements": 31,
+        "governance": 7,
         "architecture": 21,
     }
     assert ontology.get("Provenance").layer == "common"
@@ -75,6 +83,11 @@ def test_classes_are_attributed_to_the_layer_that_declares_them(ontology):
     # around one domain — the failure the layer split exists to prevent.
     assert ontology.get("Regulation").layer == "requirements"
     assert ontology.get("Standard").layer == "requirements"
+    # The enterprise's OWN instruments are a layer above: a policy mandates a
+    # requirement, and architecture conforms to a clause or realises a control.
+    assert ontology.get("Policy").layer == "governance"
+    assert ontology.get("Control").layer == "governance"
+    assert ontology.get("StandardClause").layer == "governance"
     assert ontology.get("Container").layer == "architecture"
     assert ontology.get("DesignTechnique").layer == "architecture"
     assert ontology.get("EngineeringConvention").layer == "architecture"
@@ -114,7 +127,9 @@ def test_the_schema_is_internally_consistent(ontology):
 
 def test_abstract_classes_exist_only_to_be_inherited(ontology):
     abstract = {c.name for c in ontology.classes.values() if c.abstract}
-    assert abstract == {"EnterpriseConstruct", "Requirement", "ArchitectureElement"}
+    assert abstract == {
+        "EnterpriseConstruct", "Requirement", "ArchitectureElement", "GovernanceInstrument",
+    }
 
 
 def test_mixins_are_marked_as_mixins_not_supertypes(ontology):
@@ -308,17 +323,28 @@ def test_resolution_matches_linkml(ontology, ontology_dir):
 
     Asserting against my own expectations would only prove I am consistently wrong.
     This is the authoritative implementation of the same semantics, so agreement
-    across all 58 classes is the real guarantee.
+    across every class is the real guarantee.
+
+    One view per LAYER, not one for the whole chain. Governance and architecture are
+    peers — architecture does not import governance, because it has no conformance
+    slot yet and importing it would put the policy vocabulary into every
+    architecture prompt (YB-007). So no single root reaches every class, and each
+    class is checked against the layer that declares it.
     """
-    schema_view = pytest.importorskip("linkml_runtime").SchemaView(
-        str(ontology_dir / "architecture_base.yaml")
-    )
-    schema_view.merge_imports()
+    linkml = pytest.importorskip("linkml_runtime")
+
+    views = {}
+    for _key, filename, _role in LAYER_ORDER:
+        view = linkml.SchemaView(str(ontology_dir / filename))
+        view.merge_imports()
+        views[filename] = view
+    layer_file = {layer.key: layer.filename for layer in ontology.layers}
 
     ancestor_mismatches = []
     slot_mismatches = []
 
     for name in sorted(ontology.classes):
+        schema_view = views[layer_file[ontology.get(name).layer]]
         if set(schema_view.class_ancestors(name)) != set(ontology.ancestors(name)):
             ancestor_mismatches.append(name)
 

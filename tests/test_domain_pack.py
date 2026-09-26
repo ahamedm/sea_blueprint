@@ -9,7 +9,7 @@ Two things are being defended here, and they fail in different directions:
    (relative to the importing file's directory, missing import skipped with a bare
    `continue`), so it is tested as a regression rather than as a nicety.
 
-2. **The base ontology stays generic.** The pack must not leak into the four base
+2. **The base ontology stays generic.** The pack must not leak into the base
    layers, and an Initiative with NO pack must remain a supported path. The whole
    point of the layer is that `hr.yaml` needs zero code changes; a test asserting
    payments work would not notice if the base quietly acquired a payment concept.
@@ -49,18 +49,24 @@ def pack(ontology_dir):
 # ============================================================================
 
 
-def test_the_base_chain_is_still_exactly_four_layers(ontology):
-    """A pack is an overlay, not a fifth link. If it were in LAYER_ORDER the loader
+def test_the_base_chain_is_still_exactly_five_layers(ontology):
+    """A pack is an overlay, not a chain link. If it were in LAYER_ORDER the loader
     would demand one specific domain forever and per-Initiative selection would be
-    impossible, because the loader cache is keyed by directory alone."""
+    impossible, because the loader cache is keyed by directory alone.
+
+    Five base layers now: the governance layer (Policy, Control, Standard clauses)
+    sits between requirements and architecture. A pack is still a separate,
+    conditional overlay and is NOT one of these.
+    """
     assert [layer.key for layer in ontology.layers] == [
         "common",
         "enterprise",
         "requirements",
+        "governance",
         "architecture",
     ]
-    assert ontology.stats()["layers"] == 4
-    assert ontology.stats()["classes"] == 63
+    assert ontology.stats()["layers"] == 5
+    assert ontology.stats()["classes"] == 70
 
 
 def test_no_base_layer_declares_a_domain_class(ontology, pack):

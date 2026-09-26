@@ -97,6 +97,12 @@ LAYER_ORDER: Tuple[Tuple[str, str, str], ...] = (
         "REQ-G — the requirements hierarchy, business context, and the ISO 25010 quality " "model.",
     ),
     (
+        "governance",
+        "governance_base.yaml",
+        "The enterprise's own instruments — Strategy, Principle, Policy, Control, Risk — "
+        "and the clauses of a Standard that architecture conforms to.",
+    ),
+    (
         "architecture",
         "architecture_base.yaml",
         "ARC-G — C4-aligned architecture elements and RequirementRealization, the "
@@ -108,6 +114,7 @@ LAYER_LABELS = {
     "common": "Common",
     "enterprise": "Enterprise",
     "requirements": "Business Requirements",
+    "governance": "Governance",
     "architecture": "Architecture",
 }
 
@@ -728,14 +735,14 @@ def _load_cached(resolved_root: str) -> OntologyModel:
 #
 # A domain pack is the vocabulary of the SUBJECT MATTER (Payment, PAN, Merchant,
 # Chargeback), as opposed to the vocabulary of the artifact (Requirement,
-# Goal, Container). It is deliberately NOT a fifth entry in LAYER_ORDER:
+# Goal, Container). It is deliberately NOT a further entry in LAYER_ORDER:
 #
 #   * LAYER_ORDER is the fixed base chain, present for every Initiative. A pack is
 #     conditional — an Initiative may select none at all, and that must stay a
 #     first-class state rather than a degraded one.
 #   * `_load_cached` is keyed by directory alone, so a pack baked into it could not
 #     be swapped per Initiative without restarting the process.
-#   * tests/test_ontology.py asserts exactly four base layers. A pack is an
+#   * tests/test_ontology.py asserts exactly five base layers. A pack is an
 #     addition to the *working vocabulary*, not a change to the base ontology.
 #
 # So a pack is loaded separately, cached by its own path, and *overlaid* on a base

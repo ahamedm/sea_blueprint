@@ -725,8 +725,20 @@ class SEABaseAgent:
             # Load from the file's own directory so `imports:` resolve against the
             # schema's home, which is what a schema author means by them.
             model = load_ontology(Path(root).resolve().parent)
-            classes.extend(model.classes.keys())
-            enums.extend(model.enums.keys())
+            # Scope to the layers this entry schema actually imports — the same
+            # rule the predicate vocabulary already follows. Without it every
+            # profile is handed every layer's classes, so adding a base layer
+            # taxes every prompt: the governance layer alone pushed the
+            # architecture scaffolding past the document it describes (YB-007).
+            visible = visible_layer_keys(model, root)
+            classes.extend(
+                name for name, spec in model.classes.items()
+                if not visible or spec.layer in visible
+            )
+            enums.extend(
+                name for name, spec in model.enums.items()
+                if not visible or spec.layer in visible
+            )
         else:
             # No entry schema: fall back to the flat YAML the caller supplied.
             classes.extend((self.ontology or {}).get("classes") or {})

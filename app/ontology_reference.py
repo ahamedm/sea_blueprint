@@ -106,7 +106,7 @@ def _node_ref(model: OntologyModel, name: str) -> Dict[str, Any]:
 
 
 def layer_chain(model: OntologyModel, graph=None) -> List[Dict[str, Any]]:
-    """The four layers in dependency order, with their imports resolved to labels.
+    """The base layers in dependency order, with their imports resolved to labels.
 
     This is the ontology's own architecture and the first thing a reader needs:
     the layers exist because of a one-way import rule, and each one adds a
@@ -136,9 +136,9 @@ def ontology_overview(model: OntologyModel, graph=None, pack=None) -> Dict[str, 
     """The whole reference page's overview.
 
     `pack` is the domain overlay in force for the graph being viewed, if any. It is
-    reported SEPARATELY from `layers` and never merged into them: the four base
+    reported SEPARATELY from `layers` and never merged into them: the base
     layers are fixed and present for every Initiative, while a pack is conditional
-    and swappable per Initiative. Drawing a pack as "layer 5" would say the base
+    and swappable per Initiative. Drawing a pack as another layer would say the base
     ontology depends on one domain, which is the opposite of the design.
     """
     stats = model.stats()

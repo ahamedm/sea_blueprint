@@ -36,6 +36,7 @@ _ONTOLOGY_FILES = (
     "sea_common",
     "enterprise_structure",
     "requirements_base",
+    "governance_base",
     "architecture_base",
 )
 

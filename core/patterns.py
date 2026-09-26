@@ -22,7 +22,7 @@ WHY IT IS NOT IN THE ONTOLOGY
 vocabularies it ranges over (`PatternCategory`, `ArchitectureStyleName`). This
 file holds INSTANCES of that class. The two have different edit cadences — adding
 a pattern is routine, changing a class is a schema version — and keeping them
-apart leaves `load_ontology`'s fixed four-file chain and the domain-pack
+apart leaves `load_ontology`'s fixed base chain and the domain-pack
 discovery untouched.
 
 WHAT IT DOES AND DOES NOT CLAIM
