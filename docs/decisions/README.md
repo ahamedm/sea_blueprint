@@ -25,3 +25,8 @@ Closed work from the TODO. Each record preserves its original write-up verbatim;
 | [ADR-0018](ADR-0018-cross-graph-vocabulary.md) | The cross-graph vocabulary — one routed name per relationship, and the profile that may speak it | 2026-09-26 | — |
 | [ADR-0019](ADR-0019-split-joined-enum-values.md) | A scalar enum field written as a list is split at ingest, not stored as one token | 2026-09-26 | — |
 | [ADR-0020](ADR-0020-techniques-pass-closed-list.md) | The techniques pass answers a closed list of the quality attributes REQ-G states | 2026-09-26 | — |
+| [ADR-0021](ADR-0021-hosted-endpoint-contract.md) | The model-call contract against a hosted endpoint — thinking mode, which key, retries | 2026-09-26 | — |
+| [ADR-0022](ADR-0022-independent-model-calls.md) | One agent, many independent requests — the model call no longer carries its transcript | 2026-09-26 | — |
+| [ADR-0023](ADR-0023-token-and-cost-accounting.md) | Per-run token and cost accounting — read per invocation, priced from configuration | 2026-09-26 | — |
+| [ADR-0024](ADR-0024-requirements-profile-chunks.md) | The requirements profile chunks like the architecture profile — same chunker, same merge | 2026-09-26 | — |
+| [ADR-0025](ADR-0025-headless-reconciliation.md) | Headless reconciliation — a dry run by default, and the declines are reported | 2026-09-26 | — |

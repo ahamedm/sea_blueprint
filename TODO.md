@@ -3,7 +3,7 @@
 
 Open work only. Each item is one file under `docs/todos/entries/` — that file is the source of truth and this index is generated from it.
 
-**16 active · 1 parked · 2 superseded · 20 closed records**
+**16 active · 1 parked · 2 superseded · 25 closed records**
 
 | Where | What |
 |---|---|
@@ -98,5 +98,10 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [ADR-0018](docs/decisions/ADR-0018-cross-graph-vocabulary.md) | The cross-graph vocabulary — one routed name per relationship, and the profile that may speak it | 2026-09-26 | item — |
 | [ADR-0019](docs/decisions/ADR-0019-split-joined-enum-values.md) | A scalar enum field written as a list is split at ingest, not stored as one token | 2026-09-26 | item — |
 | [ADR-0020](docs/decisions/ADR-0020-techniques-pass-closed-list.md) | The techniques pass answers a closed list of the quality attributes REQ-G states | 2026-09-26 | item — |
+| [ADR-0021](docs/decisions/ADR-0021-hosted-endpoint-contract.md) | The model-call contract against a hosted endpoint — thinking mode, which key, retries | 2026-09-26 | item — |
+| [ADR-0022](docs/decisions/ADR-0022-independent-model-calls.md) | One agent, many independent requests — the model call no longer carries its transcript | 2026-09-26 | item — |
+| [ADR-0023](docs/decisions/ADR-0023-token-and-cost-accounting.md) | Per-run token and cost accounting — read per invocation, priced from configuration | 2026-09-26 | item — |
+| [ADR-0024](docs/decisions/ADR-0024-requirements-profile-chunks.md) | The requirements profile chunks like the architecture profile — same chunker, same merge | 2026-09-26 | item — |
+| [ADR-0025](docs/decisions/ADR-0025-headless-reconciliation.md) | Headless reconciliation — a dry run by default, and the declines are reported | 2026-09-26 | item — |
 
 The index is generated from the entries — do not edit `TODO.md` by hand.

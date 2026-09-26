@@ -42,6 +42,11 @@
 | — | The cross-graph vocabulary — one routed name per relationship, and the profile that may speak it | [ADR-0018](../decisions/ADR-0018-cross-graph-vocabulary.md) | record |
 | — | A scalar enum field written as a list is split at ingest, not stored as one token | [ADR-0019](../decisions/ADR-0019-split-joined-enum-values.md) | record |
 | — | The techniques pass answers a closed list of the quality attributes REQ-G states | [ADR-0020](../decisions/ADR-0020-techniques-pass-closed-list.md) | record |
+| — | The model-call contract against a hosted endpoint — thinking mode, which key, retries | [ADR-0021](../decisions/ADR-0021-hosted-endpoint-contract.md) | record |
+| — | One agent, many independent requests — the model call no longer carries its transcript | [ADR-0022](../decisions/ADR-0022-independent-model-calls.md) | record |
+| — | Per-run token and cost accounting — read per invocation, priced from configuration | [ADR-0023](../decisions/ADR-0023-token-and-cost-accounting.md) | record |
+| — | The requirements profile chunks like the architecture profile — same chunker, same merge | [ADR-0024](../decisions/ADR-0024-requirements-profile-chunks.md) | record |
+| — | Headless reconciliation — a dry run by default, and the declines are reported | [ADR-0025](../decisions/ADR-0025-headless-reconciliation.md) | record |
 | None | Semantic reference matching — bridge the paraphrase the deterministic scorer cannot | [YB-027](entries/YB-027-semantic-reference-matching.md) | entry (open) |
 | None | Remove a fact the extractor invented — and stop a dispute withholding the audit | [YB-028](entries/YB-028-remove-extracted-facts.md) | entry (done) |
 | None | Quality-attribute views for the map — the architect's primary focus has no view of its own | [YB-029](entries/YB-029-quality-attribute-views.md) | entry (done) |
