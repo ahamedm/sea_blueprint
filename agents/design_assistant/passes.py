@@ -190,6 +190,25 @@ class PatternPassResult(BaseModel):
     triples: List[ExtractedTriple] = Field(default_factory=list)
 
 
+# THE ONE PASS THAT RUNS WARMER THAN THE PROFILE DEFAULT (0.3).
+#
+# Everything else in this profile transcribes: which containers the requirements
+# imply, what talks to what, which mechanism delivers an attribute, which
+# requirement justifies an element. Those produce NAMES that merge into the graph
+# and are diffed between runs, so their variance is a correctness cost. The
+# patterns pass is the one act here that is a genuine CHOICE among alternatives
+# rather than a reading of the input, and its names are pinned by the catalogue —
+# the model copies "Circuit Breaker" verbatim, so a warmer sample cannot corrupt
+# the identifier the way it could a container name.
+#
+# This is a HYPOTHESIS, not a measurement. YB-020's outstanding acceptance is
+# exactly this kind of re-measurement, and the counter-argument is real: on a
+# small model a higher temperature buys incoherence as readily as it buys
+# diversity. If the patterns pass starts failing the schema, this is the first
+# number to put back.
+PATTERN_PASS_TEMPERATURE = 0.6
+
+
 def design_pattern_pass(catalogue_context: str) -> PassSpec:
     """The patterns pass, with the catalogue's names interpolated.
 
@@ -200,6 +219,7 @@ def design_pattern_pass(catalogue_context: str) -> PassSpec:
     return PassSpec(
         name="patterns",
         schema=PatternPassResult,
+        temperature=PATTERN_PASS_TEMPERATURE,
         output_keys={"architecture_patterns": "architecture_patterns", "triples": "triples"},
         instructions="""# Task: choose the named patterns this design adopts
 

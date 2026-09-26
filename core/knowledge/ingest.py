@@ -835,9 +835,25 @@ def _pass_records_from_metadata(raw: Any) -> List[PassRecord]:
                 elapsed=float(item.get("elapsed") or 0.0),
                 error=str(item.get("error") or ""),
                 triples_produced=int(item.get("triples_produced") or 0),
+                temperature=_optional_temperature(item.get("temperature")),
             )
         )
     return out
+
+
+def _optional_temperature(value: Any) -> Optional[float]:
+    """A per-pass temperature, or None when the record does not carry one.
+
+    Tolerant on purpose. Older runs predate the field, and a stored run is
+    historical data — a malformed number must degrade to "not recorded" rather
+    than make an otherwise readable revision unloadable.
+    """
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def completeness_note(graph: KnowledgeGraph) -> str:

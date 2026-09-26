@@ -306,6 +306,7 @@ class DesignAssistantAgent(ArchitectureExtractionAgent):
                 elapsed=round(outcome.elapsed, 1),
                 error=(outcome.error or "")[:200],
                 triples_produced=triples,
+                temperature=outcome.temperature,
             ))
         return records
 

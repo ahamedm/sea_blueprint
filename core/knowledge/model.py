@@ -324,6 +324,11 @@ class PassRecord:
     elapsed: float = 0.0
     error: str = ""
     triples_produced: int = 0
+    temperature: Optional[float] = None
+    """The per-pass temperature override, when there was one. None means the pass
+    ran at the agent's temperature. Recorded because a proposal whose quality is
+    later questioned should be traceable to the sampler that produced it, and
+    because it is the one sampling knob that varies BETWEEN passes of one run."""
 
 
 @dataclass

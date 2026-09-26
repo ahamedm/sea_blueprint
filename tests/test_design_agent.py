@@ -222,6 +222,68 @@ def test_pass_records_are_real_and_completeness_is_not_a_guess():
     assert result.metadata["failed_calls"] == 0
 
 
+def test_only_the_generative_pass_runs_warmer_than_the_profile_default():
+    """The split, as a test.
+
+    Five of the six passes produce NAMES that merge into the graph and get diffed
+    between runs, so their variance is a correctness cost and they inherit the
+    profile's 0.3. The patterns pass is the one act here that is a choice among
+    alternatives, and its names are pinned by the catalogue — so it is the one
+    place a warmer sample is cheap.
+    """
+    from agents.design_assistant.passes import (
+        PATTERN_PASS_TEMPERATURE,
+        design_passes,
+    )
+
+    specs = {spec.name: spec for spec in design_passes("")}
+    assert specs["patterns"].temperature == PATTERN_PASS_TEMPERATURE == 0.6
+    for name in ("structure", "connections", "techniques", "scenarios", "traceability"):
+        assert specs[name].temperature is None, (
+            f"{name} must inherit the profile default — it emits merge names"
+        )
+
+
+def test_the_run_record_says_which_pass_was_warm():
+    """A proposal whose quality is questioned should be traceable to its sampler,
+    and the temperature is the one sampling knob that varies WITHIN a run."""
+    agent = make_agent(good_handler())
+    result = agent.run({"graph": requirement_graph()})
+
+    temperatures = {p["pass_name"]: p.get("temperature") for p in result.metadata["passes"]}
+    assert temperatures["patterns"] == 0.6
+    assert temperatures["structure"] is None
+    assert temperatures["traceability"] is None
+
+
+def test_the_patterns_pass_actually_runs_at_its_temperature():
+    """End to end: the override is IN FORCE during the patterns call and gone for
+    the passes around it — not merely declared on the spec.
+
+    Reads the live model config from inside the call, which is the only vantage
+    point where "is the sampler actually set" and "was it put back" are both
+    observable. A spec field that `run_passes` never applied would pass every
+    other test in this file.
+    """
+    observed = {}
+    agent = make_agent(lambda prompt, schema: None)     # replaced below
+
+    def handler(prompt, schema):
+        params = agent.agent.model.config.get("params") or {}
+        observed[schema] = params.get("temperature")
+        return good_handler()(prompt, schema)
+
+    agent.invoke_structured = handler
+    result = agent.run({"graph": requirement_graph()})
+
+    assert result.success, result.errors
+    assert observed[PatternPassResult] == 0.6
+    assert observed[StructurePassResult] is None
+    assert observed[TraceabilityPassResult] is None
+    # ...and the model was handed back to the profile default afterwards.
+    assert (agent.agent.model.config.get("params") or {}).get("temperature") is None
+
+
 def test_a_failed_pass_does_not_discard_the_others():
     """One pass coming back empty must not cost the run its other five."""
     def handler(prompt, schema):
@@ -449,3 +511,28 @@ def test_a_text_fallback_run_reports_partial_not_complete():
     )
     assert run.completeness in ("PARTIAL", "UNKNOWN", "FAILED")
     assert run.completeness != "COMPLETE"
+
+
+def test_a_model_that_loops_is_reported_as_a_loop_not_as_empty():
+    """The live failure: the model restated its plan instead of answering.
+
+    Recorded as `empty` this reads as "the model had nothing to say", which points
+    the next reader at the prompt. The truth was a degenerate generation, and the
+    cause was downstream — sampling parameters that never reached the server. The
+    outcome name is what makes that debuggable, so it is asserted here rather than
+    left to the log.
+    """
+    from tests.test_generation_bounds import LOOPING_ANSWER
+
+    def handler(prompt, schema):
+        return None                          # structured path yields nothing
+
+    agent = make_agent(handler)
+    agent.invoke = lambda prompt: LOOPING_ANSWER
+    result = agent.run({"graph": requirement_graph()})
+
+    states = {p["pass_name"]: p for p in result.metadata["passes"]}
+    looped = [p for p in states.values() if p["outcome"] == "failed"]
+    assert looped, [p["outcome"] for p in states.values()]
+    assert "repeated itself" in looped[0]["error"]
+    assert result.metadata["empty_calls"] == 0

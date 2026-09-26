@@ -3,7 +3,8 @@ Configuration management for SEA agents.
 """
 
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any, Dict
+import json
 import yaml
 from pydantic import BaseModel, Field
 import os
@@ -95,6 +96,17 @@ class EnvironmentConfig(BaseModel):
     max_structured_turns: int = Field(default=3, alias="MAX_STRUCTURED_TURNS")
     structured_timeout_seconds: int = Field(default=180, alias="STRUCTURED_TIMEOUT_SECONDS")
     request_timeout_seconds: int = Field(default=300, alias="REQUEST_TIMEOUT_SECONDS")
+
+    # Generation bounds. Per-agent `temperature` / `max_tokens` live in the config
+    # blocks below and now actually reach the model; this is the escape hatch for
+    # request parameters those blocks do not name, passed to the server verbatim.
+    # A local server's OWN defaults are the hazard — llama.cpp ships temperature
+    # 1.0, `repeat_penalty` 1.0 (off), DRY off and `n_predict -1` (unbounded),
+    # which is a repetition loop waiting for a small model to find it.
+    # Example: MODEL_EXTRA_PARAMS={"repeat_penalty": 1.1, "dry_multiplier": 0.8}
+    model_extra_params: Dict[str, Any] = Field(
+        default_factory=dict, alias="MODEL_EXTRA_PARAMS"
+    )
     
     class Config:
         env_file = ".env"
@@ -118,6 +130,29 @@ def load_environment() -> EnvironmentConfig:
             return default
         return raw.strip().lower() in ("1", "true", "yes", "on")
 
+    def _as_json_object(name: str, default: Dict[str, Any]) -> Dict[str, Any]:
+        """Parse a JSON object from the environment, or explain why it will not.
+
+        A malformed value is raised rather than ignored: silently dropping the
+        parameters would reproduce exactly the bug this setting exists to fix — a
+        bound the operator believes is in force and the model never receives.
+        """
+        raw = (os.getenv(name) or "").strip()
+        if not raw:
+            return dict(default)
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"{name} must be a JSON object of request parameters, e.g. "
+                f'{{"repeat_penalty": 1.1}} — {exc}'
+            ) from exc
+        if not isinstance(parsed, dict):
+            raise ValueError(
+                f"{name} must be a JSON OBJECT, not {type(parsed).__name__}: {raw!r}"
+            )
+        return parsed
+
     config_data = {
         "anthropic_api_key": os.getenv("ANTHROPIC_API_KEY", ""),
         "openai_api_key": os.getenv("OPENAI_API_KEY", ""),
@@ -138,6 +173,7 @@ def load_environment() -> EnvironmentConfig:
         "max_structured_turns": int(os.getenv("MAX_STRUCTURED_TURNS", "3")),
         "structured_timeout_seconds": int(os.getenv("STRUCTURED_TIMEOUT_SECONDS", "180")),
         "request_timeout_seconds": int(os.getenv("REQUEST_TIMEOUT_SECONDS", "300")),
+        "model_extra_params": _as_json_object("MODEL_EXTRA_PARAMS", {}),
     }
     
     return EnvironmentConfig(**config_data)
@@ -157,6 +193,9 @@ def get_default_agent_config(agent_name: str) -> Dict[str, Any]:
     console.log(f"[dim]  OPENAI_BASEURL: {env_config.openai_baseurl or '[empty]'}[/dim]")
     console.log(f"[dim]  LOCAL_MODEL_ID: {env_config.local_model_id or '[empty]'}[/dim]")
     console.log(f"[dim]  DEFAULT_MODEL_PROVIDER: {env_config.default_model_provider}[/dim]")
+    console.log(
+        f"[dim]  MODEL_EXTRA_PARAMS: {env_config.model_extra_params or '[none]'}[/dim]"
+    )
     
     # Determine model provider and settings
     base_url = env_config.get_openai_base_url()
@@ -261,6 +300,12 @@ Output should be structured as JSON with triples and metadata.""",
             # records through the same pass harness as architecture extraction, and
             # a schema-constrained pass benefits from the same low variance that
             # profile runs at. Temperature is not where a design should be creative.
+            #
+            # The PROFILE default, not a per-pass one. `design_pattern_pass` raises
+            # its own pass to 0.6 (`PATTERN_PASS_TEMPERATURE`) — the patterns pass is
+            # a choice among alternatives whose names the catalogue pins, whereas
+            # the other five emit merge names that have to stay stable. Expect to
+            # see 0.6 in that pass's log line and 0.3 in the rest.
             "temperature": 0.3,
             "max_tokens": 8192,
             "system_prompt": """You are the Design Assistant Agent for the SEA Platform.
@@ -353,6 +398,10 @@ architecture the document does not describe.""",
         "max_structured_turns": env_config.max_structured_turns,
         "structured_timeout_seconds": env_config.structured_timeout_seconds,
         "request_timeout_seconds": env_config.request_timeout_seconds,
+        # Sampling parameters the per-agent blocks do not name, passed through to
+        # the server verbatim. Uniform, because a repetition loop is not specific
+        # to one profile: the Designer found it, every agent is exposed to it.
+        "extra_params": dict(env_config.model_extra_params),
         # The ontology root, so `imports:` resolve and packs are found regardless of
         # the entry schema an agent names.
         "ontology_dir": env_config.ontology_dir,

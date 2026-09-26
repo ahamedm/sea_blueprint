@@ -9,6 +9,7 @@ Strands SDK Reference: https://strandsagents.com/llms.txt
 
 from typing import Any, Dict, List, Optional
 from pathlib import Path
+import contextlib
 import threading
 import yaml
 from pydantic import BaseModel, Field
@@ -27,6 +28,44 @@ from core.ontology import (
 )
 
 console = Console()
+
+
+def looks_like_a_repetition_loop(
+    text: str, *, min_lines: int = 8, repeat_fraction: float = 0.8
+) -> bool:
+    """True when a response is a cycle of its own lines rather than an answer.
+
+    WHAT IT CATCHES. A small model that has lost the thread does not stop: it
+    restates its plan ("Let me write it out now" / "OK, I'm going to write the
+    final answer now") until something halts it. The text stays fluent, so nothing
+    downstream notices — the pass is recorded as EMPTY, which reads as "the model
+    had nothing to say" when the truth is "the model never finished saying it".
+    Naming the failure is what makes the next run debuggable.
+
+    HOW. The non-empty lines are tested for an exact period: there is some `p` for
+    which the lines repeat what came `p` lines earlier, over a tail at least three
+    periods long. Exactness is deliberate — a table of similar rows or a list of
+    similar requirements is repetitive without being a cycle, and flagging those
+    would make the signal worthless. Ambiguity is resolved toward silence: a
+    fragment showing barely one repetition is not called a loop.
+
+    Cheap enough to run on every fallback: bounded to the first 1,000 lines, and it
+    returns at the first period that fits.
+    """
+    lines = [line.strip() for line in text.splitlines() if line.strip()][:1000]
+    if len(lines) < min_lines:
+        return False
+
+    # The period must leave at least three full cycles in the tail, which is what
+    # separates "repeated itself" from "happened to say something twice".
+    for period in range(1, len(lines) // 3 + 1):
+        compared = len(lines) - period
+        repeats = sum(
+            1 for i in range(period, len(lines)) if lines[i] == lines[i - period]
+        )
+        if repeats / compared >= repeat_fraction:
+            return True
+    return False
 
 
 class AgentConfig(BaseModel):
@@ -76,6 +115,45 @@ class AgentConfig(BaseModel):
         ),
     )
     
+    # --- Generation bounds ---
+    #
+    # THESE WERE DECLARED AND SILENTLY DROPPED. `config/agent_config.py` has always
+    # set `temperature` and `max_tokens` per agent, and `AgentConfig` had no field
+    # for either — Pydantic ignored them, `_create_model` never passed them, and
+    # the model ran on the inference server's own defaults. On llama.cpp those
+    # defaults are temperature 1.0, `repeat_penalty` 1.0 (off), DRY off and
+    # `n_predict -1` (unbounded), which is exactly the configuration in which a
+    # small model degenerates into a repetition loop. YB-020 called `max_tokens`
+    # "the lever"; it was never connected to anything.
+    temperature: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=2.0,
+        description=(
+            "Sampling temperature for every call this agent makes. None leaves the "
+            "server's own default in force, which is rarely what you want: a local "
+            "server defaulting to 1.0 is a repetition loop waiting to happen."
+        ),
+    )
+    max_tokens: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Ceiling on tokens generated per call. This is the bound that makes a "
+            "degenerate generation terminate — the turn cap cannot, because a model "
+            "looping inside one generation never advances a turn."
+        ),
+    )
+    extra_params: Dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "Additional request parameters passed to the inference server verbatim "
+            "(llama.cpp's `repeat_penalty`, `dry_multiplier`, `top_p`, `stop`, ...). "
+            "Merged last, so it can override temperature/max_tokens. This is the "
+            "escape hatch for a sampler the per-agent config does not name."
+        ),
+    )
+
     # --- Structured output controls ---
     use_structured_output: bool = Field(
         default=True,
@@ -195,6 +273,22 @@ class SEABaseAgent:
         with open(path, 'r') as f:
             return yaml.safe_load(f)
     
+    def _sampling_params(self) -> Dict[str, Any]:
+        """The request parameters that bound and steady a generation.
+
+        Built once so every provider sends the same thing and so the effective
+        values can be logged. `extra_params` is merged LAST: it exists precisely to
+        override a sampler this method does not know about, and a value an operator
+        set explicitly should win over a per-agent default.
+        """
+        params: Dict[str, Any] = {}
+        if self.config.temperature is not None:
+            params["temperature"] = self.config.temperature
+        if self.config.max_tokens is not None:
+            params["max_tokens"] = self.config.max_tokens
+        params.update(self.config.extra_params or {})
+        return params
+
     def _create_model(self):
         """
         Create the appropriate Strands model provider based on config.
@@ -202,12 +296,18 @@ class SEABaseAgent:
         Returns a Strands model instance configured for the specified provider.
         """
         provider = self.config.model_provider
-        
-        # Debug logging
+        params = self._sampling_params()
+
+        # Debug logging. The sampling parameters are part of this on purpose: their
+        # absence was invisible, which is why "the model loops" took a probe of the
+        # inference server's /props to explain.
         self.log(f"Creating model provider: {provider}")
         self.log(f"  model_id: {self.config.model_id}")
         self.log(f"  base_url: {self.config.base_url}")
         self.log(f"  api_key: {'[SET]' if self.config.api_key else '[NOT SET]'}")
+        self.log(
+            f"  sampling: {params or '[SERVER DEFAULTS — generation is unbounded]'}"
+        )
         
         if provider == "openai_compatible":
             # Local inference servers (llama.cpp, unsloth, vLLM, Ollama, etc.)
@@ -225,13 +325,16 @@ class SEABaseAgent:
                     "timeout": self.config.request_timeout_seconds,
                 },
                 model_id=self.config.model_id,
+                # `params` is spread into the request body verbatim, which is the
+                # only route to temperature / max_tokens on this provider.
+                params=params,
             )
             self.log("  ✓ OpenAI-compatible model created", level="success")
             return model
         
         elif provider == "openai":
             from strands.models.openai import OpenAIModel
-            model = OpenAIModel(model_id=self.config.model_id)
+            model = OpenAIModel(model_id=self.config.model_id, params=params)
             self.log("  ✓ OpenAI model created", level="success")
             return model
         
@@ -245,19 +348,36 @@ class SEABaseAgent:
                     "api_key": self.config.api_key or "ollama",
                 },
                 model_id=self.config.model_id,
+                params=params,
             )
             self.log("  ✓ Ollama model created", level="success")
             return model
         
         elif provider == "anthropic":
-            # Use Anthropic explicitly
+            # Anthropic takes `max_tokens` as a first-class config key and the rest
+            # through `params`, so the two are split rather than merged blindly.
             from strands.models.anthropic import AnthropicModel
-            model = AnthropicModel(model_id=self.config.model_id)
+            remaining = dict(params)
+            model_kwargs: Dict[str, Any] = {"model_id": self.config.model_id}
+            max_tokens = remaining.pop("max_tokens", None)
+            if max_tokens is not None:
+                model_kwargs["max_tokens"] = max_tokens
+            if remaining:
+                model_kwargs["params"] = remaining
+            model = AnthropicModel(**model_kwargs)
             self.log("  ✓ Anthropic model created", level="success")
             return model
         
         elif provider == "bedrock":
-            # Amazon Bedrock (Strands default provider)
+            # Amazon Bedrock (Strands default provider). There is no model object of
+            # ours to configure, so the bounds cannot be attached — say so rather
+            # than let the caller believe they took effect.
+            if params:
+                self.log(
+                    f"  Bedrock uses Strands' default client: {params} cannot be "
+                    f"applied. Set them on the provider instead.",
+                    level="warning",
+                )
             self.log("  Using Bedrock (default)", level="warning")
             return None  # Let Strands use its default
         
@@ -528,10 +648,61 @@ class SEABaseAgent:
             return ""
         return f"{self.domain_pack.spec}@{self.domain_pack.version}"
 
+    @contextlib.contextmanager
+    def sampling(self, temperature: Optional[float] = None):
+        """Run one call at a different temperature, then put it back.
+
+        Per-PASS, not per-agent, because a profile's passes are not homogeneous.
+        Proposing a container produces a NAME that merges into the graph and has
+        to be stable across runs; choosing which catalogue pattern to adopt is a
+        choice among alternatives whose names the catalogue already pins. A single
+        temperature for both is a compromise that serves neither.
+
+        Restores the previous value in a `finally`, so a pass that raises cannot
+        leave the model warm for the ones after it. No-ops when there is no model
+        of ours to configure (Bedrock uses Strands' default client) rather than
+        pretending the override took effect.
+        """
+        model = getattr(self.agent, "model", None)
+        config = getattr(model, "config", None)
+        if temperature is None or model is None or not isinstance(config, dict):
+            yield
+            return
+
+        # `update_config(params=...)` REPLACES the params mapping rather than
+        # merging into it, so the existing bounds (max_tokens, repeat_penalty from
+        # MODEL_EXTRA_PARAMS) have to be carried across explicitly — dropping them
+        # here would silently un-bound the one pass that was warmed.
+        original = dict(config.get("params") or {})
+        warmed = dict(original)
+        warmed["temperature"] = temperature
+
+        update = getattr(model, "update_config", None)
+        if callable(update):
+            update(params=warmed)
+        else:
+            # The config is read per request, so a direct write is equivalent.
+            config["params"] = warmed
+        try:
+            yield
+        finally:
+            if callable(update):
+                update(params=original)
+            else:
+                config["params"] = original
+
     def invoke(self, prompt: str, structured_output_model=None) -> Any:
         """
-        Invoke the Strands agent with a prompt.
-        
+        Invoke the Strands agent with a prompt, under the same bounds as the
+        structured path.
+
+        A plain call is NOT automatically one turn: it can advance turns (the
+        structured-output tool, a tool loop) and a degenerate generation can run to
+        the server's context limit. So the turn cap and wall-clock cancel that guard
+        `invoke_structured` apply here too — otherwise the TEXT FALLBACK, which runs
+        on exactly the calls the structured path already failed, is the one
+        unguarded path left, and it is the one a looping model lands on.
+
         Args:
             prompt: The prompt to send to the agent
             structured_output_model: Optional Pydantic model for structured output
@@ -539,12 +710,31 @@ class SEABaseAgent:
         Returns:
             Strands AgentResult object
         """
-        if structured_output_model:
-            return self.agent(
-                prompt,
-                structured_output_model=structured_output_model,
-            )
-        return self.agent(prompt)
+        limits: Dict[str, Any] = {"turns": self.config.max_structured_turns}
+        if self.config.max_structured_tokens:
+            limits["total_tokens"] = self.config.max_structured_tokens
+
+        # Same wall-clock guard as the structured path. Cancellation is still
+        # checked between turns, so this bounds a retry loop rather than one slow
+        # generation; `max_tokens` is what bounds that one.
+        cancel_signal = threading.Event()
+        timer = threading.Timer(
+            self.config.structured_timeout_seconds, cancel_signal.set
+        )
+        timer.daemon = True
+        timer.start()
+
+        try:
+            if structured_output_model:
+                return self.agent(
+                    prompt,
+                    structured_output_model=structured_output_model,
+                    limits=limits,
+                    cancel_signal=cancel_signal,
+                )
+            return self.agent(prompt, limits=limits, cancel_signal=cancel_signal)
+        finally:
+            timer.cancel()
     
     def invoke_structured(self, prompt: str, model_cls):
         """

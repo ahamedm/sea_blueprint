@@ -6,7 +6,7 @@ status: open
 priority: high
 area: "`config/agent_config.py`, `.env.example`, `agents/base_agent.py`, `agents/knowledge_extraction/agent.py`"
 created: 2026-09-23
-updated: 2026-09-24
+updated: 2026-09-26
 design: null
 record: null
 superseded_by: []
@@ -104,6 +104,84 @@ questions are instead:
    250-triple run stop early.
 2. **Re-measure before changing anything**, with repeats, because the current numbers come
    from single runs of a non-deterministic model.
+
+### Bound generation, not just turns — DONE (2026-09-26)
+
+The lever above was pulled, and pulling it exposed why the earlier numbers varied by an
+order of magnitude.
+
+`config/agent_config.py` has always set `temperature` and `max_tokens` per agent. **Neither
+ever reached the model.** `AgentConfig` had no field for either, so Pydantic discarded them
+without a word, and `_create_model` passed neither to the provider. Every agent in the
+platform ran on whatever the inference server defaulted to, and llama.cpp's defaults are
+hostile to a small model:
+
+```
+temperature 1.0 | repeat_penalty 1.0 (off) | dry_multiplier 0.0 (off) | n_predict -1 (unbounded)
+```
+
+Under those settings a 2B model degenerates into a repetition loop — the Design Assistant
+was captured restating *"OK, I'm going to write the final answer now"* until the context
+filled. No turn cap can stop that, because a generation looping inside one turn never
+advances a turn. The 250-triple run and the 25-minute run are the same defect as the
+Designer's loop: generation was never bounded, and nothing said so.
+
+What now holds:
+
+- `AgentConfig` carries `temperature` / `max_tokens` / `extra_params`, and all three reach
+  the provider request (`params=` on the OpenAI-compatible path; `max_tokens` + `params` on
+  Anthropic). The effective values are logged at construction, so their absence can never
+  be invisible again.
+- `MODEL_EXTRA_PARAMS` (JSON, merged into every request verbatim) is the escape hatch for
+  the samplers that are the actual cure for repetition — `repeat_penalty`, `dry_multiplier`
+  — which the per-agent config does not name. Malformed JSON fails loudly rather than
+  silently leaving the model unbounded.
+- `invoke()` — the plain-text fallback — now carries the turn cap and wall-clock cancel it
+  was missing. It ran on exactly the calls the structured path had already failed, and it
+  was the one unbounded route to the model left.
+- A generation that loops anyway is recorded as **failed with the cause** rather than
+  `empty`. "Empty" reads as "the model had nothing to say" and points the next reader at
+  the prompt; the truth is a sampler problem.
+
+Tests: `tests/test_generation_bounds.py` (the silent drop as a regression, parameter
+plumbing, the escape hatch, the bounded plain call, loop detection) plus
+`test_a_model_that_loops_is_reported_as_a_loop_not_as_empty` in `tests/test_design_agent.py`.
+
+**Still open, and it is the acceptance below:** the budget has not been *re-measured* with
+repeats. The numbers in this file remain single runs of a non-deterministic model, so
+"`MAX_STRUCTURED_TURNS` / `STRUCTURED_TIMEOUT_SECONDS` bound observed elapsed time" is
+implemented but not demonstrated. Per-agent `temperature` / `max_tokens` are also still
+hand-set in `config/agent_config.py` rather than derived from anything.
+
+### Per-pass temperature — the generative pass is the exception (2026-09-26)
+
+The two live Designer runs settle the question of whether temperature is the loop lever:
+it is not. The model looped at the server's **1.0** *and* at the configured **0.3**. Both
+runs are the same defect — unbounded generation with `repeat_penalty` off — so moving
+temperature up or down would have changed nothing. Verbatim repetition is in fact a
+*peaked-decoding* signature, which makes a low temperature a loop risk rather than a
+remedy; the designed control is the repetition penalty / DRY exposed through
+`MODEL_EXTRA_PARAMS`.
+
+Temperature is still worth getting right, for a different reason: it buys design
+diversity on the one pass that is a genuine *choice* rather than a transcription.
+`PassSpec` now carries an optional `temperature`, applied for the duration of that pass
+and restored in a `finally`, and `design_pattern_pass` sets **0.6** while the other five
+stay at the profile's 0.3. The split is defensible in both directions:
+
+- `patterns` names come from the catalogue, copied verbatim, so a warmer sample cannot
+  corrupt the identifier the way it could a container name — and choosing among
+  alternatives is the one act here where a peaked distribution just returns the first
+  plausible answer.
+- `structure`, `connections`, `techniques`, `scenarios` and `traceability` emit NAMES that
+  merge into the graph and are diffed between runs (see YB-004). Their variance is a
+  correctness cost, so they inherit the profile default.
+
+This is a **hypothesis, not a measurement**. On a small model a higher temperature buys
+incoherence as readily as diversity, so if the patterns pass starts failing its schema,
+`PATTERN_PASS_TEMPERATURE` is the first number to put back. The temperature that produced
+each pass is recorded on the `PassRecord`, so the run itself answers "which pass was warm"
+without reading a log.
 
 ### Acceptance (unchanged)
 
