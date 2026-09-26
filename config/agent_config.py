@@ -73,6 +73,14 @@ class EnvironmentConfig(BaseModel):
             "overrides this; the env var is only the fallback."
         ),
     )
+    pattern_catalogue: str = Field(
+        default="",
+        alias="SEA_PATTERN_CATALOGUE",
+        description=(
+            "Architecture pattern catalogue the Design Assistant chooses from. "
+            "Empty uses the shipped catalogue under ontology/catalogues/."
+        ),
+    )
     data_dir: str = Field(default="data")
     output_dir: str = Field(default="data/output")
     
@@ -122,6 +130,7 @@ def load_environment() -> EnvironmentConfig:
         "ontology_path": os.getenv("ONTOLOGY_PATH", "ontology/requirements_base.yaml"),
         "ontology_dir": os.getenv("SEA_ONTOLOGY_DIR", "ontology"),
         "domain_pack": os.getenv("SEA_DOMAIN_PACK", ""),
+        "pattern_catalogue": os.getenv("SEA_PATTERN_CATALOGUE", ""),
         "data_dir": os.getenv("DATA_DIR", "data"),
         "output_dir": os.getenv("OUTPUT_DIR", "data/output"),
         "deepeval_api_key": os.getenv("DEEPEVAL_API_KEY", ""),
@@ -239,26 +248,43 @@ Output should be structured as JSON with triples and metadata.""",
         
         "design_assistant": {
             "name": "Design Assistant Agent",
-            "description": "Leverages requirements to propose initial architecture solutions",
+            "description": (
+                "Proposes a core solution architecture (ARC-G) from the requirements "
+                "graph and the baseline, choosing design techniques, architecture "
+                "patterns from the catalogue, and quality scenarios"
+            ),
             "model_provider": model_provider,
             "model_id": model_id,
             "base_url": base_url,
             "api_key": api_key,
-            "temperature": 0.6,
-            "max_tokens": 4096,
+            # Lower than the old placeholder's 0.6: this profile emits STRUCTURED
+            # records through the same pass harness as architecture extraction, and
+            # a schema-constrained pass benefits from the same low variance that
+            # profile runs at. Temperature is not where a design should be creative.
+            "temperature": 0.3,
+            "max_tokens": 8192,
             "system_prompt": """You are the Design Assistant Agent for the SEA Platform.
-Your role is to leverage requirements to propose initial architecture solutions.
+Your role is to propose a CORE solution architecture from a verified requirements
+graph (REQ-G) and the architecture that already exists.
 
 Key responsibilities:
-- Analyze formal requirements (REQ-G) and map to design patterns
-- Propose initial component structures and interaction flows
-- Support iterative design by accepting human modifications
-- Maintain graph integrity as designs evolve
+- Propose the containers, components and external systems a solution needs
+- Choose the design techniques that deliver each stated quality attribute
+- Choose named architecture patterns from the catalogue, with their trade-offs
+- Write a measurable quality scenario for each stated quality attribute
+- Trace every proposed element back to the requirement it answers
 
-Consider architectural patterns like microservices, event-driven, CQRS, etc.
-Propose solutions that satisfy requirements while considering quality attributes.""",
+You are PROPOSING, not extracting, and not deciding. Every fact you emit is a
+proposal a human architect reviews and approves. Prefer a small, grounded design
+over a large speculative one; an element you cannot trace to a requirement is a
+finding for the reviewer, not a contribution. Reuse an element that already exists
+by its exact name rather than proposing a second one.""",
             "tools": ["pattern_matcher", "architecture_generator"],
-            "ontology_path": "ontology/requirements_base.yaml",
+            # The ARCHITECTURE layer, because this profile proposes ARC-G.
+            # `architecture_base` imports enterprise_structure and requirements_base,
+            # so the requirements vocabulary is reachable through it.
+            "ontology_path": "ontology/architecture_base.yaml",
+            "pattern_catalogue": env_config.pattern_catalogue or None,
         },
         
         "semantic_auditor": {
@@ -346,7 +372,8 @@ architecture the document does not describe.""",
     # Architecture Extraction Agent's config, so REQ-G extraction ran under the
     # ARC-G system prompt. Silent, and it made requirements runs reason about
     # containers and deployment.
-    for extraction_agent in ("knowledge_extraction", "architecture_extraction"):
+    for extraction_agent in ("knowledge_extraction", "architecture_extraction",
+                             "design_assistant"):
         configs[extraction_agent]["domain_pack"] = env_config.domain_pack or None
 
     return configs.get(agent_name, {})

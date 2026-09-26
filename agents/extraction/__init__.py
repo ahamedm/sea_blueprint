@@ -22,6 +22,7 @@ from .merging import (
 )
 from .validators import (
     Flag,
+    as_record_dicts,
     check_containment,
     check_deployment_levels,
     check_element_types,
@@ -41,5 +42,5 @@ __all__ = [
     "Flag", "check_object_contract", "check_containment", "check_element_types",
     "check_deployment_levels", "check_enum_membership", "check_expected_present",
     "check_nonempty_field", "check_schema_consistency",
-    "ontology_enum", "ontology_classes",
+    "ontology_enum", "ontology_classes", "as_record_dicts",
 ]

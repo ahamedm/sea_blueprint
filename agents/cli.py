@@ -40,7 +40,17 @@ def main():
     ),
 )
 @click.option("--list-domain-packs", is_flag=True, help="List available domain packs and exit")
-def run(agent: str, input_file: str, output_file: str, domain_pack: str, list_domain_packs: bool):
+@click.option(
+    "--store-root",
+    default="data/sea",
+    help=(
+        "Working-set directory. The Design Assistant reads REQ-G and the baseline "
+        "from here rather than from --input, because its input is a graph and not a "
+        "document."
+    ),
+)
+def run(agent: str, input_file: str, output_file: str, domain_pack: str,
+        list_domain_packs: bool, store_root: str):
     """Run an SEA agent."""
     
     console.print(Panel(f"Running {agent} agent", style="blue"))
@@ -82,10 +92,23 @@ def run(agent: str, input_file: str, output_file: str, domain_pack: str, list_do
     # Create and run agent
     if agent == "knowledge_extraction":
         agent_instance = create_knowledge_extraction_agent()
+    elif agent == "design_assistant":
+        # A different input shape, so it does not go through `input_data` above:
+        # this profile reads a GRAPH. Kept in its own function so the branch is not
+        # a special case threaded through a document-shaped flow.
+        return _run_design_assistant(store_root, output_file, domain_pack)
     else:
-        # Placeholder for other agents
-        console.print(f"[yellow]Agent {agent} not yet implemented. Using knowledge_extraction.[/yellow]")
-        agent_instance = create_knowledge_extraction_agent()
+        # NOT a silent fallback. Reporting one agent's output as another's is the
+        # ADR-0001 failure class — a wrong answer wearing the right agent's name.
+        console.print(
+            Panel(
+                f"The {agent} agent is not implemented.\n"
+                "Refusing to run the knowledge-extraction agent in its place: the "
+                "output would describe a different agent.",
+                style="red",
+            )
+        )
+        raise SystemExit(2)
 
     # The pack is a per-Initiative choice made after the agent is constructed, and
     # the vocabulary is baked into the system prompt at construction — so selecting
@@ -118,6 +141,70 @@ def run(agent: str, input_file: str, output_file: str, domain_pack: str, list_do
         console.print(Panel("Agent failed", style="red"))
         for error in result.errors:
             console.print(f"[red]Error: {error}[/red]")
+
+
+def _run_design_assistant(store_root: str, output_file: str, domain_pack: str) -> None:
+    """Run the Design Assistant headlessly against a working set.
+
+    No `--input`: this profile's input is REQ-G plus the baseline ARC-G, both read
+    from the store. The same run is available in the app at `/design`, which is the
+    path a human normally takes — this exists so the agent can be exercised and
+    diffed without a browser.
+    """
+    from agents.design_assistant import create_design_assistant_agent
+    from core.knowledge import RevisionStore
+
+    store = RevisionStore(store_root).ensure()
+    snapshot = store.load_working()
+    if not snapshot.graph.nodes:
+        console.print(Panel(f"No working set at {store_root}. Ingest first.", style="red"))
+        return
+
+    baselines = store.baselines()
+    baseline = store.load_revision(baselines[0].id).graph if baselines else None
+    base_ref = baselines[0].id if baselines else ""
+
+    agent_instance = create_design_assistant_agent()
+    if domain_pack:
+        agent_instance.use_domain_pack(domain_pack)
+
+    result = agent_instance.run({
+        "graph": snapshot.graph,
+        "baseline": baseline,
+        "base_ref": base_ref,
+        "initiative_id": snapshot.meta.get("initiative_id", ""),
+        "domain_pack": agent_instance.active_domain_pack_id(),
+    })
+
+    if not result.success:
+        console.print(Panel("Design run failed", style="red"))
+        for error in result.errors:
+            console.print(f"[red]Error: {error}[/red]")
+        raise SystemExit(1)
+
+    output = result.output or {}
+    statistics = output.get("statistics", {})
+    console.print(Panel(
+        f"{statistics.get('total_elements', 0)} elements · "
+        f"{statistics.get('total_design_techniques', 0)} techniques · "
+        f"{statistics.get('total_architecture_patterns', 0)} patterns "
+        f"({statistics.get('patterns_resolved', 0)} resolved) · "
+        f"{statistics.get('total_quality_scenarios', 0)} scenarios · "
+        f"{statistics.get('findings', 0)} finding(s)",
+        style="green",
+    ))
+    if output.get("findings"):
+        console.print("[yellow]Findings (not failures — review them):[/yellow]")
+        for finding in output["findings"][:20]:
+            console.print(f"  [{finding['kind']}] {finding['subject']}: "
+                          f"{'; '.join(finding['reasons'])}")
+
+    if output_file:
+        output_path = Path(output_file)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, "w") as handle:
+            json.dump(output, handle, indent=2)
+        console.print(f"Output saved to {output_path}", style="green")
 
 
 @main.command()

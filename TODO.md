@@ -3,7 +3,7 @@
 
 Open work only. Each item is one file under `docs/todos/entries/` — that file is the source of truth and this index is generated from it.
 
-**20 active · 1 parked · 2 superseded · 16 closed records**
+**20 active · 1 parked · 2 superseded · 17 closed records**
 
 | Where | What |
 |---|---|
@@ -36,6 +36,7 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [YB-031](docs/todos/entries/YB-031-cross-graph-predicate-plural-routing.md) | The predicate vocabulary is taught in its plural schema form and routed only in the singular | open | `core/knowledge/model.py` (`CROSS_GRAPH_PREDICATES`), `core/ontology.py` (`CORE_ROUTED_PREDICATES`, `ROUTING_ALIASES`), `agents/base_agent.py` |
 | [YB-036](docs/todos/entries/YB-036-modular-run-streaming.md) | Modular run streaming — one progress mechanism for the browser and for unattended runs | open | `agents/knowledge_extraction/agent.py`, `agents/extraction/passes.py`, `core/knowledge/store.py` (run journal), `app/__init__.py` |
 | [YB-037](docs/todos/entries/YB-037-background-workflow-management.md) | Background workflow management — durable execution for runs nobody is waiting for | open | new `core/workflow/` or `app/worker.py`, `core/knowledge/store.py`, `app/__init__.py`, `app/templates/` (jobs page) |
+| [YB-038](docs/todos/entries/YB-038-techniques-pass-echoes-requirements.md) | The Design Assistant's techniques pass echoes requirements and links no quality attribute | open | `agents/design_assistant/passes.py` (the techniques instruction), `agents/design_assistant/validators.py`, `agents/base_agent.py` |
 
 ## Medium
 
@@ -46,7 +47,6 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [YB-025](docs/todos/entries/YB-025-c4-specification-view.md) | Dedicated C4 specification view — text notation plus rendered diagram | open | new `app/viewpoints/c4_spec.py` (or a `notation/` renderer), `app/templates/`, possibly a Kroki/PlantUML endpoint |
 | [YB-033](docs/todos/entries/YB-033-event-ingress.md) | Event ingress — an external system's event starts graph work, without a browser in the loop | open | new `app/events.py` or `integrations/` (receiver + adapters), `app/__init__.py`, `core/knowledge/ingest.py` |
 | [YB-034](docs/todos/entries/YB-034-initiative-delivery-phase.md) | Initiative delivery phase — the graph cannot represent "this Initiative is in Design" | open | `ontology/requirements_base.yaml` (Initiative, InitiativeStatus), `core/knowledge/ingest.py`, `app/projections.py` |
-| [YB-035](docs/todos/entries/YB-035-design-assistant.md) | Design Assistant — draft an initial architecture from REQ-G, on request or on an event | open | `agents/design_assistant/` (placeholder today), `core/knowledge/`, `app/` (review batches, map) |
 
 ## Low
 
@@ -77,6 +77,7 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [YB-024](docs/todos/entries/YB-024-requirements-graph-view.md) | Graph view — cover the requirements graph, not only C4 | [ADR-0014-map-replaces-c4-view](docs/decisions/ADR-0014-map-replaces-c4-view.md) |
 | [YB-028](docs/todos/entries/YB-028-remove-extracted-facts.md) | Remove a fact the extractor invented — and stop a dispute withholding the audit | [ADR-0015-retiring-extracted-facts](docs/decisions/ADR-0015-retiring-extracted-facts.md) |
 | [YB-029](docs/todos/entries/YB-029-quality-attribute-views.md) | Quality-attribute views for the map — the architect's primary focus has no view of its own | [ADR-0016-quality-attribute-views](docs/decisions/ADR-0016-quality-attribute-views.md) |
+| [YB-035](docs/todos/entries/YB-035-design-assistant.md) | Design Assistant — draft an initial architecture from REQ-G, on request or on an event | [ADR-0017-design-assistant-proposes-arc-g](docs/decisions/ADR-0017-design-assistant-proposes-arc-g.md) |
 
 ## Closed work — records
 
@@ -98,5 +99,6 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [ADR-0014](docs/decisions/ADR-0014-map-replaces-c4-view.md) | The map replaces the C4 view — one graph, both sides, references visible | 2026-09-24 | item — |
 | [ADR-0015](docs/decisions/ADR-0015-retiring-extracted-facts.md) | Removing a fact the extractor invented — retire, and what withholds the audit | 2026-09-24 | item — |
 | [ADR-0016](docs/decisions/ADR-0016-quality-attribute-views.md) | Quality-attribute views — the census groups by canonical concern, and one taxonomy serves both layers | 2026-09-25 | item — |
+| [ADR-0017](docs/decisions/ADR-0017-design-assistant-proposes-arc-g.md) | The Design Assistant proposes an ARC-G draft — a profile over the knowledge layer, and a proposal is not an extraction | 2026-09-25 | item — |
 
 The index is generated from the entries — do not edit `TODO.md` by hand.

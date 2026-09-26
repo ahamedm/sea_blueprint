@@ -212,6 +212,18 @@ QUALITY_CHARACTERISTIC_ENUM = "QualityAttributeCategory"
 QUALITY_SUBCHARACTERISTIC_ENUM = "QualitySubcharacteristic"
 QUALITY_ATTRIBUTE_CLASS = "QualityAttribute"
 
+# The vocabulary names a reader's label has to be normalised INTO. Two catalogues
+# now do this — the ISO 25010 quality model (`core.quality`) and the architecture
+# pattern catalogue (`core.patterns`) — and a second copy of the rule is how two
+# spellings of one concept start resolving differently.
+_NON_ALNUM = re.compile(r"[^A-Za-z0-9]+")
+
+
+def enum_name(label: str) -> str:
+    """`High Availability` -> `HIGH_AVAILABILITY`. The shape the enums use."""
+    return _NON_ALNUM.sub("_", (label or "").strip()).strip("_").upper()
+
+
 
 class OntologyError(Exception):
     """The ontology could not be read."""
@@ -1468,6 +1480,7 @@ CORE_ROUTED_PREDICATES = frozenset({
     "supports_capabilities",
     "addresses_goals",
     "delivers_initiatives",
+    "mandated_by",
 })
 
 

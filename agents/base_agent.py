@@ -66,6 +66,15 @@ class AgentConfig(BaseModel):
             "means no pack, which is a supported state and not a degraded one."
         ),
     )
+    pattern_catalogue: Optional[str] = Field(
+        default=None,
+        description=(
+            "Architecture pattern catalogue the Design Assistant chooses from. "
+            "Empty means the shipped default; a missing file degrades to an empty "
+            "catalogue rather than refusing to run, and every proposed pattern is "
+            "then reported unresolved for review."
+        ),
+    )
     
     # --- Structured output controls ---
     use_structured_output: bool = Field(

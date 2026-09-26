@@ -1,0 +1,430 @@
+{% extends "base.html" %}
+{% block title %}Design · SEA{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Design Assistant</h1>
+    <p>
+      Proposes a <strong>core architecture</strong> from the requirements graph and the
+      baseline: containers, components and external systems, the design techniques that
+      deliver each stated quality attribute, named architecture patterns, and a
+      measurable quality scenario per attribute.
+    </p>
+  </div>
+  <div class="row">
+    <a class="btn" href="{{ url_for('map_view') }}">Open the map</a>
+    <a class="btn" href="{{ url_for('api_design') }}">JSON</a>
+  </div>
+</div>
+
+{% if preconditions.blocking %}
+  <div class="card empty">
+    <h2>Nothing to design against</h2>
+    {% for reason in preconditions.blocking %}<p>{{ reason }}</p>{% endfor %}
+    <p><a class="btn btn-primary" href="{{ url_for('ingest') }}">Ingest a document</a></p>
+  </div>
+{% else %}
+
+  <div class="card">
+    <div class="card-head">
+      <h2>What this run would read</h2>
+      <span class="muted small">a proposal is grounded in these, and says so when it cannot be</span>
+    </div>
+    <div class="grid grid-4" style="margin-bottom:14px;">
+      <div class="stat">
+        <div class="value">{{ preconditions.requirements }}</div>
+        <div class="label">Requirements</div>
+        <div class="foot">{{ preconditions.unrealized }} with no architectural answer</div>
+      </div>
+      <div class="stat">
+        <div class="value">{{ preconditions.quality_concerns }}</div>
+        <div class="label">Quality concerns</div>
+        <div class="foot">{{ preconditions.architecture_gaps }} stated but undelivered</div>
+      </div>
+      <div class="stat">
+        <div class="value small">
+          <span class="badge badge-{{ preconditions.completeness|lower }}">{{ preconditions.completeness }}</span>
+        </div>
+        <div class="label">REQ-G completeness</div>
+        <div class="foot">{{ 'auditable' if preconditions.is_auditable else 'not yet auditable' }}</div>
+      </div>
+      <div class="stat">
+        <div class="value small">
+          {% if preconditions.baseline %}{{ preconditions.baseline.id }}{% else %}none{% endif %}
+        </div>
+        <div class="label">Baseline ARC-G</div>
+        <div class="foot">
+          {% if preconditions.baseline %}{{ preconditions.baseline.label or 'frozen' }}
+          {% else %}designing against the working set{% endif %}
+        </div>
+      </div>
+    </div>
+    <p class="hint">{{ preconditions.completeness_note }}</p>
+
+    <form method="post" action="{{ url_for('design_draft') }}">
+      <div class="inline">
+        <label class="field" style="min-width:220px;">
+          <span>Domain pack</span>
+          <select name="domain_pack">
+            <option value="">— none —</option>
+            {% for pack in domain_packs %}
+              <option value="{{ pack.spec }}" {{ 'selected' if pack.spec and active_domain_pack.startswith(pack.spec) else '' }}>
+                {{ pack.title }} v{{ pack.version or '?' }}
+              </option>
+            {% endfor %}
+          </select>
+        </label>
+        <button class="btn btn-primary" type="submit">Propose an architecture</button>
+      </div>
+    </form>
+    <p class="hint">
+      The run is <strong>synchronous</strong> — the page waits for the model, like
+      <a href="{{ url_for('ingest') }}">ingest</a> does. Backgrounding it is
+      <a href="https://github.com/ahamedm/sea_blueprint/blob/main/docs/todos/entries/YB-026-asynchronous-progress.md">YB-026</a>.
+      Nothing is written to the graph until you apply the draft.
+    </p>
+  </div>
+
+  {% if proposal %}
+    <div class="banner {{ 'banner-ok' if proposal.run.completeness == 'COMPLETE' else 'banner-warn' }}">
+      <strong>Draft {{ proposal.draft.id }} — {{ proposal.run.completeness }}.</strong>
+      {{ proposal.delta.added_nodes }} new concept(s) and
+      {{ proposal.delta.added_assertions }} fact(s) would be added by
+      <code>{{ proposal.draft.run_id }}</code>.
+      Nothing has been applied: the draft is on disk and the graph is untouched.
+      {% if proposal.caveats %}
+        <br>The design input was degraded — see <em>What the model was not shown</em> below.
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>Proposal</h2>
+        <span class="muted small">
+          {{ proposal.statistics.total_elements|default(0) }} elements ·
+          {{ proposal.statistics.total_design_techniques|default(0) }} techniques ·
+          {{ proposal.statistics.total_architecture_patterns|default(0) }} patterns ·
+          {{ proposal.statistics.total_quality_scenarios|default(0) }} scenarios
+        </span>
+      </div>
+      <div class="grid grid-4" style="margin-bottom:14px;">
+        <div class="stat">
+          <div class="value">{{ proposal.elements|length }}</div>
+          <div class="label">Elements proposed</div>
+          <div class="foot">
+            {% for kind, n in proposal.delta.new_kinds.items() %}{{ kind }} {{ n }}{% if not loop.last %} · {% endif %}{% endfor %}
+          </div>
+        </div>
+        <div class="stat">
+          <div class="value">{{ proposal.techniques|length }}</div>
+          <div class="label">Design techniques</div>
+          <div class="foot">the mechanisms behind the quality attributes</div>
+        </div>
+        <div class="stat">
+          <div class="value">{{ proposal.resolutions|selectattr('resolved')|list|length }}/{{ proposal.patterns|length }}</div>
+          <div class="label">Patterns resolved</div>
+          <div class="foot">against the published catalogue</div>
+        </div>
+        <div class="stat">
+          <div class="value" style="color:{{ 'var(--warn)' if proposal.findings else 'var(--ok)' }}">{{ proposal.findings|length }}</div>
+          <div class="label">Findings</div>
+          <div class="foot">not failures — things to review</div>
+        </div>
+      </div>
+
+      <div class="row" style="margin-bottom:14px;">
+        <form method="post" action="{{ url_for('design_apply') }}">
+          <input type="hidden" name="draft_id" value="{{ proposal.draft.id }}">
+          <button class="btn btn-primary" type="submit">Apply to the working set</button>
+        </form>
+        <form method="post" action="{{ url_for('design_discard') }}">
+          <input type="hidden" name="draft_id" value="{{ proposal.draft.id }}">
+          <button class="btn btn-danger" type="submit">Discard this draft</button>
+        </form>
+        <span class="muted small">
+          Applying merges the facts as <code>UNVERIFIED</code> proposals and commits one
+          revision; the review gate then decides what is true.
+        </span>
+      </div>
+
+      {% if proposal.findings %}
+        <p class="hint">
+          Findings are the reviewer's queue, not errors. An <em>ungrounded</em> element
+          answers no requirement; a <em>collision</em> would merge into a node of another
+          kind; an unresolved <em>pattern</em> is not in the catalogue.
+        </p>
+        <div class="table-wrap sm">
+          <table>
+            <thead><tr><th>Kind</th><th>Subject</th><th>Why</th></tr></thead>
+            <tbody>
+              {% for f in proposal.findings %}
+                <tr>
+                  <td><span class="kind">{{ f.kind }}</span></td>
+                  <td>{{ f.subject }}</td>
+                  <td class="small">{{ f.reasons|join('; ') }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
+    </div>
+
+    {% if proposal.elements %}
+      <details class="card collapsible" open>
+        <summary>
+          <h2>Elements</h2>
+          <span class="muted small">{{ proposal.elements|length }}<span class="chevron">▾</span></span>
+        </summary>
+        <div class="card-body">
+          <div class="table-wrap sm">
+            <table>
+              <thead><tr><th>Element</th><th>Kind</th><th>Parent</th><th>Responsibility</th><th>Delivers</th></tr></thead>
+              <tbody>
+                {% for e in proposal.elements %}
+                  <tr>
+                    <td>{{ e.name }}</td>
+                    <td><span class="kind">{{ e.element_type }}</span></td>
+                    <td class="small muted">{{ e.parent or '—' }}</td>
+                    <td class="small">{{ (e.responsibilities or [])|join('; ') or '—' }}</td>
+                    <td class="small">{{ (e.satisfies_attributes or [])|join(', ') or '—' }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </details>
+    {% endif %}
+
+    {% if proposal.patterns %}
+      <details class="card collapsible" open>
+        <summary>
+          <h2>Architecture patterns</h2>
+          <span class="muted small">
+            {{ proposal.resolutions|selectattr('resolved')|list|length }} resolved
+            <span class="chevron">▾</span>
+          </span>
+        </summary>
+        <div class="card-body">
+          <p class="hint" style="margin-top:0;">
+            Chosen from the catalogue. An unresolved name is kept as proposed and
+            reported — never renamed to the closest published pattern.
+          </p>
+          <div class="table-wrap sm">
+            <table>
+              <thead><tr><th>Pattern</th><th>Resolution</th><th>Category</th><th>Rationale</th><th>Trade-offs</th></tr></thead>
+              <tbody>
+                {% for p in proposal.patterns %}
+                  {% set r = proposal.resolutions[loop.index0] if proposal.resolutions|length > loop.index0 else {} %}
+                  <tr>
+                    <td>{{ p.name }}</td>
+                    <td>
+                      {% if r.get('resolved') %}
+                        <span class="badge badge-verified">{{ r.get('matched') }}</span>
+                        <div class="muted small">{{ r.get('method') }}</div>
+                      {% else %}
+                        <span class="badge badge-unverified">unresolved</span>
+                        <div class="muted small">not in the catalogue</div>
+                      {% endif %}
+                    </td>
+                    <td class="small">{{ p.category or r.get('category') or '—' }}</td>
+                    <td class="small">{{ p.rationale or '—' }}</td>
+                    <td class="small">{{ (p.trade_offs or r.get('trade_offs') or [])|join('; ') or '—' }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </details>
+    {% endif %}
+
+    {% if proposal.techniques %}
+      <details class="card collapsible" open>
+        <summary>
+          <h2>Design techniques</h2>
+          <span class="muted small">{{ proposal.techniques|length }}<span class="chevron">▾</span></span>
+        </summary>
+        <div class="card-body">
+          <div class="table-wrap sm">
+            <table>
+              <thead><tr><th>Technique</th><th>Category</th><th>Applies to</th><th>Realizes</th><th>Mechanism</th></tr></thead>
+              <tbody>
+                {% for t in proposal.techniques %}
+                  <tr>
+                    <td>{{ t.name }}</td>
+                    <td class="small">{{ t.technique_category or '—' }}</td>
+                    <td class="small">{{ (t.applies_to or [])|join(', ') or '—' }}</td>
+                    <td class="small">{{ (t.realizes_quality_attributes or [])|join(', ') or '—' }}</td>
+                    <td class="small">{{ t.mechanism or '—' }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </details>
+    {% endif %}
+
+    {% if proposal.scenarios %}
+      <details class="card collapsible" open>
+        <summary>
+          <h2>Quality scenarios</h2>
+          <span class="muted small">{{ proposal.scenarios|length }}<span class="chevron">▾</span></span>
+        </summary>
+        <div class="card-body">
+          <p class="hint" style="margin-top:0;">
+            Each states a stimulus, an environment, a response and a <em>measured</em>
+            target. A scenario with no number would make the requirement unfalsifiable,
+            so it is flagged as a finding above.
+          </p>
+          <div class="table-wrap sm">
+            <table>
+              <thead><tr><th>Scenario</th><th>Attribute</th><th>Stimulus</th><th>Environment</th><th>Response</th><th>Measure</th></tr></thead>
+              <tbody>
+                {% for s in proposal.scenarios %}
+                  <tr>
+                    <td>{{ s.name }}</td>
+                    <td class="small">{{ s.attribute }}</td>
+                    <td class="small">{{ s.stimulus_source }} → {{ s.stimulus }}</td>
+                    <td class="small">{{ s.environment }}</td>
+                    <td class="small">{{ s.response }}</td>
+                    <td class="small"><strong>{{ s.response_measure }}</strong></td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </details>
+    {% endif %}
+
+    {% if proposal.connections %}
+      <details class="card collapsible">
+        <summary>
+          <h2>Connections</h2>
+          <span class="muted small">{{ proposal.connections|length }}<span class="chevron">▾</span></span>
+        </summary>
+        <div class="card-body">
+          <div class="table-wrap sm">
+            <table>
+              <thead><tr><th>Source</th><th>Target</th><th>Protocol</th><th>Style</th></tr></thead>
+              <tbody>
+                {% for c in proposal.connections %}
+                  <tr>
+                    <td>{{ c.source }}</td>
+                    <td>{{ c.target }}</td>
+                    <td class="small">{{ c.protocol or '—' }}</td>
+                    <td class="small">{{ c.style or '—' }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </details>
+    {% endif %}
+
+    {% if proposal.references %}
+      <details class="card collapsible">
+        <summary>
+          <h2>Traceability</h2>
+          <span class="muted small">{{ proposal.references|length }}<span class="chevron">▾</span></span>
+        </summary>
+        <div class="card-body">
+          <div class="table-wrap sm">
+            <table>
+              <thead><tr><th>Element</th><th>Relationship</th><th>Answers</th></tr></thead>
+              <tbody>
+                {% for r in proposal.references %}
+                  <tr>
+                    <td>{{ r.element }}</td>
+                    <td><code class="small">{{ r.relationship }}</code></td>
+                    <td class="small">{{ r.reference }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </details>
+    {% endif %}
+
+    <div class="card">
+      <div class="card-head">
+        <h2>How the run went</h2>
+        <span class="muted small">{{ proposal.run.id }}</span>
+      </div>
+      <div class="table-wrap sm">
+        <table>
+          <thead><tr><th>Pass</th><th>Outcome</th><th>Path</th><th>Records</th><th>Seconds</th></tr></thead>
+          <tbody>
+            {% for p in proposal.run.passes %}
+              <tr>
+                <td>{{ p.name }}</td>
+                <td>
+                  <span class="badge badge-{{ 'verified' if p.outcome == 'ok' else ('unverified' if p.outcome == 'empty' else 'disputed') }}">{{ p.outcome }}</span>
+                </td>
+                <td class="small">{{ p.path or '—' }}</td>
+                <td class="small">{{ p.triples }}</td>
+                <td class="small">{{ p.elapsed }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if proposal.caveats %}
+        <h3 class="small">What the model was not shown</h3>
+        <ul class="small muted">
+          {% for c in proposal.caveats %}<li>{{ c }}</li>{% endfor %}
+        </ul>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  {% if drafts %}
+    <details class="card collapsible">
+      <summary>
+        <h2>Staged drafts</h2>
+        <span class="muted small">{{ drafts|length }}<span class="chevron">▾</span></span>
+      </summary>
+      <div class="card-body">
+        <p class="hint" style="margin-top:0;">
+          A draft is a proposal on disk. Applying merges it as unreviewed facts and
+          commits a revision; discarding deletes it. Neither touches the graph until
+          you choose.
+        </p>
+        <div class="table-wrap sm">
+          <table>
+            <thead><tr><th>Draft</th><th>Created</th><th>Completeness</th><th>Concepts</th><th>Findings</th><th></th></tr></thead>
+            <tbody>
+              {% for d in drafts %}
+                <tr>
+                  <td class="mono small">{{ d.id }}</td>
+                  <td class="small">{{ d.created_at }}</td>
+                  <td><span class="badge badge-{{ d.completeness|lower }}">{{ d.completeness }}</span></td>
+                  <td class="small">{{ d.counts.get('nodes', 0) }}</td>
+                  <td class="small">{{ d.findings|length }}</td>
+                  <td class="nowrap">
+                    <form method="post" action="{{ url_for('design_apply') }}" style="display:inline;">
+                      <input type="hidden" name="draft_id" value="{{ d.id }}">
+                      <button class="btn btn-sm btn-primary" type="submit">Apply</button>
+                    </form>
+                    <form method="post" action="{{ url_for('design_discard') }}" style="display:inline;">
+                      <input type="hidden" name="draft_id" value="{{ d.id }}">
+                      <button class="btn btn-sm btn-danger" type="submit">Discard</button>
+                    </form>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </details>
+  {% endif %}
+
+{% endif %}
+{% endblock %}

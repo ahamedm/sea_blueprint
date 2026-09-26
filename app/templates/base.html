@@ -18,7 +18,8 @@
     {# Endpoint prefixes so /review/<id> keeps the Review tab lit. #}
     {% set section = (request.endpoint or '').split('_')[0] %}
     {% for endpoint, label in [
-        ('index', 'Overview'), ('ingest', 'Ingest'), ('review', 'Review'),
+        ('index', 'Overview'), ('ingest', 'Ingest'), ('design', 'Design'),
+        ('review', 'Review'),
         ('reconcile', 'Reconcile'), ('map_view', 'Map'), ('gaps', 'Gaps'),
         ('quality', 'Quality'),
         ('changes', 'Changes'), ('ontology', 'Ontology')] %}

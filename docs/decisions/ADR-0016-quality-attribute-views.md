@@ -125,6 +125,14 @@ the graph — the convergence the item predicted, on real output.
   is not asserted anywhere in the graph today, so there is nothing to group by yet.
 - **Nothing writes scenarios.** The state is ready and empty; populating it needs an
   extraction pass that does not exist.
+
+  > **Resolved 2026-09-25 by
+  > [ADR-0017](ADR-0017-design-assistant-proposes-arc-g.md).** The Design Assistant
+  > proposes a measurable `QualityScenario` per stated quality attribute, so
+  > `has_quality_scenario` is populated by a real design run and is no longer in
+  > `unpopulated_states`. The edge is `scenario --realizes_attribute--> QualityAttribute`
+  > — the same predicate an NFR uses, since both point at the same node — and the
+  > census separates them by source kind, which a test pins.
 - **The requirements profile still emits the architecture-side quality predicate**
   from its system node ([YB-030](../todos/entries/YB-030-requirements-profile-cross-graph-claims.md)).
   The census tolerates it; it is not correct.

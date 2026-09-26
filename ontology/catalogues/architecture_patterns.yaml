@@ -1,0 +1,302 @@
+# ============================================================================
+# SEA Platform — Architecture Pattern Catalogue  [v0.1.0]
+# ============================================================================
+# The library of KNOWN SOLUTIONS the Design Assistant chooses from.
+#
+# WHY THIS IS DATA AND NOT PROMPT TEXT
+# ------------------------------------
+# The PRD's capability D1 says the agent maps requirements "against a library of
+# known design patterns relevant to the domain". A library pasted into a prompt is
+# not a library: it cannot be validated, it cannot be queried by an auditor, and
+# it makes every agent prompt longer for content only one pass needs.
+#
+# `core/patterns.py` reads this file, validates every reference against the
+# ontology, and resolves a pattern NAME the model emitted onto a catalogue entry.
+# The prompt therefore carries names and categories only (~a few hundred chars);
+# the mechanism, trade-offs and quality links are filled in deterministically.
+# That is ADR-0011's posture — the model is unreliable at mechanical fidelity, so
+# the mechanical part is not its job — and it is what keeps this from making
+# YB-007 (prompt dilution) worse.
+#
+# WHY NOT IN `architecture_base.yaml`
+# -----------------------------------
+# The ontology declares the CLASS (`ArchitecturePattern`) and the vocabulary
+# (`PatternCategory`). This file is a catalogue of INSTANCES of that class, which
+# is a different kind of artefact with a different edit cadence: adding a pattern
+# to a catalogue is routine, changing a class is a schema version. Keeping them
+# apart also means `load_ontology` (a fixed four-file chain) and the domain-pack
+# discovery are untouched.
+#
+# EVERY FIELD IS VALIDATED
+# ------------------------
+# `category` must be a `PatternCategory` member, `quality_attributes` must be
+# `QualitySubcharacteristic` members, `styles` must be `ArchitectureStyleName`
+# members. `validate_pattern_catalogue` reports drift rather than raising it,
+# the same posture as `validate_quality_model`: a catalogue that quietly stops
+# matching its own taxonomy is worse than one that is missing entries.
+#
+# quality_attributes names the SUB-CHARACTERISTIC, because that is the precise
+# axis (`FAULT_TOLERANCE`, not `RELIABILITY`): the coarse characteristic is
+# derivable from it, and the census groups on the precise one.
+# ============================================================================
+
+version: "0.1.0"
+description: >-
+  Named, published solutions an architecture can adopt — the patterns an auditor
+  checks for by name ("is the published pattern present?"), as distinct from
+  `DesignTechnique` (a mechanism the architecture exhibits) and
+  `ArchitectureStyle` (the coarse shape of the design).
+
+patterns:
+
+  # -- Resilience ----------------------------------------------------------
+
+  - name: Circuit Breaker
+    category: RESILIENCE
+    aliases: ["circuit breaker pattern", "breaker"]
+    mechanism: >-
+      Calls to a failing dependency fail fast once an error threshold is crossed,
+      and are periodically probed until the dependency recovers.
+    trade_offs: ["A state machine per dependency", "Thresholds need tuning"]
+    quality_attributes: [FAULT_TOLERANCE]
+    styles: [MICROSERVICES, SERVICE_BASED]
+
+  - name: Retry with Backoff
+    category: RESILIENCE
+    aliases: ["retry", "exponential backoff"]
+    mechanism: >-
+      A failed call is retried after an increasing delay, optionally with jitter,
+      bounded by an attempt limit.
+    trade_offs: ["Multiplies load on a struggling dependency", "Needs idempotent operations"]
+    quality_attributes: [FAULT_TOLERANCE]
+    styles: [MICROSERVICES, SERVICE_BASED, EVENT_DRIVEN]
+
+  - name: Bulkhead
+    category: RESILIENCE
+    aliases: ["bulkheads", "resource isolation"]
+    mechanism: >-
+      Resources are partitioned so that exhaustion in one pool cannot starve the
+      others.
+    trade_offs: ["Lower peak utilisation", "More pools to size and monitor"]
+    quality_attributes: [FAULT_TOLERANCE]
+    styles: [MICROSERVICES, SERVICE_BASED]
+
+  - name: Fallback
+    category: RESILIENCE
+    aliases: ["graceful degradation"]
+    mechanism: >-
+      When a dependency is unavailable the caller returns a defined degraded
+      response instead of failing.
+    trade_offs: ["The degraded response must be acceptable business behaviour"]
+    quality_attributes: [FAULT_TOLERANCE, AVAILABILITY]
+    styles: [MICROSERVICES, SERVICE_BASED, LAYERED]
+
+  - name: Dead Letter Queue
+    category: RESILIENCE
+    aliases: ["DLQ", "poison message queue"]
+    mechanism: >-
+      Messages that repeatedly fail processing are parked in a separate queue for
+      inspection rather than blocking the consumer.
+    trade_offs: ["Needs an operational process to drain it"]
+    quality_attributes: [FAULT_TOLERANCE, ANALYSABILITY]
+    styles: [EVENT_DRIVEN, MICROSERVICES]
+
+  # -- Availability --------------------------------------------------------
+
+  - name: Leader Election
+    category: AVAILABILITY
+    aliases: ["primary election", "single active"]
+    mechanism: >-
+      One instance holds the active role for a partition at a time and the role
+      moves to a survivor when the holder is lost.
+    trade_offs: ["Failover window", "Split-brain risk if the quorum is wrong"]
+    quality_attributes: [AVAILABILITY]
+    styles: [MICROSERVICES, SERVICE_BASED]
+
+  - name: Health-Checked Rotation
+    category: AVAILABILITY
+    aliases: ["health checks", "removal from rotation"]
+    mechanism: >-
+      Instances report liveness and readiness, and unhealthy ones are removed from
+      the load-balancing rotation until they recover.
+    trade_offs: ["Health checks must not become a load source"]
+    quality_attributes: [AVAILABILITY, RECOVERABILITY]
+    styles: [MICROSERVICES, SERVICE_BASED, SERVERLESS]
+
+  # -- Integration ---------------------------------------------------------
+
+  - name: API Gateway
+    category: INTEGRATION
+    aliases: ["gateway", "edge gateway"]
+    mechanism: >-
+      A single entry point terminates client traffic and routes it to backends,
+      centralising cross-cutting concerns.
+    trade_offs: ["A potential bottleneck and single point of failure"]
+    quality_attributes: [INTEROPERABILITY, ACCOUNTABILITY]
+    styles: [MICROSERVICES, SERVICE_BASED, LAYERED]
+
+  - name: Backend for Frontend
+    category: INTEGRATION
+    aliases: ["BFF"]
+    mechanism: >-
+      A backend tailored to one client experience aggregates and shapes calls to
+      downstream services.
+    trade_offs: ["One backend per client to maintain"]
+    quality_attributes: [INTEROPERABILITY, TIME_BEHAVIOUR]
+    styles: [MICROSERVICES]
+
+  - name: Saga
+    category: INTEGRATION
+    aliases: ["saga pattern", "distributed transaction"]
+    mechanism: >-
+      A long-running business transaction is a sequence of local transactions,
+      each with a compensating action that undoes it if a later step fails.
+    trade_offs: ["No isolation between steps", "Compensations must be written per step"]
+    quality_attributes: [FUNCTIONAL_CORRECTNESS, FAULT_TOLERANCE]
+    styles: [MICROSERVICES, EVENT_DRIVEN, SERVICE_BASED]
+
+  - name: Transactional Outbox
+    category: INTEGRATION
+    aliases: ["outbox pattern", "outbox"]
+    mechanism: >-
+      State change and the event announcing it are written in one local
+      transaction, and a relay publishes the event afterwards.
+    trade_offs: ["A relay to operate", "At-least-once delivery to absorb"]
+    quality_attributes: [INTEGRITY, FAULT_TOLERANCE]
+    styles: [MICROSERVICES, EVENT_DRIVEN]
+
+  - name: Strangler Fig
+    category: INTEGRATION
+    aliases: ["strangler"]
+    mechanism: >-
+      A new implementation grows around a legacy one, taking over capabilities
+      incrementally until the old one can be retired.
+    trade_offs: ["Two systems to run during the transition"]
+    quality_attributes: [MODIFIABILITY, REPLACEABILITY]
+    styles: [MODULAR_MONOLITH, MICROSERVICES, LAYERED]
+
+  # -- Data ----------------------------------------------------------------
+
+  - name: CQRS
+    category: DATA
+    aliases: ["command query responsibility segregation"]
+    mechanism: >-
+      The write model and the read model are separate, each shaped for its own
+      workload.
+    trade_offs: ["Read model lag", "Two models to keep consistent"]
+    quality_attributes: [TIME_BEHAVIOUR, SCALABILITY]
+    styles: [MICROSERVICES, EVENT_DRIVEN]
+
+  - name: Event Sourcing
+    category: DATA
+    aliases: ["event-sourced", "event store"]
+    mechanism: >-
+      State is derived by replaying an append-only log of the events that produced
+      it, rather than storing only the current value.
+    trade_offs: ["Schema evolution of old events", "Queries need projections"]
+    quality_attributes: [INTEGRITY, ANALYSABILITY]
+    styles: [EVENT_DRIVEN, MICROSERVICES]
+
+  - name: Sharding
+    category: DATA
+    aliases: ["partitioning", "horizontal partitioning"]
+    mechanism: >-
+      A dataset is split across independent partitions by a key, so each partition
+      carries a fraction of the load.
+    trade_offs: ["Cross-shard queries are expensive", "Resharding is disruptive"]
+    quality_attributes: [SCALABILITY, CAPACITY]
+    styles: [MICROSERVICES, SERVICE_BASED, SPACE_BASED]
+
+  - name: Read Replicas
+    category: DATA
+    aliases: ["replica reads", "read scaling"]
+    mechanism: >-
+      Reads are served from replicas of the primary store, leaving the primary to
+      take writes.
+    trade_offs: ["Replication lag is visible to readers"]
+    quality_attributes: [SCALABILITY, TIME_BEHAVIOUR]
+    styles: [MICROSERVICES, SERVICE_BASED, LAYERED]
+
+  - name: Cache-Aside
+    category: PERFORMANCE
+    aliases: ["cache aside", "lazy caching"]
+    mechanism: >-
+      The application reads from the cache and, on a miss, loads from the source
+      of truth and populates the cache.
+    trade_offs: ["Stale reads until the entry expires", "Cache invalidation on write"]
+    quality_attributes: [TIME_BEHAVIOUR, RESOURCE_UTILIZATION]
+    styles: [MICROSERVICES, SERVICE_BASED, LAYERED, SPACE_BASED]
+
+  # -- Security ------------------------------------------------------------
+
+  - name: Tokenization
+    category: SECURITY
+    aliases: ["tokenisation", "token vault"]
+    mechanism: >-
+      A sensitive value is replaced by a surrogate token that is meaningless
+      outside the vault that maps it back.
+    trade_offs: ["The vault is critical path and must be highly available"]
+    quality_attributes: [CONFIDENTIALITY]
+    styles: [MICROSERVICES, SERVICE_BASED, LAYERED]
+
+  - name: Zero Trust Segmentation
+    category: SECURITY
+    aliases: ["zero trust", "microsegmentation"]
+    mechanism: >-
+      Every call is authenticated and authorised on its own merits; network
+      position confers no implicit trust.
+    trade_offs: ["Every hop needs identity", "Higher operational overhead"]
+    quality_attributes: [CONFIDENTIALITY, AUTHENTICITY, ACCOUNTABILITY]
+    styles: [MICROSERVICES, SERVICE_BASED]
+
+  - name: Rate Limiting
+    category: SECURITY
+    aliases: ["throttling", "rate limit"]
+    mechanism: >-
+      Requests are capped per caller over a window, rejecting or delaying the
+      excess.
+    trade_offs: ["Legitimate bursts may be rejected", "Limits need tuning per consumer"]
+    quality_attributes: [RESISTANCE, AVAILABILITY]
+    styles: [MICROSERVICES, SERVICE_BASED, SERVERLESS]
+
+  # -- Deployment ----------------------------------------------------------
+
+  - name: Sidecar
+    category: DEPLOYMENT
+    aliases: ["sidecar proxy"]
+    mechanism: >-
+      Cross-cutting behaviour runs in a companion process beside the application
+      rather than inside it, sharing its lifecycle.
+    trade_offs: ["One more process per instance"]
+    quality_attributes: [MODULARITY, ANALYSABILITY]
+    styles: [MICROSERVICES, SERVICE_BASED]
+
+  - name: Service Mesh
+    category: DEPLOYMENT
+    aliases: ["mesh"]
+    mechanism: >-
+      Service-to-service traffic is intercepted by a managed data plane that
+      applies routing, retries, mTLS and telemetry uniformly.
+    trade_offs: ["A control plane to operate", "Per-hop latency"]
+    quality_attributes: [ANALYSABILITY, CONFIDENTIALITY, FAULT_TOLERANCE]
+    styles: [MICROSERVICES, SERVICE_BASED]
+
+  - name: Blue/Green Deployment
+    category: DEPLOYMENT
+    aliases: ["blue green"]
+    mechanism: >-
+      Two identical environments are maintained and traffic is switched from the
+      idle one to the newly released one, with rollback by switching back.
+    trade_offs: ["Double the environment cost"]
+    quality_attributes: [RECOVERABILITY, INSTALLABILITY]
+    styles: [MICROSERVICES, SERVICE_BASED, MODULAR_MONOLITH]
+
+  - name: Canary Release
+    category: DEPLOYMENT
+    aliases: ["canary", "progressive delivery"]
+    mechanism: >-
+      A new version takes a small share of traffic first, and its share increases
+      only while its health signals hold.
+    trade_offs: ["Two versions live at once", "Needs trustworthy health signals"]
+    quality_attributes: [RECOVERABILITY, ANALYSABILITY]
+    styles: [MICROSERVICES, SERVICE_BASED]

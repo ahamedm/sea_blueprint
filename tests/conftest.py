@@ -206,6 +206,156 @@ def fake_factory(requirements_output, architecture_output):
 
 
 # ============================================================================
+# Design Assistant
+# ============================================================================
+
+
+@pytest.fixture
+def design_output():
+    """Shaped like the Design Assistant's output.
+
+    Deliberately includes one of each finding the profile can produce — an
+    ungrounded element, an unresolved pattern, and a scenario with no number — so
+    the route and the template are exercised with findings rather than only with a
+    clean proposal.
+    """
+    return {
+        "triples": [
+            {
+                "subject": "Payment Orchestrator",
+                "predicate": "part_of",
+                "object": "Payment Gateway Platform",
+                "confidence": 0.9,
+                "ontology_class": "Container",
+            }
+        ],
+        "elements": [
+            {
+                "name": "Payment Gateway Platform",
+                "element_type": "SoftwareSystem",
+                "responsibilities": ["Acceptance of payment requests"],
+                "satisfies_attributes": ["Availability"],
+            },
+            {
+                "name": "Payment Orchestrator",
+                "element_type": "Container",
+                "parent": "Payment Gateway Platform",
+                "responsibilities": ["Routing", "Validation"],
+            },
+            {"name": "Scheme Switch", "element_type": "ExternalSystem"},
+        ],
+        "connections": [
+            {
+                "source": "Payment Orchestrator",
+                "target": "Scheme Switch",
+                "protocol": "REST",
+                "style": "SYNCHRONOUS_REQUEST_RESPONSE",
+            }
+        ],
+        "design_techniques": [
+            {
+                "name": "Connection Pooling",
+                "technique_category": "PERFORMANCE",
+                "applies_to": ["Payment Orchestrator"],
+                "realizes_quality_attributes": ["Payment Acceptance"],
+                "satisfies_attributes": ["Time Behaviour"],
+                "mechanism": "Reuses upstream connections.",
+            }
+        ],
+        "architecture_patterns": [
+            {
+                "name": "Circuit Breaker",
+                "category": "RESILIENCE",
+                "rationale": "A failing switch must not cascade.",
+                "mechanism": "Fail fast past an error threshold.",
+                "trade_offs": ["Thresholds need tuning"],
+                "applies_to": ["Payment Orchestrator"],
+            },
+            {
+                "name": "Quantum Flux Balancer",
+                "category": "RESILIENCE",
+                "rationale": "Invented.",
+                "mechanism": "Balances flux.",
+                "trade_offs": ["Unknown"],
+            },
+        ],
+        "quality_scenarios": [
+            {
+                "name": "Scheme switch timeout",
+                "attribute": "Time Behaviour",
+                "stimulus_source": "cardholder",
+                "stimulus": "submits an authorization",
+                "environment": "peak load",
+                "artifact": "Payment Orchestrator",
+                "response": "the authorization is decided",
+                "response_measure": "p95 < 500ms",
+            }
+        ],
+        "references": [
+            {
+                "element": "Payment Orchestrator",
+                "relationship": "implements_requirement",
+                "reference": "FR-PM-001",
+            }
+        ],
+        "pattern_resolutions": [
+            {"name": "Circuit Breaker", "resolved": True, "method": "name",
+             "matched": "Circuit Breaker", "category": "RESILIENCE",
+             "mechanism": "Fail fast past an error threshold.",
+             "trade_offs": ["Thresholds need tuning"]},
+            {"name": "Quantum Flux Balancer", "resolved": False, "method": "unresolved",
+             "matched": "", "category": "", "mechanism": "", "trade_offs": []},
+        ],
+        "findings": [
+            {"kind": "ungrounded", "subject": "Scheme Switch",
+             "reasons": ["no traceability link to a requirement, goal or capability"]},
+            {"kind": "pattern", "subject": "Quantum Flux Balancer",
+             "reasons": ["not in the architecture pattern catalogue"]},
+        ],
+        "design_digest": "# Input 1 — Requirements (REQ-G)\n\n- Payment Acceptance [FR-PM-001]\n",
+        "statistics": {
+            "total_elements": 3,
+            "total_connections": 1,
+            "total_design_techniques": 1,
+            "total_architecture_patterns": 2,
+            "total_quality_scenarios": 1,
+            "total_references": 1,
+            "patterns_resolved": 1,
+            "findings": 2,
+            "chunks": 1,
+            "passes": 6,
+            "model_calls": 6,
+        },
+    }
+
+
+@pytest.fixture
+def design_factory(design_output):
+    def factory():
+        # The real profile emits per-pass records (ADR-0013's preferred shape), so
+        # the fake does too — a fake that only set counters would exercise the
+        # reconstruction fallback and hide what the page actually renders.
+        passes = [
+            {"pass_name": name, "chunk_label": "chunk 1/1", "outcome": "ok",
+             "path": "structured", "elapsed": 1.0, "error": "", "triples_produced": 1}
+            for name in ("structure", "connections", "techniques", "patterns",
+                         "scenarios", "traceability")
+        ]
+        return FakeExtractor(design_output, metadata={
+            "document_type": "architecture",
+            "model_id": "fake-design-model",
+            "model_calls": 6,
+            "failed_calls": 0,
+            "empty_calls": 0,
+            "passes": passes,
+            "design_base": "working",
+            "design_caveats": ["no frozen baseline ARC-G exists"],
+        })
+
+    return factory
+
+
+# ============================================================================
 # App
 # ============================================================================
 
@@ -216,13 +366,14 @@ def store_root(tmp_path):
 
 
 @pytest.fixture
-def app(store_root, fake_factory):
+def app(store_root, fake_factory, design_factory):
     from app import create_app
 
     return create_app(
         {"TESTING": True, "STORE_ROOT": str(store_root), "REVIEWER": "tester"},
         store_root=str(store_root),
         extractor_factory=fake_factory,
+        design_factory=design_factory,
     )
 
 
