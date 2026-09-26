@@ -69,7 +69,9 @@ Thumbs.db
 .letta
 .serena
 .orbit-local
+.codegraph
 CLAUDE.md
+
 
 # Test fixtures ARE tracked (test_data/) — deliberate.
 # They are hand-written INPUTS that the extraction harness reads, and a harness
