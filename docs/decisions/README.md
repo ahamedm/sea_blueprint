@@ -21,3 +21,4 @@ Closed work from the TODO. Each record preserves its original write-up verbatim;
 | [ADR-0014](ADR-0014-map-replaces-c4-view.md) | The map replaces the C4 view — one graph, both sides, references visible | 2026-09-24 | — |
 | [ADR-0015](ADR-0015-retiring-extracted-facts.md) | Removing a fact the extractor invented — retire, and what withholds the audit | 2026-09-24 | — |
 | [ADR-0016](ADR-0016-quality-attribute-views.md) | Quality-attribute views — the census groups by canonical concern, and one taxonomy serves both layers | 2026-09-25 | — |
+| [ADR-0017](ADR-0017-design-assistant-proposes-arc-g.md) | The Design Assistant proposes an ARC-G draft — a profile over the knowledge layer, and a proposal is not an extraction | 2026-09-25 | — |

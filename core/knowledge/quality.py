@@ -73,7 +73,7 @@ from core.quality import (
 )
 
 from .ingest import completeness_note
-from .model import KnowledgeGraph, Node, REQUIREMENT_KINDS, reference_targets_a_node
+from .model import KnowledgeGraph, Node, reference_targets_a_node
 
 # The class the census is about. Named here rather than spelled inline so a
 # rename lands in one place.

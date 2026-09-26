@@ -68,7 +68,9 @@ from app.projections import (
 from app.viewpoints.merged import DEFAULT_LENS, merged_view
 from core.knowledge import (
     DEFAULT_MATCH_THRESHOLD,
+    SOURCE_DESIGN_ASSISTANT,
     BaselineNotReady,
+    DesignDraftStore,
     KnowledgeGraph,
     ReconcileError,
     ReviewError,
@@ -122,6 +124,18 @@ def _default_extractor(doc_type: str):
     return create_knowledge_extraction_agent()
 
 
+def _default_design_agent():
+    """The real Design Assistant. Lazily imported for the same reason as above.
+
+    A factory with NO document-type argument, because this profile's input is the
+    graph, not a file — routing it through `_default_extractor` would imply a
+    document it does not read.
+    """
+    from agents.design_assistant import create_design_assistant_agent
+
+    return create_design_assistant_agent()
+
+
 # ============================================================================
 # App factory
 # ============================================================================
@@ -131,6 +145,7 @@ def create_app(
     test_config: Optional[Dict[str, Any]] = None,
     store_root: Optional[str] = None,
     extractor_factory: Optional[Callable[[str], Any]] = None,
+    design_factory: Optional[Callable[[], Any]] = None,
 ) -> Flask:
     app = Flask(__name__, static_folder="static", template_folder="templates")
 
@@ -141,6 +156,7 @@ def create_app(
         REVIEWER=os.environ.get("SEA_REVIEWER", "architect"),
         MAX_CONTENT_LENGTH=MAX_UPLOAD_BYTES,
         EXTRACTOR_FACTORY=extractor_factory or _default_extractor,
+        DESIGN_FACTORY=design_factory or _default_design_agent,
         INITIATIVE_ID=os.environ.get("SEA_INITIATIVE", "INIT-MVP-001"),
         ONTOLOGY_DIR=os.environ.get("SEA_ONTOLOGY_DIR", "ontology"),
     )
@@ -148,6 +164,9 @@ def create_app(
         app.config.update(test_config)
 
     store = RevisionStore(app.config["STORE_ROOT"]).ensure()
+    # Design proposals are staged beside the working set, never merged into it
+    # until a human applies them. See `core.knowledge.drafts` for why.
+    drafts = DesignDraftStore(app.config["STORE_ROOT"]).ensure()
 
     # The ontologies are read once, at startup. Parse failure is recorded rather
     # than raised: the reference page can then say what is wrong, instead of the
@@ -347,6 +366,247 @@ def create_app(
                 "warning",
             )
         return redirect(url_for("review"))
+
+    # -- design assistant ------------------------------------------------
+
+    def _design_inputs() -> Dict[str, Any]:
+        """Which graph a design run reads, and what it should be grounded on."""
+        snapshot = state()
+        baselines = store.baselines()
+        return {
+            "snapshot": snapshot,
+            # The frozen baseline when one exists: a design should extend the
+            # architecture the enterprise has accepted, not the draft in progress.
+            "baseline": store.load_revision(baselines[0].id).graph if baselines else None,
+            "base_ref": baselines[0].id if baselines else "",
+            "baseline_label": baselines[0].label if baselines else "",
+        }
+
+    def _design_preconditions(snapshot: Snapshot) -> Dict[str, Any]:
+        """What a reviewer needs to know BEFORE starting a design run."""
+        graph = snapshot.graph
+        gaps = project_gap_report(graph)
+        quality = project_quality_report(graph)["summary"]
+        baselines = store.baselines()
+        return {
+            "requirements": gaps["realization"]["summary"]["requirements"],
+            "unrealized": gaps["unrealized_count"],
+            "quality_concerns": quality["attributes"],
+            "architecture_gaps": quality["architecture_gaps"],
+            "completeness": gaps["completeness"],
+            "completeness_note": gaps["completeness_note"],
+            "is_auditable": gaps["is_auditable"],
+            "baseline": baselines[0] if baselines else None,
+            "blocking": (
+                []
+                if graph.nodes
+                else ["The working set is empty — ingest a requirements document first."]
+            ),
+        }
+
+    def _proposal_view(output: Dict[str, Any], run, draft, delta, old_graph, new_graph):
+        """The draft as the page renders it.
+
+        Reads the agent's own collections rather than re-projecting the draft graph:
+        the output IS the proposal, and re-deriving it from the graph would be a
+        second rendering of the same thing — free to disagree with the first.
+        """
+        kinds: Dict[str, int] = {}
+        for node in delta.added_nodes:
+            kinds[node.kind] = kinds.get(node.kind, 0) + 1
+        return {
+            "draft": draft.to_dict(),
+            "run": {
+                "id": run.id,
+                "completeness": run.completeness,
+                "passes": [
+                    {"name": p.pass_name, "outcome": p.outcome, "path": p.path,
+                     "triples": p.triples_produced, "error": p.error, "elapsed": p.elapsed}
+                    for p in run.passes
+                ],
+            },
+            "elements": output.get("elements") or [],
+            "connections": output.get("connections") or [],
+            "techniques": output.get("design_techniques") or [],
+            "patterns": output.get("architecture_patterns") or [],
+            "resolutions": output.get("pattern_resolutions") or [],
+            "scenarios": output.get("quality_scenarios") or [],
+            "references": output.get("references") or [],
+            "findings": output.get("findings") or [],
+            "caveats": list(draft.caveats),
+            "statistics": output.get("statistics") or {},
+            "delta": {
+                "added_nodes": len(delta.added_nodes),
+                "added_assertions": len(delta.added_assertions),
+                "changed_assertions": len(delta.changed_assertions),
+                "removed_assertions": len(delta.removed_assertions),
+                "new_kinds": dict(sorted(kinds.items())),
+            },
+        }
+
+    @app.route("/design")
+    def design():
+        snapshot = state()
+        return render_template(
+            "design.html",
+            preconditions=_design_preconditions(snapshot),
+            drafts=drafts.list(),
+            proposal=None,
+            domain_packs=discover_domain_packs(current_app.config["ONTOLOGY_DIR"]),
+            active_domain_pack=snapshot.meta.get("domain_pack", ""),
+        )
+
+    @app.route("/design/draft", methods=["POST"])
+    def design_draft():
+        """Propose an architecture. Writes a DRAFT; never touches the working set."""
+        inputs = _design_inputs()
+        snapshot = inputs["snapshot"]
+        if not snapshot.graph.nodes:
+            flash("Nothing to design against — ingest a requirements document first.", "error")
+            return redirect(url_for("design"))
+
+        try:
+            agent = current_app.config["DESIGN_FACTORY"]()
+        except Exception as exc:                                     # noqa: BLE001
+            flash(f"Could not load the Design Assistant: {exc}", "error")
+            return redirect(url_for("design"))
+
+        domain_pack = (
+            request.form.get("domain_pack") or snapshot.meta.get("domain_pack") or ""
+        ).strip()
+        try:
+            select_pack = getattr(agent, "use_domain_pack", None)
+            if domain_pack and callable(select_pack):
+                select_pack(domain_pack)
+        except Exception as exc:                                     # noqa: BLE001
+            flash(f"Could not load the domain pack: {exc}", "error")
+            return redirect(url_for("design"))
+
+        active_pack = ""
+        read_pack_id = getattr(agent, "active_domain_pack_id", None)
+        if callable(read_pack_id):
+            try:
+                active_pack = read_pack_id() or ""
+            except Exception:                                        # noqa: BLE001
+                active_pack = ""
+
+        initiative_id = (
+            snapshot.meta.get("initiative_id") or current_app.config["INITIATIVE_ID"]
+        ).strip()
+
+        try:
+            result = agent.run({
+                "graph": snapshot.graph,
+                "baseline": inputs["baseline"],
+                "base_ref": inputs["base_ref"],
+                "initiative_id": initiative_id,
+                "domain_pack": active_pack,
+            })
+        except Exception as exc:                                     # noqa: BLE001
+            flash(f"Design run failed: {exc}", "error")
+            return redirect(url_for("design"))
+
+        if not result.success:
+            detail = "; ".join(result.errors) or "unknown error"
+            flash(f"Design run reported failure: {detail}", "error")
+            return redirect(url_for("design"))
+
+        output = result.output if isinstance(result.output, dict) else {}
+        metadata = dict(result.metadata or {})
+        metadata.setdefault("document_type", "architecture")
+
+        proposal_graph, run = graph_from_extraction(
+            output,
+            metadata=metadata,
+            document_ref=f"design:{initiative_id}@{inputs['base_ref'] or 'working'}",
+            document_text=output.get("design_digest", ""),
+            initiative_id=initiative_id,
+            domain_pack=active_pack,
+            source_type=SOURCE_DESIGN_ASSISTANT,
+        )
+        merged = merge_graphs(snapshot.graph, proposal_graph)
+        delta = compute_graph_delta(snapshot.graph, merged)
+
+        draft = drafts.save(
+            proposal_graph,
+            label=f"Design draft · {initiative_id}",
+            initiative_id=initiative_id,
+            base_ref=inputs["base_ref"] or "working",
+            run_id=run.id,
+            completeness=run.completeness,
+            domain_pack=active_pack,
+            caveats=metadata.get("design_caveats") or [],
+            findings=output.get("findings") or [],
+            pattern_resolutions=output.get("pattern_resolutions") or [],
+            digest=output.get("design_digest", ""),
+        )
+        flash(
+            f"Draft {draft.id} ({run.completeness}) — {len(delta.added_nodes)} new "
+            f"concept(s), {len(delta.added_assertions)} fact(s). Nothing is applied yet.",
+            "success" if run.completeness == "COMPLETE" else "warning",
+        )
+        return render_template(
+            "design.html",
+            preconditions=_design_preconditions(snapshot),
+            drafts=drafts.list(),
+            proposal=_proposal_view(output, run, draft, delta, snapshot.graph, merged),
+            domain_packs=discover_domain_packs(current_app.config["ONTOLOGY_DIR"]),
+            active_domain_pack=active_pack,
+        )
+
+    @app.route("/design/apply", methods=["POST"])
+    def design_apply():
+        """An explicit, deliberate second step — see `core.knowledge.drafts`."""
+        snapshot = state()
+        draft_id = (request.form.get("draft_id") or "").strip()
+        try:
+            draft, proposal_graph = drafts.load(draft_id)
+        except KeyError as exc:
+            flash(str(exc), "error")
+            return redirect(url_for("design"))
+
+        merged = merge_graphs(snapshot.graph, proposal_graph)
+        delta = compute_graph_delta(snapshot.graph, merged)
+        meta = dict(snapshot.meta)
+        meta["last_design"] = {
+            "draft": draft.id,
+            "run_id": draft.run_id,
+            "completeness": draft.completeness,
+            "base_ref": draft.base_ref,
+        }
+        save(Snapshot(graph=merged, log=snapshot.log, meta=meta))
+        revision = store.commit(
+            merged,
+            snapshot.log,
+            label=draft.label or "Design draft",
+            actor=reviewer(),
+            note=f"Applied design {draft.id}",
+            initiative_id=draft.initiative_id,
+        )
+        drafts.discard(draft_id)
+        flash(
+            f"Applied {draft.label or draft.id}: +{len(delta.added_nodes)} concept(s), "
+            f"+{len(delta.added_assertions)} fact(s) as UNVERIFIED proposals. "
+            f"Committed {revision.id}. Review them before trusting the audit.",
+            "success",
+        )
+        return redirect(url_for("review"))
+
+    @app.route("/design/discard", methods=["POST"])
+    def design_discard():
+        draft_id = (request.form.get("draft_id") or "").strip()
+        if drafts.discard(draft_id):
+            flash(f"Discarded design draft {draft_id}. The graph was never touched.", "warning")
+        else:
+            flash(f"No design draft {draft_id}.", "error")
+        return redirect(url_for("design"))
+
+    @app.route("/api/design")
+    def api_design():
+        return jsonify({
+            "drafts": [d.to_dict() for d in drafts.list()],
+            "latest": (drafts.latest().to_dict() if drafts.latest() else None),
+        })
 
     # -- review gate -----------------------------------------------------
 

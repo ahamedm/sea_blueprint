@@ -24,7 +24,9 @@ AGENTS = {
     "architecture_extraction": ("Architecture Extraction Agent", "architecture_base"),
     "ontology_engineer": ("Ontology Engineer Agent", "requirements_base"),
     "domain_context": ("Domain Context Agent", "requirements_base"),
-    "design_assistant": ("Design Assistant Agent", "requirements_base"),
+    # The architecture layer: this profile proposes ARC-G, and architecture_base
+    # imports the other three, so the requirements vocabulary is reachable through it.
+    "design_assistant": ("Design Assistant Agent", "architecture_base"),
     "semantic_auditor": ("Semantic Auditor Agent", "requirements_base"),
 }
 

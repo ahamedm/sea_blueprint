@@ -67,6 +67,17 @@ justified by a quality attribute and needs judgement to assess, whereas a
 convention is justified by consistency and is decided mechanically against data
 the graph already holds (element names, containment, technology stacks).
 
+**Where the pattern names come from.** This layer declares the CLASS
+(`ArchitecturePattern`) and the vocabulary it ranges over (`PatternCategory`); it
+does not enumerate the published patterns. Those live in
+[`catalogues/architecture_patterns.yaml`](catalogues/architecture_patterns.yaml),
+read by `core/patterns.py` and used by the Design Assistant
+([ADR-0017](../docs/decisions/ADR-0017-design-assistant-proposes-arc-g.md)). A
+catalogue of INSTANCES is a different artefact from a schema — adding a pattern is
+routine, changing a class is a schema version — and keeping them apart leaves this
+four-file chain and the domain-pack discovery untouched. `SEA_PATTERN_CATALOGUE`
+points at an organisation's own library instead.
+
 ### 5. The Quality Model Is ISO/IEC 25010:2023, in Two Levels
 
 Two enums and one class:

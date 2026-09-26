@@ -116,6 +116,9 @@ EXPECTED_TARGET_KINDS: Dict[str, FrozenSet[str]] = {
     "governed_by_rule": frozenset({"BusinessRule", "ConstraintRequirement"}),
     "governed_by_rules": frozenset({"BusinessRule", "ConstraintRequirement"}),
     "delivers_initiative": frozenset({"Initiative"}),
+    # A named pattern a requirement mandates. Scoped to the requirement kinds so a
+    # proposal cannot bind a mandate to, say, a technology stack that shares a word.
+    "mandated_by": _REQUIREMENT_KINDS,
 }
 
 

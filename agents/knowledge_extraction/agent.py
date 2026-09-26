@@ -662,6 +662,7 @@ class KnowledgeExtractionAgent(SEABaseAgent):
             "elapsed": record.elapsed,
             "error": record.error,
             "triples_produced": record.triples_produced,
+            "temperature": record.temperature,
         }
 
     def _build_extraction_prompt(

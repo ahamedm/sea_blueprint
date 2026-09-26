@@ -38,6 +38,7 @@
 | — | The map replaces the C4 view — one graph, both sides, references visible | [ADR-0014](../decisions/ADR-0014-map-replaces-c4-view.md) | record |
 | — | Removing a fact the extractor invented — retire, and what withholds the audit | [ADR-0015](../decisions/ADR-0015-retiring-extracted-facts.md) | record |
 | — | Quality-attribute views — the census groups by canonical concern, and one taxonomy serves both layers | [ADR-0016](../decisions/ADR-0016-quality-attribute-views.md) | record |
+| — | The Design Assistant proposes an ARC-G draft — a profile over the knowledge layer, and a proposal is not an extraction | [ADR-0017](../decisions/ADR-0017-design-assistant-proposes-arc-g.md) | record |
 | None | Semantic reference matching — bridge the paraphrase the deterministic scorer cannot | [YB-027](entries/YB-027-semantic-reference-matching.md) | entry (open) |
 | None | Remove a fact the extractor invented — and stop a dispute withholding the audit | [YB-028](entries/YB-028-remove-extracted-facts.md) | entry (done) |
 | None | Quality-attribute views for the map — the architect's primary focus has no view of its own | [YB-029](entries/YB-029-quality-attribute-views.md) | entry (done) |
@@ -46,6 +47,7 @@
 | None | Multivalued quality fields arrive as one comma-joined string on a single assertion | [YB-032](entries/YB-032-multivalued-quality-fields-joined.md) | entry (open) |
 | None | Event ingress — an external system's event starts graph work, without a browser in the loop | [YB-033](entries/YB-033-event-ingress.md) | entry (open) |
 | None | Initiative delivery phase — the graph cannot represent "this Initiative is in Design" | [YB-034](entries/YB-034-initiative-delivery-phase.md) | entry (open) |
-| None | Design Assistant — draft an initial architecture from REQ-G, on request or on an event | [YB-035](entries/YB-035-design-assistant.md) | entry (open) |
+| None | Design Assistant — draft an initial architecture from REQ-G, on request or on an event | [YB-035](entries/YB-035-design-assistant.md) | entry (done) |
 | None | Modular run streaming — one progress mechanism for the browser and for unattended runs | [YB-036](entries/YB-036-modular-run-streaming.md) | entry (open) |
 | None | Background workflow management — durable execution for runs nobody is waiting for | [YB-037](entries/YB-037-background-workflow-management.md) | entry (open) |
+| None | The Design Assistant's techniques pass echoes requirements and links no quality attribute | [YB-038](entries/YB-038-techniques-pass-echoes-requirements.md) | entry (open) |

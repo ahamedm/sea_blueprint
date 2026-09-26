@@ -33,6 +33,7 @@ from .model import (
     PassRecord,
     Provenance,
     REQUIREMENT_KINDS,
+    SOURCE_DESIGN_ASSISTANT,
     apply_delta,
     compute_graph_delta,
     make_assertion_id,
@@ -57,6 +58,7 @@ from .realization import (
     unmet_obligations,
     unrealized_requirements,
 )
+from .drafts import DesignDraft, DesignDraftStore
 from .quality import (
     COVERAGE_ANSWERED,
     COVERAGE_ARCHITECTURE_GAP,
@@ -138,6 +140,7 @@ __all__ = [
     "CROSS_GRAPH_PREDICATES",
     "REQUIREMENT_KINDS",
     "ontology_class_for_predicate",
+    "SOURCE_DESIGN_ASSISTANT",
     # serialisation
     "graph_to_dict",
     "graph_from_dict",
@@ -208,6 +211,9 @@ __all__ = [
     "Revision",
     "Snapshot",
     "BaselineNotReady",
+    # design drafts — a proposal staged before it is applied
+    "DesignDraftStore",
+    "DesignDraft",
     # rdf
     "to_rdf",
     "to_turtle",

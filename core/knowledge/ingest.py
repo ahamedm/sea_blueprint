@@ -246,6 +246,14 @@ def _collect_declared_nodes(
         if isinstance(d, dict):
             declare("DesignTechnique", d.get("name") or "")
 
+    for p in output.get("architecture_patterns", []) or []:
+        if isinstance(p, dict):
+            declare("ArchitecturePattern", p.get("name") or "")
+
+    for s in output.get("quality_scenarios", []) or []:
+        if isinstance(s, dict):
+            declare("QualityScenario", s.get("name") or "")
+
     for c in output.get("engineering_conventions", []) or []:
         if isinstance(c, dict):
             declare("EngineeringConvention", c.get("name") or "")
@@ -304,6 +312,7 @@ def graph_from_extraction(
     pass_records: Optional[List[PassRecord]] = None,
     initiative_id: Optional[str] = None,  # The "Living System" scoping key
     domain_pack: str = "",                # Vocabulary in force, recorded in provenance
+    source_type: str = SOURCE_EXTRACTION,  # Where these facts came from
 ) -> Tuple[KnowledgeGraph, ExtractionRun]:
     """Build a canonical graph from one extraction result.
 
@@ -313,6 +322,11 @@ def graph_from_extraction(
     `domain_pack` names the domain vocabulary the extraction ran under. It defaults
     to whatever the metadata carries, so callers that pass it through the extraction
     output need not pass it twice; supplying it here wins.
+
+    `source_type` is the provenance origin stamped on every assertion this run
+    produces. It defaults to `SOURCE_EXTRACTION` — reading a document — and exists
+    because a design PROPOSAL is not an extraction even though it travels the same
+    path: the difference is exactly what a reviewer has to be able to see.
     """
     metadata = metadata or {}
     graph = KnowledgeGraph()
@@ -344,7 +358,7 @@ def graph_from_extraction(
 
     def prov(pass_name: str = "", chunk_label: str = "") -> Provenance:
         return Provenance(
-            source_type=SOURCE_EXTRACTION,
+            source_type=source_type,
             run_id=run.id,
             pass_name=pass_name,
             model_id=model_id,
@@ -472,6 +486,78 @@ def graph_from_extraction(
             if str(nfr).strip():
                 graph.add_assertion(did, "realizes_quality_attribute", value=str(nfr).strip(),
                                     confidence=1.0, provenance=p)
+
+    # ---- architecture patterns: the named solutions the design adopts ----
+    #
+    # Distinct from a technique: a pattern is adopted from a published catalogue
+    # and judged by "is the published pattern present?", a technique is a mechanism
+    # the architecture exhibits and is judged by whether the NFR it claims is met
+    # (ontology/README.md). Both carry the quality link, and nothing else.
+    for pattern in output.get("architecture_patterns", []) or []:
+        if not isinstance(pattern, dict):
+            continue
+        pid = _resolve(graph, pattern.get("name") or "", by_label, "ArchitecturePattern")
+        p = prov("patterns")
+        for slot in ("pattern_category", "mechanism", "rationale"):
+            if pattern.get(slot):
+                graph.add_assertion(pid, slot, value=str(pattern[slot]),
+                                    confidence=1.0, provenance=p)
+        for trade_off in pattern.get("trade_offs") or []:
+            if str(trade_off).strip():
+                graph.add_assertion(pid, "trade_off", value=str(trade_off).strip(),
+                                    confidence=1.0, provenance=p)
+        # The attribute a pattern targets, as a node — the same shape the technique
+        # block writes, so the quality census reads both without a special case.
+        for attribute in pattern.get("satisfies_attributes") or []:
+            name = str(attribute).strip()
+            if not name:
+                continue
+            aid = _resolve(graph, name, by_label, "QualityAttribute")
+            graph.add_assertion(pid, "satisfies_attribute", obj=aid,
+                                confidence=1.0, provenance=p)
+        for target in pattern.get("applies_to") or []:
+            eid = _resolve(graph, target, by_label)
+            graph.add_assertion(eid, "applies_pattern", obj=pid,
+                                confidence=1.0, provenance=p)
+        for nfr in pattern.get("realizes_quality_attributes") or []:
+            if str(nfr).strip():
+                graph.add_assertion(pid, "realizes_quality_attribute", value=str(nfr).strip(),
+                                    confidence=1.0, provenance=p)
+        # The requirement that MANDATES this pattern, kept literal for the same
+        # reason and routed so reconciliation can bind it. An unrouted mandate is
+        # a claim nothing can verify, which is what the slot exists to avoid.
+        for requirement in pattern.get("mandated_by") or []:
+            if str(requirement).strip():
+                graph.add_assertion(pid, "mandated_by", value=str(requirement).strip(),
+                                    ontology_class=ontology_class_for_predicate("mandated_by"),
+                                    confidence=float(pattern.get("confidence") or 0.8),
+                                    provenance=p)
+
+    # ---- quality scenarios: the ATAM operationalisation of an attribute ----
+    #
+    # A scenario is what makes a quality requirement falsifiable (stimulus →
+    # environment → response → measure). `realizes_attribute` links it to the
+    # QualityAttribute it operationalises — the same predicate an NFR uses, because
+    # both point at the same node and `core.knowledge.quality` reads scenarios by
+    # the SOURCE kind, not by the predicate name.
+    for scenario in output.get("quality_scenarios", []) or []:
+        if not isinstance(scenario, dict):
+            continue
+        sid = _resolve(graph, scenario.get("name") or "", by_label, "QualityScenario")
+        p = prov("scenarios")
+        for slot in ("stimulus_source", "stimulus", "environment", "artifact",
+                     "response", "response_measure"):
+            if scenario.get(slot):
+                graph.add_assertion(sid, slot, value=str(scenario[slot]),
+                                    confidence=1.0, provenance=p)
+        if scenario.get("description"):
+            graph.add_assertion(sid, "description", value=str(scenario["description"]),
+                                confidence=1.0, provenance=p)
+        attribute = str(scenario.get("attribute") or "").strip()
+        if attribute:
+            aid = _resolve(graph, attribute, by_label, "QualityAttribute")
+            graph.add_assertion(sid, "realizes_attribute", obj=aid,
+                                confidence=1.0, provenance=p)
 
     # ---- engineering conventions: the organisation's own rules ----
     for c in output.get("engineering_conventions", []) or []:
@@ -749,9 +835,25 @@ def _pass_records_from_metadata(raw: Any) -> List[PassRecord]:
                 elapsed=float(item.get("elapsed") or 0.0),
                 error=str(item.get("error") or ""),
                 triples_produced=int(item.get("triples_produced") or 0),
+                temperature=_optional_temperature(item.get("temperature")),
             )
         )
     return out
+
+
+def _optional_temperature(value: Any) -> Optional[float]:
+    """A per-pass temperature, or None when the record does not carry one.
+
+    Tolerant on purpose. Older runs predate the field, and a stored run is
+    historical data — a malformed number must degrade to "not recorded" rather
+    than make an otherwise readable revision unloadable.
+    """
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def completeness_note(graph: KnowledgeGraph) -> str:

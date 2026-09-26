@@ -196,6 +196,19 @@ class ElementRecord(BaseModel):
     def _coerce_c4(cls, v):
         return _norm_c4(v)
 
+    @field_validator("parent", "description", mode="before")
+    @classmethod
+    def _coerce_optional_text(cls, v):
+        """`None` means "not stated", which is what the empty string already means.
+
+        Observed on a live Design Assistant run: the model emitted `"parent": null`
+        for top-level elements. Pydantic rejects `None` for a `str` field at the
+        SCHEMA level, so the structured call failed, the model was re-prompted, and
+        the pass spent three turns arriving at what `""` already said. Same posture
+        as the enum coercers: normalise formatting variance, judge the content.
+        """
+        return "" if v is None else str(v).strip()
+
     @field_validator("element_type", mode="before")
     @classmethod
     def _coerce_element_type(cls, v):

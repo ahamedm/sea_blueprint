@@ -94,7 +94,13 @@ class Flag:
         }
 
 
-def _pairs(records: Sequence[Any]) -> List[Dict[str, Any]]:
+def as_record_dicts(records: Sequence[Any]) -> List[Dict[str, Any]]:
+    """Normalise pass records to plain dicts.
+
+    Public because the Design Assistant's validators consume the same records: a
+    pass result is a Pydantic model on the structured path and a dict on the text
+    path, and both a shared check and a profile-specific one need one view of it.
+    """
     out = []
     for r in records or []:
         if isinstance(r, dict):
@@ -121,7 +127,7 @@ def check_object_contract(triples: Sequence[Any]) -> List[Flag]:
     clause-shaped nodes and comma-lists that should have been split.
     """
     flags: List[Flag] = []
-    for t in _pairs(triples):
+    for t in as_record_dicts(triples):
         reasons: List[str] = []
         for fieldname in ("subject", "object"):
             value = str(t.get(fieldname) or "").strip()
@@ -156,13 +162,13 @@ def check_containment(elements: Sequence[Any], triples: Sequence[Any]) -> List[F
     Checks a contained element has a parent, that the parent exists, and that a
     `part_of` triple backs the declaration — both views must agree.
     """
-    docs = [e for e in _pairs(elements) if e.get("element_type")]
+    docs = [e for e in as_record_dicts(elements) if e.get("element_type")]
     if not docs:
         return []
 
     names = {e.get("name") for e in docs}
     parts: Dict[str, set] = {}
-    for t in _pairs(triples):
+    for t in as_record_dicts(triples):
         if t.get("predicate") == "part_of":
             parts.setdefault(t.get("subject"), set()).add(t.get("object"))
 
@@ -208,7 +214,7 @@ def check_element_types(elements: Sequence[Any]) -> List[Flag]:
     if not allowed:
         return []
     flags: List[Flag] = []
-    for e in _pairs(elements):
+    for e in as_record_dicts(elements):
         etype = e.get("element_type")
         if etype and etype not in allowed:
             flags.append(Flag("element_type", str(e.get("name") or ""),
@@ -220,7 +226,7 @@ def check_element_types(elements: Sequence[Any]) -> List[Flag]:
 def check_deployment_levels(elements: Sequence[Any]) -> List[Flag]:
     """Deployment nodes have no C4 level; forcing one puts them at CONTEXT."""
     flags: List[Flag] = []
-    for e in _pairs(elements):
+    for e in as_record_dicts(elements):
         if e.get("element_type") == "DeploymentNode" and e.get("c4_level"):
             flags.append(Flag("deployment_level", str(e.get("name") or ""),
                               ["DeploymentNode carries a C4 level"]))
@@ -236,7 +242,7 @@ def check_enum_membership(elements: Sequence[Any]) -> List[Flag]:
         ("c4_level", "C4Level"),
     )
     flags: List[Flag] = []
-    for e in _pairs(elements):
+    for e in as_record_dicts(elements):
         reasons: List[str] = []
         for fieldname, enum_name in checks:
             value = str(e.get(fieldname) or "").strip()
@@ -265,7 +271,7 @@ def check_expected_present(
     category of content and the output still looks well-formed, so every
     correctness check passes over a diminished graph.
     """
-    present = {str(e.get("name") or "").strip().lower() for e in _pairs(elements)}
+    present = {str(e.get("name") or "").strip().lower() for e in as_record_dicts(elements)}
     missing = [n for n in expected_names if n.strip().lower() not in present]
     if not missing:
         return []
@@ -280,7 +286,7 @@ def check_nonempty_field(elements: Sequence[Any], fieldname: str,
     for every element — recognising the field and leaving it empty.
     """
     flags: List[Flag] = []
-    for e in _pairs(elements):
+    for e in as_record_dicts(elements):
         if applies_to and e.get("element_type") not in applies_to:
             continue
         if not e.get(fieldname):

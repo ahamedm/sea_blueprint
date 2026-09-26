@@ -95,6 +95,13 @@ SOURCE_HUMAN_ANALYST = "HUMAN_ANALYST"
 SOURCE_HUMAN_REVIEWER = "HUMAN_REVIEWER"
 SOURCE_ENRICHMENT = "ENRICHMENT"
 SOURCE_IMPORTED = "IMPORTED"
+# A design PROPOSAL, not an extraction. Kept separate from `SOURCE_EXTRACTION`
+# because the difference is the one a reviewer has to see: an extractor reports
+# what a document said, and a design agent proposes what could be built. Both are
+# agent output and both are unreviewed, but conflating them would make "the
+# architecture document said this" and "a model suggested this" indistinguishable
+# in the audit trail.
+SOURCE_DESIGN_ASSISTANT = "DESIGN_ASSISTANT"
 SOURCE_BASELINE_MERGE = "BASELINE_MERGE"  # Fact promoted from Initiative to System Baseline
 
 # Assertion Lifecycle / Scope
@@ -136,6 +143,11 @@ CROSS_GRAPH_PREDICATES = frozenset({
     # REQ-G, so this is a cross-graph link like the rest — and it is the one that
     # makes an NFR realization checkable rather than merely asserted.
     "realizes_quality_attribute", "realizes_quality_attributes",
+    # A named pattern the requirement MANDATES ("must be microservices"). Routed
+    # for the reason the ontology gives: it is what lets the auditor check that a
+    # mandated pattern is actually present, and an unrouted mandate is a claim
+    # nothing can verify.
+    "mandated_by",
 })
 
 
@@ -312,6 +324,11 @@ class PassRecord:
     elapsed: float = 0.0
     error: str = ""
     triples_produced: int = 0
+    temperature: Optional[float] = None
+    """The per-pass temperature override, when there was one. None means the pass
+    ran at the agent's temperature. Recorded because a proposal whose quality is
+    later questioned should be traceable to the sampler that produced it, and
+    because it is the one sampling knob that varies BETWEEN passes of one run."""
 
 
 @dataclass

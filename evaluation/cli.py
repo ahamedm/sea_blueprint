@@ -46,8 +46,15 @@ def evaluate(agent: str, test_cases_path: str, output_path: str, metrics: tuple)
     if agent == "knowledge_extraction":
         agent_instance = create_knowledge_extraction_agent()
     else:
-        console.print(f"[yellow]Agent {agent} not yet implemented. Using knowledge_extraction.[/yellow]")
-        agent_instance = create_knowledge_extraction_agent()
+        # NOT a silent fallback. Running the requirements extractor while reporting
+        # that another agent was evaluated is the ADR-0001 failure class: a wrong
+        # answer that looks like a right one. Refuse, and say what is missing.
+        console.print(
+            f"[red]The {agent} agent has no implementation to evaluate yet.[/red]\n"
+            f"[yellow]Refusing to run the knowledge-extraction agent in its place — "
+            f"the results would describe a different agent.[/yellow]"
+        )
+        raise SystemExit(2)
     
     # Create evaluation framework
     eval_framework = SEAEvaluationFramework(eval_config)

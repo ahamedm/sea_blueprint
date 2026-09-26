@@ -16,8 +16,10 @@ that is fast when it works and silently lossy when it does not.
 """
 
 from dataclasses import dataclass, field
+from contextlib import nullcontext
 from typing import Any, Dict, List, Optional, Sequence, Type
 
+from ..base_agent import looks_like_a_repetition_loop
 from .chunking import Chunk
 
 
@@ -35,6 +37,16 @@ class PassSpec:
     """Map of output collection name -> attribute name on the schema, e.g.
     {"elements": "elements"}. Used when merging pass results."""
 
+    temperature: Optional[float] = None
+    """Sampling temperature for THIS pass, overriding the agent's. None inherits.
+
+    Per-pass because a profile's passes are not the same kind of act. Naming a
+    container produces a merge key that has to be stable across runs; choosing
+    which catalogue pattern to adopt is a genuine choice among alternatives whose
+    names are pinned by the catalogue. One temperature for both is a compromise
+    that serves neither.
+    """
+
 
 @dataclass
 class PassOutcome:
@@ -47,6 +59,9 @@ class PassOutcome:
     elapsed: float = 0.0
     empty: bool = False
     path: str = "structured"       # structured | text | none
+    temperature: Optional[float] = None
+    """The override this pass ran at, for the run record. None means it inherited
+    the agent's temperature."""
 
     @property
     def ok(self) -> bool:
@@ -141,6 +156,18 @@ def _text_fallback(spec: PassSpec, text: str, agent) -> Optional[Any]:
         return None
 
 
+def _sampling(agent, temperature: Optional[float]):
+    """Enter the agent's temperature override, or a no-op when there is nothing to enter.
+
+    Guarded by `getattr` so a duck-typed stand-in without the method still runs the
+    pass at the agent's temperature rather than failing.
+    """
+    override = getattr(agent, "sampling", None)
+    if temperature is None or not callable(override):
+        return nullcontext()
+    return override(temperature)
+
+
 def run_passes(
     agent,
     passes: Sequence[PassSpec],
@@ -162,32 +189,55 @@ def run_passes(
     for chunk in chunks:
         for spec in passes:
             label = f"{spec.name} @ {chunk.label}"
+            # The temperature belongs in the log line: it is the one sampling knob
+            # that differs BETWEEN passes of the same run, so "which pass was warm"
+            # is not answerable from the model id alone.
+            if spec.temperature is not None:
+                label += f" (temperature {spec.temperature})"
             if log:
                 log(f"  pass: {label}")
 
             t0 = time.time()
             prompt = build_pass_prompt(spec, chunk, shared_context)
 
-            try:
-                result = agent.invoke_structured(prompt, spec.schema)
-            except Exception as e:                                   # noqa: BLE001
-                result, err = None, f"{type(e).__name__}: {e}"
-            else:
-                err = None
-
-            path = "structured"
-
-            # Structured failed or returned nothing — try the text path before
-            # writing the pass off, since a complete answer may still be present
-            # in an envelope the structured call could not use.
-            if result is None and allow_text_fallback:
+            # The override covers the WHOLE pass — the structured attempt and the
+            # text fallback — because both are the same act and should be sampled
+            # the same way. It is restored in a `finally`, so a pass that raises
+            # cannot leave the model warm for the ones after it.
+            with _sampling(agent, spec.temperature):
                 try:
-                    raw = agent.invoke(prompt)
-                    result = _text_fallback(spec, str(raw), agent)
-                    path = "text" if result is not None else "none"
+                    result = agent.invoke_structured(prompt, spec.schema)
                 except Exception as e:                               # noqa: BLE001
-                    err = f"text fallback failed: {type(e).__name__}: {e}"
-                    path = "none"
+                    result, err = None, f"{type(e).__name__}: {e}"
+                else:
+                    err = None
+
+                path = "structured"
+
+                # Structured failed or returned nothing — try the text path before
+                # writing the pass off, since a complete answer may still be present
+                # in an envelope the structured call could not use.
+                if result is None and allow_text_fallback:
+                    try:
+                        raw = agent.invoke(prompt)
+                        text = str(raw)
+                        result = _text_fallback(spec, text, agent)
+                        path = "text" if result is not None else "none"
+                        # A model that looped produced text but no answer. Recorded
+                        # as a FAILURE with a cause rather than an empty pass,
+                        # because "empty" reads as "the model had nothing to say"
+                        # and sends the next person looking at the prompt instead
+                        # of at the sampler.
+                        if result is None and looks_like_a_repetition_loop(text):
+                            err = (
+                                "the model repeated itself instead of answering — a "
+                                "degenerate generation, not an empty one. Check the "
+                                "sampling parameters (temperature, max_tokens, "
+                                "repeat_penalty) reaching the server."
+                            )
+                    except Exception as e:                           # noqa: BLE001
+                        err = f"text fallback failed: {type(e).__name__}: {e}"
+                        path = "none"
 
             elapsed = time.time() - t0
             empty = result is None and err is None
@@ -195,6 +245,7 @@ def run_passes(
             outcomes.append(PassOutcome(
                 pass_name=spec.name, chunk=chunk, result=result,
                 error=err, elapsed=elapsed, empty=empty, path=path,
+                temperature=spec.temperature,
             ))
 
             if log:

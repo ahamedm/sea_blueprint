@@ -3,7 +3,8 @@ Configuration management for SEA agents.
 """
 
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any, Dict
+import json
 import yaml
 from pydantic import BaseModel, Field
 import os
@@ -73,6 +74,14 @@ class EnvironmentConfig(BaseModel):
             "overrides this; the env var is only the fallback."
         ),
     )
+    pattern_catalogue: str = Field(
+        default="",
+        alias="SEA_PATTERN_CATALOGUE",
+        description=(
+            "Architecture pattern catalogue the Design Assistant chooses from. "
+            "Empty uses the shipped catalogue under ontology/catalogues/."
+        ),
+    )
     data_dir: str = Field(default="data")
     output_dir: str = Field(default="data/output")
     
@@ -87,6 +96,17 @@ class EnvironmentConfig(BaseModel):
     max_structured_turns: int = Field(default=3, alias="MAX_STRUCTURED_TURNS")
     structured_timeout_seconds: int = Field(default=180, alias="STRUCTURED_TIMEOUT_SECONDS")
     request_timeout_seconds: int = Field(default=300, alias="REQUEST_TIMEOUT_SECONDS")
+
+    # Generation bounds. Per-agent `temperature` / `max_tokens` live in the config
+    # blocks below and now actually reach the model; this is the escape hatch for
+    # request parameters those blocks do not name, passed to the server verbatim.
+    # A local server's OWN defaults are the hazard — llama.cpp ships temperature
+    # 1.0, `repeat_penalty` 1.0 (off), DRY off and `n_predict -1` (unbounded),
+    # which is a repetition loop waiting for a small model to find it.
+    # Example: MODEL_EXTRA_PARAMS={"repeat_penalty": 1.1, "dry_multiplier": 0.8}
+    model_extra_params: Dict[str, Any] = Field(
+        default_factory=dict, alias="MODEL_EXTRA_PARAMS"
+    )
     
     class Config:
         env_file = ".env"
@@ -110,6 +130,29 @@ def load_environment() -> EnvironmentConfig:
             return default
         return raw.strip().lower() in ("1", "true", "yes", "on")
 
+    def _as_json_object(name: str, default: Dict[str, Any]) -> Dict[str, Any]:
+        """Parse a JSON object from the environment, or explain why it will not.
+
+        A malformed value is raised rather than ignored: silently dropping the
+        parameters would reproduce exactly the bug this setting exists to fix — a
+        bound the operator believes is in force and the model never receives.
+        """
+        raw = (os.getenv(name) or "").strip()
+        if not raw:
+            return dict(default)
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"{name} must be a JSON object of request parameters, e.g. "
+                f'{{"repeat_penalty": 1.1}} — {exc}'
+            ) from exc
+        if not isinstance(parsed, dict):
+            raise ValueError(
+                f"{name} must be a JSON OBJECT, not {type(parsed).__name__}: {raw!r}"
+            )
+        return parsed
+
     config_data = {
         "anthropic_api_key": os.getenv("ANTHROPIC_API_KEY", ""),
         "openai_api_key": os.getenv("OPENAI_API_KEY", ""),
@@ -122,6 +165,7 @@ def load_environment() -> EnvironmentConfig:
         "ontology_path": os.getenv("ONTOLOGY_PATH", "ontology/requirements_base.yaml"),
         "ontology_dir": os.getenv("SEA_ONTOLOGY_DIR", "ontology"),
         "domain_pack": os.getenv("SEA_DOMAIN_PACK", ""),
+        "pattern_catalogue": os.getenv("SEA_PATTERN_CATALOGUE", ""),
         "data_dir": os.getenv("DATA_DIR", "data"),
         "output_dir": os.getenv("OUTPUT_DIR", "data/output"),
         "deepeval_api_key": os.getenv("DEEPEVAL_API_KEY", ""),
@@ -129,6 +173,7 @@ def load_environment() -> EnvironmentConfig:
         "max_structured_turns": int(os.getenv("MAX_STRUCTURED_TURNS", "3")),
         "structured_timeout_seconds": int(os.getenv("STRUCTURED_TIMEOUT_SECONDS", "180")),
         "request_timeout_seconds": int(os.getenv("REQUEST_TIMEOUT_SECONDS", "300")),
+        "model_extra_params": _as_json_object("MODEL_EXTRA_PARAMS", {}),
     }
     
     return EnvironmentConfig(**config_data)
@@ -148,6 +193,9 @@ def get_default_agent_config(agent_name: str) -> Dict[str, Any]:
     console.log(f"[dim]  OPENAI_BASEURL: {env_config.openai_baseurl or '[empty]'}[/dim]")
     console.log(f"[dim]  LOCAL_MODEL_ID: {env_config.local_model_id or '[empty]'}[/dim]")
     console.log(f"[dim]  DEFAULT_MODEL_PROVIDER: {env_config.default_model_provider}[/dim]")
+    console.log(
+        f"[dim]  MODEL_EXTRA_PARAMS: {env_config.model_extra_params or '[none]'}[/dim]"
+    )
     
     # Determine model provider and settings
     base_url = env_config.get_openai_base_url()
@@ -239,26 +287,49 @@ Output should be structured as JSON with triples and metadata.""",
         
         "design_assistant": {
             "name": "Design Assistant Agent",
-            "description": "Leverages requirements to propose initial architecture solutions",
+            "description": (
+                "Proposes a core solution architecture (ARC-G) from the requirements "
+                "graph and the baseline, choosing design techniques, architecture "
+                "patterns from the catalogue, and quality scenarios"
+            ),
             "model_provider": model_provider,
             "model_id": model_id,
             "base_url": base_url,
             "api_key": api_key,
-            "temperature": 0.6,
-            "max_tokens": 4096,
+            # Lower than the old placeholder's 0.6: this profile emits STRUCTURED
+            # records through the same pass harness as architecture extraction, and
+            # a schema-constrained pass benefits from the same low variance that
+            # profile runs at. Temperature is not where a design should be creative.
+            #
+            # The PROFILE default, not a per-pass one. `design_pattern_pass` raises
+            # its own pass to 0.6 (`PATTERN_PASS_TEMPERATURE`) — the patterns pass is
+            # a choice among alternatives whose names the catalogue pins, whereas
+            # the other five emit merge names that have to stay stable. Expect to
+            # see 0.6 in that pass's log line and 0.3 in the rest.
+            "temperature": 0.3,
+            "max_tokens": 8192,
             "system_prompt": """You are the Design Assistant Agent for the SEA Platform.
-Your role is to leverage requirements to propose initial architecture solutions.
+Your role is to propose a CORE solution architecture from a verified requirements
+graph (REQ-G) and the architecture that already exists.
 
 Key responsibilities:
-- Analyze formal requirements (REQ-G) and map to design patterns
-- Propose initial component structures and interaction flows
-- Support iterative design by accepting human modifications
-- Maintain graph integrity as designs evolve
+- Propose the containers, components and external systems a solution needs
+- Choose the design techniques that deliver each stated quality attribute
+- Choose named architecture patterns from the catalogue, with their trade-offs
+- Write a measurable quality scenario for each stated quality attribute
+- Trace every proposed element back to the requirement it answers
 
-Consider architectural patterns like microservices, event-driven, CQRS, etc.
-Propose solutions that satisfy requirements while considering quality attributes.""",
+You are PROPOSING, not extracting, and not deciding. Every fact you emit is a
+proposal a human architect reviews and approves. Prefer a small, grounded design
+over a large speculative one; an element you cannot trace to a requirement is a
+finding for the reviewer, not a contribution. Reuse an element that already exists
+by its exact name rather than proposing a second one.""",
             "tools": ["pattern_matcher", "architecture_generator"],
-            "ontology_path": "ontology/requirements_base.yaml",
+            # The ARCHITECTURE layer, because this profile proposes ARC-G.
+            # `architecture_base` imports enterprise_structure and requirements_base,
+            # so the requirements vocabulary is reachable through it.
+            "ontology_path": "ontology/architecture_base.yaml",
+            "pattern_catalogue": env_config.pattern_catalogue or None,
         },
         
         "semantic_auditor": {
@@ -327,6 +398,10 @@ architecture the document does not describe.""",
         "max_structured_turns": env_config.max_structured_turns,
         "structured_timeout_seconds": env_config.structured_timeout_seconds,
         "request_timeout_seconds": env_config.request_timeout_seconds,
+        # Sampling parameters the per-agent blocks do not name, passed through to
+        # the server verbatim. Uniform, because a repetition loop is not specific
+        # to one profile: the Designer found it, every agent is exposed to it.
+        "extra_params": dict(env_config.model_extra_params),
         # The ontology root, so `imports:` resolve and packs are found regardless of
         # the entry schema an agent names.
         "ontology_dir": env_config.ontology_dir,
@@ -346,7 +421,8 @@ architecture the document does not describe.""",
     # Architecture Extraction Agent's config, so REQ-G extraction ran under the
     # ARC-G system prompt. Silent, and it made requirements runs reason about
     # containers and deployment.
-    for extraction_agent in ("knowledge_extraction", "architecture_extraction"):
+    for extraction_agent in ("knowledge_extraction", "architecture_extraction",
+                             "design_assistant"):
         configs[extraction_agent]["domain_pack"] = env_config.domain_pack or None
 
     return configs.get(agent_name, {})

@@ -303,6 +303,69 @@ def inv_conventions_populated(res, out):
     )
 
 
+# ---- design-side ----
+#
+# The Design Assistant reads a GRAPH, not a file, so its invariants read the
+# output collections directly and its case names a store rather than an input.
+# They check the properties the profile exists to produce, not that it ran:
+# every promised collection arrived, a pattern resolved against the catalogue,
+# every scenario is measurable, and every element is either grounded or REPORTED
+# as ungrounded. That last one is the difference between a design and a guess.
+
+
+def inv_design_collections(res, out):
+    wanted = ("elements", "connections", "design_techniques",
+              "architecture_patterns", "quality_scenarios", "references")
+    missing = [k for k in wanted if not out.get(k)]
+    detail = (f"missing: {missing}" if missing else
+              ", ".join(f"{len(out[k])} {k}" for k in wanted))
+    return _ok(not missing, detail)
+
+
+def inv_design_patterns_resolved(res, out):
+    """A pattern the catalogue does not know is reported, but one must resolve."""
+    resolutions = out.get("pattern_resolutions") or []
+    resolved = [r for r in resolutions if r.get("resolved")]
+    names = [r.get("name") for r in resolutions]
+    return _ok(bool(resolved),
+               f"{len(resolved)}/{len(resolutions)} resolved from the catalogue: {names}")
+
+
+def inv_design_scenarios_measurable(res, out):
+    """A scenario without a number does not make the requirement falsifiable."""
+    scenarios = out.get("quality_scenarios") or []
+    vague = [s.get("name") for s in scenarios
+             if not any(ch.isdigit() for ch in str(s.get("response_measure") or ""))]
+    return _ok(not vague,
+               f"unmeasurable: {vague}" if vague
+               else f"{len(scenarios)} scenario(s), all with a numeric measure")
+
+
+def inv_design_techniques_linked(res, out):
+    """A technique aimed at no quality attribute answers nothing."""
+    techniques = out.get("design_techniques") or []
+    unlinked = [t.get("name") for t in techniques
+                if not (t.get("realizes_quality_attributes") or t.get("quality_category")
+                        or t.get("subcharacteristic"))]
+    return _ok(not unlinked,
+               f"aimed at nothing: {unlinked}" if unlinked
+               else f"{len(techniques)} technique(s), all linked to a quality concern")
+
+
+def inv_design_elements_grounded_or_reported(res, out):
+    """An invented element is only acceptable if it is NAMED as ungrounded."""
+    grounded = {str(r.get("element") or "").strip().lower()
+                for r in out.get("references") or []}
+    ungrounded = [e.get("name") for e in out.get("elements") or []
+                  if str(e.get("name") or "").strip().lower() not in grounded]
+    reported = {f.get("subject") for f in out.get("findings") or []
+                if f.get("kind") == "ungrounded"}
+    unreported = [name for name in ungrounded if name not in reported]
+    return _ok(not unreported,
+               f"ungrounded AND unreported: {unreported}" if unreported
+               else f"{len(ungrounded)} ungrounded, every one reported as a finding")
+
+
 # ----------------------------------------------------------------------------
 # Cases
 # ----------------------------------------------------------------------------
@@ -353,10 +416,108 @@ CASES: List[Dict[str, Any]] = [
                        inv_techniques_populated, inv_conventions_populated,
                        inv_schema_ontology_consistency, inv_expected_present],
     },
+    {
+        "name": "design",
+        "agent": "design_assistant",
+        # No `input`: this profile reads REQ-G and the baseline ARC-G out of the
+        # store. `store_root` is the input, and the run writes a proposal only —
+        # it never touches the working set.
+        "store_root": "data/sea",
+        "output": "data/output/test_design.json",
+        "domain_pack": "payment_processing",
+        "invariants": [inv_success, inv_design_collections,
+                       inv_design_patterns_resolved, inv_design_scenarios_measurable,
+                       inv_design_techniques_linked,
+                       inv_design_elements_grounded_or_reported],
+    },
 ]
 
 
+def _checks(case: Dict[str, Any], result, out: Dict[str, Any]) -> List[tuple]:
+    """Run a case's invariants and return (name, passed, detail) triples.
+
+    `AgentResult` is a pydantic model, so a lightweight proxy carries the
+    case-level expectations the completeness invariants need rather than trying to
+    bolt an attribute onto it.
+    """
+
+    class _Res:
+        def __init__(self, real, expected):
+            self._real = real
+            self.expected = expected
+
+        def __getattr__(self, item):
+            return getattr(self._real, item)
+
+    result_view = _Res(result, case.get("expected", []))
+    checks = []
+    for inv in case["invariants"]:
+        try:
+            passed, detail = inv(result_view, out)
+        except Exception as e:                                  # noqa: BLE001
+            passed, detail = False, f"raised {type(e).__name__}: {e}"
+        checks.append((inv.__name__, passed, detail))
+    return checks
+
+
+def _run_design_case(case: Dict[str, Any]) -> Dict[str, Any]:
+    """The Design Assistant's case: a GRAPH input, so a different flow.
+
+    Kept separate rather than threaded through `run_case`, which reads a document
+    from `case["input"]`. This profile has no document — its input is REQ-G and the
+    baseline ARC-G out of the store — and pretending otherwise would be the same
+    category error as giving it a `--input` file in the CLI.
+    """
+    from agents.design_assistant import create_design_assistant_agent
+    from core.knowledge import RevisionStore
+
+    store = RevisionStore(case.get("store_root", "data/sea")).ensure()
+    snapshot = store.load_working()
+    if not snapshot.graph.nodes:
+        raise RuntimeError(f"no working set at {case.get('store_root')} — ingest first")
+
+    baselines = store.baselines()
+    baseline = store.load_revision(baselines[0].id).graph if baselines else None
+    base_ref = baselines[0].id if baselines else ""
+
+    agent = create_design_assistant_agent()
+    pack_spec = case.get("domain_pack") or os.getenv("SEA_DOMAIN_PACK", "")
+    if pack_spec:
+        agent.use_domain_pack(pack_spec)
+    if agent.active_domain_pack_id():
+        print(f"  domain pack: {agent.active_domain_pack_id()}")
+    print(f"  graph : {case.get('store_root')} "
+          f"({len(snapshot.graph.nodes)} nodes, baseline {base_ref or 'none'})")
+
+    t0 = time.time()
+    result = agent.run({
+        "graph": snapshot.graph,
+        "baseline": baseline,
+        "base_ref": base_ref,
+        "initiative_id": snapshot.meta.get("initiative_id", ""),
+        "domain_pack": agent.active_domain_pack_id(),
+    })
+    elapsed = time.time() - t0
+
+    out = result.output or {}
+    Path(case["output"]).parent.mkdir(parents=True, exist_ok=True)
+    Path(case["output"]).write_text(json.dumps(
+        {"case": case["name"], "input_file": case.get("store_root", ""),
+         "metadata": result.metadata, **out}, indent=2))
+
+    return {
+        "case": case["name"], "agent": case["agent"],
+        "input": case.get("store_root", ""), "output": case["output"],
+        "elapsed": elapsed,
+        "path": (result.metadata or {}).get("extraction_path"),
+        "checks": _checks(case, result, out),
+    }
+
+
 def run_case(case: Dict[str, Any]) -> Dict[str, Any]:
+    if case["agent"] == "design_assistant":
+        return _run_design_case(case)
+
     agent = (create_knowledge_extraction_agent()
              if case["agent"] == "knowledge_extraction"
              else create_architecture_extraction_agent())
@@ -387,32 +548,11 @@ def run_case(case: Dict[str, Any]) -> Dict[str, Any]:
         {"case": case["name"], "input_file": case["input"],
          "metadata": result.metadata, **out}, indent=2))
 
-    # Attach case-level expectations so completeness invariants can see them.
-    # AgentResult is a pydantic model, so use a lightweight proxy rather than
-    # trying to bolt an attribute onto it.
-    class _Res:
-        def __init__(self, real, expected):
-            self._real = real
-            self.expected = expected
-
-        def __getattr__(self, item):
-            return getattr(self._real, item)
-
-    result_view = _Res(result, case.get("expected", []))
-
-    checks = []
-    for inv in case["invariants"]:
-        try:
-            passed, detail = inv(result_view, out)
-        except Exception as e:                                  # noqa: BLE001
-            passed, detail = False, f"raised {type(e).__name__}: {e}"
-        checks.append((inv.__name__, passed, detail))
-
     return {
         "case": case["name"], "agent": case["agent"],
         "input": case["input"], "output": case["output"],
         "elapsed": elapsed, "path": result.metadata.get("extraction_path"),
-        "checks": checks,
+        "checks": _checks(case, result, out),
     }
 
 
@@ -437,8 +577,8 @@ def validate_saved(case: Dict[str, Any]) -> Dict[str, Any]:
             passed, detail = False, f"raised {type(e).__name__}: {e}"
         checks.append((inv.__name__, passed, detail))
 
-    return {"case": case["name"], "agent": case["agent"], "input": case["input"],
-            "output": case["output"], "elapsed": 0.0,
+    return {"case": case["name"], "agent": case["agent"],
+            "input": case.get("input", ""), "output": case["output"], "elapsed": 0.0,
             "path": blob.get("metadata", {}).get("extraction_path"),
             "checks": checks}
 
@@ -455,7 +595,8 @@ def main() -> int:
     results = []
     for case in cases:
         print(f"\n{'=' * 72}\nCASE {case['name']}  ({case['agent']})\n{'=' * 72}")
-        print(f"  input : {case['input']}")
+        if case.get("input"):
+            print(f"  input : {case['input']}")
         if args.validate_only:
             r = validate_saved(case)
             if r is None:

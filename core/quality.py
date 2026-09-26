@@ -50,6 +50,7 @@ from core.ontology import (
     ISO_25010_2023,
     NON_ISO_QUALITY_CONCERNS,
     SUBCHARACTERISTIC_PARENT,
+    enum_name,
 )
 
 # ============================================================================
@@ -310,12 +311,9 @@ CHARACTERISTIC_ALIASES: Dict[str, str] = {
     "FUNCTIONALITY": "FUNCTIONAL_SUITABILITY",
 }
 
-_NON_ALNUM = re.compile(r"[^A-Za-z0-9]+")
-
-
-def enum_name(label: str) -> str:
-    """`High Availability` -> `HIGH_AVAILABILITY`. The shape the taxonomy uses."""
-    return _NON_ALNUM.sub("_", (label or "").strip()).strip("_").upper()
+# `enum_name` moved to `core.ontology` when the pattern catalogue became the
+# second thing that had to normalise a label into an enum's spelling; it is
+# re-exported here because this module's callers import it from here.
 
 
 @dataclass(frozen=True)
