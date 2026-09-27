@@ -1,7 +1,7 @@
 ---
 id: YB-053
 legacy: null
-title: "Category-word elements and one system named twice — the two content defects left in the C4 model"
+title: "Category elements, one system named twice, and a hub that is really a document gap"
 status: open
 priority: high
 area: "`agents/architecture_extraction/passes.py` (structure rules), `agents/extraction/validators.py` (a name validator), `core/knowledge/ingest.py` (`_resolve` identity)"
@@ -17,10 +17,14 @@ blocked_by: []
 
 # YB-053 — Category-word elements and one system named twice
 
-> **Open.** Both found by running the MVP test case end to end against DeepSeek
+> **Open.** Found by running the MVP test case end to end against DeepSeek
 > (`deepseek-v4-pro`) on a clean scope, measured with `scripts/c4_scorecard.py`. They are
-> what is left of the C4 model after the defects below were fixed — the diagram is now
-> real, and these two things still make it look wrong.
+> what is left of the C4 model after the earlier defects were fixed — the diagram is now
+> real, and these are what still make it read wrong.
+>
+> Defects 1 and 2 are in the pipeline and the graph. Defects 3 and 4 are in the source
+> **document**, and 3 is the reason the diagram's shape is misleading: the one container
+> whose relationships the prose lists becomes the hub everything hangs off.
 
 ### Where the model stands
 
@@ -112,6 +116,60 @@ records the second node as an alias of the first. The first is smaller and match
 compatible set has to be explicit and small. Whatever is chosen, the review gate should
 be able to see the merge, because merging two nodes is not reversible from the UI.
 
+### Defect 3 — the document states ONE container's relationships, so that container is the hub
+
+Asked why `Settlement Job Orchestrator` looks like the entry point every other container
+hangs off. The graph is **faithful**: all 11 arrows trace to a sentence, and the reason is
+the source document, not the extractor.
+
+`test_data/arch/payment_platform_arch.md` is 169 lines. §2.7 (`Settlement Job
+Orchestrator`) is ~40 of them and ends with an explicit **"Relationships:"** bullet list —
+the only place in the document where container→container edges are stated as such:
+
+| Document line | Edge extracted |
+|---|---|
+| L88 "Reads and writes … in **PostgreSQL**" | → PostgreSQL (JDBC) |
+| L89 "Calls the **PGSP Gateway** … to initiate settlement" | → PGSP Gateway |
+| L90 "Obtains routing context from the **Payment Routing Decision Engine**" | → Routing Decision Engine |
+| L91 "Receives PAN/CVV only through the **PAN-Card Encryption Service**" | → PAN-Card Encryption Service |
+| L92 "Reports tenancy and storefront attribution via the **Storefront Management Service**" | → Storefront Management Service |
+| L93 "the **Payment Orchestrator** may enqueue an ad-hoc capture" | Payment Orchestrator → Settlement Job Orchestrator |
+
+The expected request path — Payment Orchestrator → Routing Decision Engine → PGSP Gateway
+— is **never stated as a call anywhere**. §2.1 says the orchestrator "Handles payment
+initiation"; §2.2 says the engine "Implements the Rule-Based Routing logic"; §2.3 says the
+gateway "Provides a standardized API". Those are *responsibilities*, and a human reader
+reconstructs the flow from them; the text does not assert it. A grep for call verbs finds
+exactly one stated container→container call in the whole document (L89).
+
+**Lever 1, and the root cause: the fixture is ours.** `test_data/arch/` is a hand-written
+input, and it should state the request path the way §2.7 states the settlement
+relationships — a "Relationships" list under §2.1/2.2/2.3. Then the test case exercises
+flow extraction instead of demonstrating a document gap. Nothing else here fixes that.
+
+**Lever 2: inference where the text is silent is unstable, so the flow arrives by luck.**
+Same document, same model (`deepseek-v4-pro`), two runs: the first produced
+`Payment Orchestrator → Routing Decision Engine`, `→ PGSP Gateway`,
+`→ PAN-Card Encryption Service`, `→ Storefront Management Service` and
+`Payment UI Service → Payment Orchestrator`. The second produced **none** of those five.
+The edges that vary are exactly the inferred ones; the stated ones (§2.7) are stable
+across both. That is [YB-004](../entries/YB-004-model-output-not-structurally-stable.md)
+landing precisely where the document is silent — and it means "is this graph right?" has
+a different answer per run for the part that matters most to an architect.
+
+### Defect 4 — a PERMITTED capability became an asserted connection
+
+`Settlement Job Orchestrator → Valkey` comes from §3: *"Valkey caching of job status **is
+permitted** for read-heavy operational dashboards only."* A permission is not a fact: the
+document says the platform may do this, and the graph asserts that it does, with
+`style: SYNCHRONOUS_REQUEST_RESPONSE`. Its own job-store sentence says the opposite
+about durability ("Valkey is **not** used as the job store").
+
+**Shape.** `is_synchronous` is currently unset on every connection even though `style`
+determines it (YB-051 decision 2). Worth deciding together with a modality: the ontology
+has room for a MAY/optional distinction, and an asserted edge drawn from a permissive
+sentence is the kind of thing a reviewer should be shown rather than have to notice.
+
 ### Also measured, and deliberately NOT changed
 
 - **`empty` counts against run completeness.** One connections call answered `empty` on a
@@ -127,8 +185,13 @@ be able to see the merge, because merging two nodes is not reversible from the U
 
 ### Acceptance
 
+- `test_data/arch/payment_platform_arch.md` states the request path (a "Relationships"
+  list under §2.1/2.2/2.3, mirroring §2.7), and a re-run's container diagram shows
+  Payment Orchestrator → Routing Decision Engine → PGSP Gateway **in every run**, not in
+  one run out of two.
 - No element in a re-extracted `payment_platform_arch.md` is named after a bare category:
   the `c4_scorecard.py` count of `Database`/`External Services`-style names is zero.
+- No connection is asserted from a permissive sentence ("is permitted", "may").
 - `Payment Gateway Platform` is one node, and the C4 model draws one system box.
 - A container whose `part_of` names a system is drawn inside that system's boundary.
 - The scorecard's `READY` verdict is reachable on this test case, or every remaining
