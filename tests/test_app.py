@@ -163,14 +163,18 @@ def test_viewpoint_and_gap_routes_exist(client):
     assert client.get("/gaps").status_code == 200
 
 
-def test_the_retired_view_urls_still_resolve(client):
-    """`/c4` named a notation this view is not, and `/graph` named "the graph" while
-    drawing only the architecture one. Both are kept as redirects so a bookmark or
-    an external link lands on the view that replaced them rather than on a 404."""
-    for path in ("/c4", "/graph"):
-        response = client.get(f"{path}?lens=architecture")
-        assert response.status_code == 301, path
-        assert "/map?lens=architecture" in response.headers["Location"], path
+def test_the_retired_view_url_still_resolves(client):
+    """`/graph` named "the graph" while drawing only the architecture one, so `/map`
+    replaced it. It is kept as a redirect so a bookmark lands on the view that
+    replaced it rather than on a 404.
+
+    `/c4` is NOT in this list any more: it was retired for the same reason, and YB-025
+    gave the name back to a view that renders the actual notation. It is covered by
+    `tests/test_c4_view.py`.
+    """
+    response = client.get("/graph?lens=architecture")
+    assert response.status_code == 301
+    assert "/map?lens=architecture" in response.headers["Location"]
 
 
 def test_map_page_renders_both_sides_of_the_graph(client, load_working):

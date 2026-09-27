@@ -10,14 +10,14 @@ updated: 2026-09-27
 design: docs/design/async-run-progress.md
 record: null
 superseded_by: []
-related: ["YB-025", "YB-012", "YB-006", "YB-024", "YB-007"]
+related: ["ADR-0029", "YB-012", "YB-006", "YB-024", "YB-007"]
 blocks: []
 blocked_by: []
 ---
 
 # YB-051 — Connections are extracted and then discarded
 
-> **In progress.** Found while assessing C4 rendering ([YB-025](../entries/YB-025-c4-specification-view.md)):
+> **In progress.** Found while assessing C4 rendering ([ADR-0029](../../decisions/ADR-0029-c4-specification-view.md)):
 > the diagram's boxes are all there and its arrows are not, because a whole extraction
 > pass produces facts that never reach the graph.
 
@@ -204,13 +204,28 @@ other undeclared referent follows.
 2. **Is `is_synchronous` derived from `style` or asked for?** The pass does not return
    it; `style` distinguishes `SYNCHRONOUS_*` from `ASYNCHRONOUS_*`, so it is derivable
    and should not be invented as a second fact if the first can answer it.
-3. **What does a connection between a container and a datastore mean at L1?** A C4
-   view has to decide whether to roll connections up to the level it is drawing, or
-   only draw the ones whose endpoints are both present. That belongs to YB-025.
+3. ~~**What does a connection between a container and a datastore mean at L1?**~~ **Settled**
+   by [ADR-0029](../../decisions/ADR-0029-c4-specification-view.md) and §3 of
+   `docs/design/c4-specification-view.md`: a relationship whose endpoints sit below the
+   drawn level is re-pointed at the ancestors that *are* drawn and counted, and one whose
+   two ends collapse to the same ancestor is dropped, because that is coupling inside a
+   single box. The count travels with the diagram, so a rolled-up arrow says so.
+
+### Still needed to close this
+
+The two shapes above are decided, and the emission fix has landed — `/c4` emits
+`Connection` nodes as arrows and `to_payload` reports a relationship per pair. What is
+not yet demonstrated end to end is a **live run whose connections pass succeeded**:
+`data/sea-deepseek` scope `async` still shows `relationships: 0` on `/api/c4`, because
+the run that produced its graph is the one whose connections pass answered `empty` for
+all three chunks (§ "Second finding"). Closing condition: re-extract
+`payment_platform_arch.md` after [YB-052](../entries/YB-052-reflexive-and-duplicate-extraction.md)'s
+guards, and confirm `/api/c4` reports a non-zero `relationships` count with `/c4` drawing
+arrows.
 
 ### Related
 
-- [YB-025](../entries/YB-025-c4-specification-view.md) — the view that needs the arrow.
+- [ADR-0029](../../decisions/ADR-0029-c4-specification-view.md) — the view that needs the arrow.
 - [YB-012](../entries/YB-012-c4-notation-parser.md) / [YB-006](../entries/YB-006-c4-structurizr-importer.md)
   — notation *in*; the round-trip needs the same shape.
 - [YB-007](../entries/YB-007-prompt-scaffolding-instruction-dilution.md) — the pass that

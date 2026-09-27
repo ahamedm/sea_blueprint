@@ -3,7 +3,7 @@
 
 Open work only. Each item is one file under `docs/todos/entries/` — that file is the source of truth and this index is generated from it.
 
-**26 active · 1 parked · 2 superseded · 28 closed records**
+**26 active · 1 parked · 2 superseded · 29 closed records**
 
 | Where | What |
 |---|---|
@@ -37,6 +37,7 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [YB-045](docs/todos/entries/YB-045-ontology-version-provenance.md) | Ontology version is not recorded per run — a graph cannot be attributed to the vocabulary that produced it | open | `core/knowledge/model.py`, `core/knowledge/ingest.py`, `core/ontology.py`, `agents/base_agent.py` |
 | [YB-046](docs/todos/entries/YB-046-branching-and-promotion.md) | Branching and guarded promotion — two architects on one initiative, and the merge between them | open | `core/knowledge/store.py`, `core/knowledge/model.py`, `core/knowledge/review.py`, `core/knowledge/ingest.py` |
 | [YB-051](docs/todos/entries/YB-051-connections-dropped-at-ingest.md) | Connections are extracted and then discarded — the graph has no C4 arrows | in-progress | `core/knowledge/ingest.py` (does not read `connections`), `app/viewpoints/merged.py` (kind registry), tests |
+| [YB-052](docs/todos/entries/YB-052-reflexive-and-duplicate-extraction.md) | Reflexive `part_of` and concepts extracted twice — the two defects the C4 view found | open | `agents/architecture_extraction/` (triples/connections passes), `core/knowledge/ingest.py` (reflexive guard), `core/knowledge/review.py` (bulk-verify guard), tests |
 
 ## Medium
 
@@ -46,7 +47,6 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [YB-010](docs/todos/entries/YB-010-rdf-knowledge-layer.md) | Adopt RDF for the knowledge layer (rdflib first, Jena later) | open | `core/knowledge/serialise.py`, `core/knowledge/rdf.py` |
 | [YB-012](docs/todos/entries/YB-012-c4-notation-parser.md) | C4 notation parser — deterministic extraction from structured architecture sources | open | new `agents/extraction/c4_parser.py`, integration with architecture extraction agent |
 | [YB-020](docs/todos/entries/YB-020-structured-path-budget.md) | Structured-path budget — decide, don't retry into the timeout | open | `config/agent_config.py`, `.env.example`, `agents/base_agent.py`, `agents/knowledge_extraction/agent.py` |
-| [YB-025](docs/todos/entries/YB-025-c4-specification-view.md) | Dedicated C4 specification view — text notation plus rendered diagram | open | new `app/viewpoints/c4_spec.py` (or a `notation/` renderer), `app/templates/`, possibly a Kroki/PlantUML endpoint |
 | [YB-033](docs/todos/entries/YB-033-event-ingress.md) | Event ingress — an external system's event starts graph work, without a browser in the loop | open | new `app/events.py` or `integrations/` (receiver + adapters), `app/__init__.py`, `core/knowledge/ingest.py` |
 | [YB-034](docs/todos/entries/YB-034-initiative-delivery-phase.md) | Initiative delivery phase — the graph cannot represent "this Initiative is in Design" | open | `ontology/requirements_base.yaml` (Initiative, InitiativeStatus), `core/knowledge/ingest.py`, `app/projections.py` |
 | [YB-040](docs/todos/entries/YB-040-technology-ring.md) | Technology Ring — the adoption axis is in the ontology, but nothing writes it | open | `ontology/architecture_base.yaml`, `agents/architecture_extraction/passes.py`, `core/knowledge/ingest.py` |
@@ -122,5 +122,6 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [ADR-0026](docs/decisions/ADR-0026-run-journal-and-progress-transports.md) | Modular run streaming — one progress mechanism for the browser and for unattended runs | 2026-09-27 | item — |
 | [ADR-0027](docs/decisions/ADR-0027-async-run-progress.md) | Asynchronous run progress — the execution substrate, and one view over two transports | 2026-09-27 | item — |
 | [ADR-0028](docs/decisions/ADR-0028-no-workspace-migration.md) | No workspace migration — MVP validation starts on a fresh scope | 2026-09-27 | item — |
+| [ADR-0029](docs/decisions/ADR-0029-c4-specification-view.md) | A C4 specification view: text notation first, a rendering second, well-formedness as the point | 2026-09-27 | item — |
 
 The index is generated from the entries — do not edit `TODO.md` by hand.

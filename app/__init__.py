@@ -71,6 +71,7 @@ from app.projections import (
     project_review_summary,
 )
 from app.viewpoints.merged import DEFAULT_LENS, merged_view
+from app.viewpoints import c4 as c4_viewpoint
 from core.knowledge import (
     ACTION_VERIFY,
     BULK_ACTIONS,
@@ -1489,11 +1490,10 @@ def create_app(
     # graph. It is labelled "Map" rather than "C4" because it is the whole
     # knowledge graph — requirements, architecture and the references between them
     # — and C4 is a *notation*, which this force layout is not. Rendering C4 as C4
-    # is YB-025.
+    # is `/c4` (YB-025), which is a different view of the same graph.
     #
-    # `/c4` and `/graph` both redirect here. `/graph` is the old name and `/c4`
-    # the old label; a bookmarked link should land on the view that replaced it
-    # rather than on a 404.
+    # `/graph` redirects here. It is the old name for this route, and a bookmarked
+    # link should land on the view that replaced it rather than on a 404.
 
     @app.route("/map")
     def map_view():
@@ -1512,9 +1512,75 @@ def create_app(
             gaps=project_gap_report(snapshot.graph),
         )
 
+    # -- C4 specification view (YB-025) -----------------------------------
+    #
+    # `/map` draws the whole knowledge graph as a force layout, which is good for
+    # exploring and useless as a specification. This is the other half: the same graph
+    # reduced to a C4 model, emitted as *text*, rendered for convenience, and checked
+    # against the structural rules C4 states. The text is the deliverable — it is what
+    # `/changes/diff` can diff and what an external tool can validate — so the page
+    # shows the notation in full even when the diagram fails to render.
+    #
+    # `/c4` used to redirect to `/map` because the old view at that URL was a force
+    # layout claiming to be C4. That claim is now honoured instead of redirected.
+
     @app.route("/c4")
-    def c4_redirect():
-        return redirect(url_for("map_view", **request.args), code=301)
+    def c4_view():
+        snapshot = state()
+        model = c4_viewpoint.c4_model(snapshot.graph)
+        requested = (request.args.get("level") or "").strip().lower()
+        # No silent fallback: a level that does not exist and a graph that cannot be
+        # drawn at one look identical on screen, and only one of them is a typo.
+        level = requested if requested in c4_viewpoint.LEVELS else ""
+        level_error = requested if requested and not level else ""
+        level = level or "container"
+        return render_template(
+            "c4.html",
+            model=model,
+            level=level,
+            level_error=level_error,
+            levels=c4_viewpoint.LEVELS,
+            level_titles=c4_viewpoint.LEVEL_TITLES,
+            mermaid_source=c4_viewpoint.to_mermaid(model, level),
+            roll_up_count=c4_viewpoint.roll_up(model, level)[2],
+            structurizr=c4_viewpoint.to_structurizr(model),
+            plantuml=c4_viewpoint.to_c4_plantuml(model),
+        )
+
+    @app.route("/c4/notation/<fmt>")
+    def c4_notation(fmt: str):
+        """The notation as a file, so it can be committed beside a design document.
+
+        Served as an attachment rather than inline: these are artefacts for another
+        tool, and a `.dsl` that renders as text in the browser is one more copy step
+        between the graph and the repository.
+        """
+        snapshot = state()
+        model = c4_viewpoint.c4_model(snapshot.graph)
+        renderers = {
+            "structurizr": (c4_viewpoint.to_structurizr, "dsl"),
+            "plantuml": (c4_viewpoint.to_c4_plantuml, "puml"),
+            "mermaid": (lambda m: c4_viewpoint.to_mermaid(m, request.args.get("level",
+                                                                             "container")),
+                        "mmd"),
+        }
+        if fmt not in renderers:
+            abort(404)
+        render, suffix = renderers[fmt]
+        stem = c4_viewpoint.filename_stem((model["system"] or {}).get("label", ""))
+        return Response(
+            render(model),
+            mimetype="text/plain; charset=utf-8",
+            headers={
+                "Content-Disposition": f'attachment; filename="{stem}-c4.{suffix}"',
+            },
+        )
+
+    @app.route("/api/c4")
+    def api_c4():
+        snapshot = state()
+        level = (request.args.get("level") or "container").strip().lower()
+        return jsonify(c4_viewpoint.to_payload(c4_viewpoint.c4_model(snapshot.graph), level))
 
     @app.route("/graph")
     def graph_redirect():
@@ -1530,10 +1596,6 @@ def create_app(
                 request.args.get("concern", ""),
             )
         )
-
-    @app.route("/api/c4")
-    def api_c4_redirect():
-        return redirect(url_for("api_map", **request.args), code=301)
 
     # -- gap report ------------------------------------------------------
 

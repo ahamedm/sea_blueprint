@@ -496,3 +496,26 @@ details summary { cursor: pointer; color: var(--accent); font-size: 12.5px; }
 .small { font-size: 12px; }
 .nowrap { white-space: nowrap; }
 hr.sep { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+
+/* -- C4 specification view (YB-025) --------------------------------------- */
+
+/* The diagram is drawn into this box by mermaid.js, client-side. It gets a real
+   minimum height so a slow render does not collapse the page and then shove the
+   notation blocks down when the SVG finally lands. */
+.c4-diagram {
+  min-height: 220px; overflow-x: auto; display: flex;
+  align-items: center; justify-content: center; padding: 8px 0;
+}
+.c4-diagram svg { max-width: 100%; height: auto; }
+
+/* A notation block is text a human copies, so the copy button sits INSIDE the
+   scroll container rather than above it — scrolling to the end of a 300-line DSL
+   must not be how you reach the button. */
+.notation { position: relative; }
+.notation pre {
+  margin: 0; padding: 12px 14px; background: var(--surface-alt);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  max-height: 380px; overflow: auto;
+  font-size: 12px; line-height: 1.5; white-space: pre; tab-size: 4;
+}
+.notation .copy { position: absolute; top: 8px; right: 10px; z-index: 1; opacity: .92; }

@@ -1,0 +1,303 @@
+{% extends "base.html" %}
+{% block title %}C4 · SEA{% endblock %}
+
+{# Mermaid is loaded HERE and not in base.html: it is 2.5 MB, it is needed on exactly
+   one page, and putting it in the shared layout would make every other page in the
+   app pay for a diagram it does not draw. #}
+{% block head %}
+  <script src="{{ url_for('static', filename='js/mermaid.min.js') }}"></script>
+{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>C4 specification</h1>
+    <p>
+      The architecture graph reduced to a C4 model and emitted as <strong>text</strong>.
+      The text is the deliverable — it is deterministic, so the same graph always
+      produces the same notation, which is what makes it reviewable and diffable. The
+      diagram below is a rendering of that same text, not a separate drawing, and the
+      well-formedness checks are the part a picture cannot tell you.
+    </p>
+  </div>
+  <div class="row">
+    {% for name in levels %}
+      <a class="btn {{ 'btn-primary' if name == level else '' }}"
+         href="{{ url_for('c4_view', level=name) }}"
+         title="{{ level_titles[name] }} — {{ model.by_level[name]|length }} element(s)">
+        {{ level_titles[name] }}
+      </a>
+    {% endfor %}
+  </div>
+</div>
+
+{% if level_error %}
+  <div class="banner banner-warn">
+    <strong>“{{ level_error }}” is not a C4 level.</strong>
+    Showing {{ level_titles[level] }} instead. The known levels are
+    {{ levels|join(', ') }} — falling back silently would make a typo and a missing
+    level look the same.
+  </div>
+{% endif %}
+
+{% if not model.counts.elements %}
+  <div class="card empty">
+    <h2>Nothing to specify</h2>
+    <p>
+      This scope's graph holds no architecture elements, so there is no C4 model to
+      emit. A requirements-only graph is the expected case: C4 describes a system, and
+      requirements describe what it must do. Ingest an architecture document and its
+      elements appear here.
+    </p>
+    <p>
+      <a class="btn btn-primary" href="{{ url_for('ingest') }}">Ingest an architecture document</a>
+      <a class="btn" href="{{ url_for('map_view', lens='all') }}">See the whole graph</a>
+    </p>
+  </div>
+{% else %}
+
+  <div class="grid grid-4" style="margin-bottom:18px;">
+    <div class="stat">
+      <div class="value">{{ model.counts.elements }}</div>
+      <div class="label">C4 elements</div>
+      <div class="foot">
+        {% for name in levels %}{{ level_titles[name]|lower }} {{ model.by_level[name]|length }}{% if not loop.last %} · {% endif %}{% endfor %}
+      </div>
+    </div>
+    <div class="stat">
+      <div class="value" style="color:{{ 'var(--warn)' if not model.counts.relationships else 'inherit' }}">{{ model.counts.relationships }}</div>
+      <div class="label">Relationships</div>
+      <div class="foot">between C4 elements — the arrows</div>
+    </div>
+    <div class="stat">
+      <div class="value" style="color:{{ 'var(--warn)' if model.counts.checks_failed else 'var(--ok)' }}">{{ model.counts.checks_failed }}</div>
+      <div class="label">Failed check(s)</div>
+      <div class="foot">of {{ model.counts.checks }} structural rules below</div>
+    </div>
+    <div class="stat">
+      <div class="value">{{ model.counts.excluded_count }}</div>
+      <div class="label">Not architecture</div>
+      <div class="foot">nodes that are no C4 element — counted, not dropped</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Well-formedness</h2>
+      <span class="muted small">rules C4 states, checked against the graph rather than assumed</span>
+    </div>
+    <div class="card-body">
+      <div class="table-wrap sm">
+        <table>
+          <thead><tr><th>Rule</th><th>Result</th><th>Why it matters</th></tr></thead>
+          <tbody>
+            {% for check in model.checks %}
+              <tr>
+                <td>
+                  <span class="badge badge-{{ 'verified' if check.holds else 'unverified' }}">{{ 'holds' if check.holds else 'fails' }}</span>
+                  {{ check.title }}
+                </td>
+                <td class="small">
+                  {% if check.holds %}
+                    <span class="muted">{{ check.total }} checked</span>
+                  {% else %}
+                    <strong>{{ check.violations }}</strong> of {{ check.total }}
+                    <div class="hint">{{ check.examples|join('; ') }}{% if check.truncated %} and {{ check.truncated }} more{% endif %}</div>
+                  {% endif %}
+                </td>
+                <td class="small muted">{{ check.detail }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h2>{{ level_titles[level] }} diagram</h2>
+      <div class="row">
+        <span class="muted small">
+          {{ model.by_level[level]|length }} element(s)
+          {%- if roll_up_count %}, {{ roll_up_count }} relationship(s) rolled up from a lower level{% endif %}
+        </span>
+        <a class="btn btn-sm" href="{{ url_for('c4_notation', fmt='mermaid', level=level) }}">Download .mmd</a>
+      </div>
+    </div>
+    <div class="card-body">
+      {% if not model.by_level[level] %}
+        <p class="hint">
+          The graph holds no element at this level, so this diagram would be empty.
+          The notation is emitted anyway rather than the level being hidden — an
+          absent level is a fact about the graph.
+        </p>
+      {% endif %}
+      <div class="c4-diagram" id="c4-diagram" data-source="{{ mermaid_source }}">
+        <p class="muted small">Rendering…</p>
+      </div>
+      <p class="hint" id="c4-diagram-error" hidden></p>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h2>What this view cannot represent</h2>
+      <span class="muted small">{{ model.gaps|length }} item(s) — stated, not omitted</span>
+    </div>
+    <div class="card-body">
+      {% if not model.gaps %}
+        <p class="muted small">Nothing found. Every structural element has a level and a boundary, every connection resolves, and every run behind this graph is COMPLETE.</p>
+      {% else %}
+        <div class="table-wrap sm">
+          <table>
+            <thead><tr><th>Kind</th><th>What</th><th>Consequence</th></tr></thead>
+            <tbody>
+              {% for gap in model.gaps %}
+                <tr>
+                  <td><span class="kind">{{ gap.kind }}</span></td>
+                  <td class="small">{{ gap.label }}</td>
+                  <td class="small muted">{{ gap.detail }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
+      {% if model.counts.excluded_kinds %}
+        <p class="hint" style="margin-bottom:0;">
+          Not C4 elements, so counted here and left out of the notation:
+          {% for kind, n in model.counts.excluded_kinds.items() %}{{ kind }} ({{ n }}){% if not loop.last %} · {% endif %}{% endfor %}.
+          This is the right exclusion — requirements, quality attributes and design
+          techniques are real knowledge and they are not boxes in a C4 diagram — but it
+          is an exclusion this view made, so it is stated.
+        </p>
+      {% endif %}
+    </div>
+  </div>
+
+  {% for title, key, text, suffix in [
+      ('Structurizr DSL', 'structurizr', structurizr, 'dsl'),
+      ('C4-PlantUML', 'plantuml', plantuml, 'puml'),
+      ('Mermaid', 'mermaid', mermaid_source, 'mmd')] %}
+    <details class="card" {{ 'open' if loop.first else '' }}>
+      <summary>
+        <h2>{{ title }}</h2>
+        <span class="muted small">
+          {{ text.splitlines()|length }} line(s)
+          <span class="chevron">▾</span>
+        </span>
+      </summary>
+      <div class="card-body">
+        <p class="hint" style="margin-top:0;">
+          {% if key == 'structurizr' %}
+            The authoritative artefact: the notation that can be read back, so it is the
+            one a round-trip would use. Paste it into Structurizr Lite or the DSL
+            playground. Any failed check above is written into it as a comment, so a
+            parse error in another tool arrives with its cause attached.
+          {% elif key == 'plantuml' %}
+            For teams whose tooling is PlantUML. The <code>!include</code> lines are the
+            standard C4-PlantUML ones and resolve in the renderer, not here.
+          {% else %}
+            What the diagram above renders — shown so the picture can be checked against
+            the text it came from.
+          {% endif %}
+          <a class="btn btn-sm" href="{{ url_for('c4_notation', fmt=key, level=level) }}">Download .{{ suffix }}</a>
+        </p>
+        <div class="notation">
+          <button type="button" class="btn btn-sm copy" data-copy="{{ key }}">Copy</button>
+          <pre id="notation-{{ key }}">{{ text }}</pre>
+        </div>
+      </div>
+    </details>
+  {% endfor %}
+
+  <div class="card">
+    <div class="card-head">
+      <h2>C4 elements</h2>
+      <span class="muted small">every element in the model, whatever level is drawn</span>
+    </div>
+    <div class="card-body">
+      <div class="table-wrap sm">
+        <table>
+          <thead>
+            <tr><th>Element</th><th>Level</th><th>Level from</th><th>Node kind</th><th>Technology</th><th>Inside</th></tr>
+          </thead>
+          <tbody>
+            {% for element in model.elements %}
+              <tr>
+                <td>{{ element.label }}</td>
+                <td><span class="kind">{{ element.level }}</span></td>
+                <td class="small muted">
+                  {% if element.level_source == 'c4_level' %}stated
+                  {% else %}<span title="No c4_level fact; inferred from the node kind">{{ element.level_source }}</span>{% endif %}
+                </td>
+                <td class="small muted">{{ element.kind }}</td>
+                <td class="small muted">{{ element.technology|join(', ') or '—' }}</td>
+                <td class="small muted">{{ element.parent_label or '—' }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var target = document.getElementById('c4-diagram');
+      var errorBox = document.getElementById('c4-diagram-error');
+      if (!target) { return; }
+      var source = target.dataset.source || '';
+
+      function fail(message) {
+        // The text is always on the page, so a render failure is a degraded view and
+        // not a lost deliverable — say which, instead of showing a blank box.
+        target.innerHTML = '<p class="hint">This diagram could not be rendered in the ' +
+          'browser. The Mermaid text below is the same diagram, and the Structurizr ' +
+          'notation is the authoritative one.</p>';
+        if (errorBox) { errorBox.hidden = false; errorBox.textContent = message; }
+      }
+
+      if (!window.mermaid) { fail('mermaid.js did not load.'); return; }
+      try {
+        window.mermaid.initialize({ startOnLoad: false, securityLevel: 'strict' });
+        window.mermaid.render('c4-svg', source).then(function (result) {
+          target.innerHTML = result.svg;
+        }).catch(function (err) {
+          fail(String(err && err.message || err));
+        });
+      } catch (err) {
+        fail(String(err && err.message || err));
+      }
+
+      // -- copy buttons, on the notation blocks ------------------------------
+      Array.prototype.forEach.call(document.querySelectorAll('.copy'), function (button) {
+        button.addEventListener('click', function () {
+          var pre = document.getElementById('notation-' + button.dataset.copy);
+          if (!pre) { return; }
+          var text = pre.textContent;
+          var done = function () {
+            button.textContent = 'Copied';
+            window.setTimeout(function () { button.textContent = 'Copy'; }, 1500);
+          };
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(done, function () {
+              button.textContent = 'Select and copy';
+            });
+          } else {
+            // No clipboard API (or a non-secure origin): select the text so the
+            // keystroke the user already knows still works, rather than a dead button.
+            var range = document.createRange();
+            range.selectNodeContents(pre);
+            var selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+            button.textContent = 'Select and copy';
+          }
+        });
+      });
+    })();
+  </script>
+{% endif %}
+{% endblock %}

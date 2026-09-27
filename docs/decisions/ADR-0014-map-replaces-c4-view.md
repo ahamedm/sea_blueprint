@@ -4,7 +4,7 @@ title: "The map replaces the C4 view — one graph, both sides, references visib
 status: accepted
 date: 2026-09-24
 area: "app/viewpoints/merged.py, app/templates/map.html, app/__init__.py, app/templates/base.html"
-related: ["YB-024", "YB-025", "YB-012", "ADR-0007"]
+related: ["YB-024", "ADR-0029", "YB-012", "ADR-0007"]
 ---
 
 # ADR-0014 — The map replaces the C4 view
@@ -81,7 +81,7 @@ view would have left the first one still claiming to be the graph.
    real node-to-node edge.
 4. **C4 is not this view.** A force layout has no canonical layout and produces no
    stable artefact, which is what a specification needs. Rendering C4 as C4 remains
-   [YB-025](../todos/entries/YB-025-c4-specification-view.md), now with no
+   [ADR-0029](ADR-0029-c4-specification-view.md), now with no
    conflicting claim on the name.
 
 ### Measured

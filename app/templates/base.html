@@ -7,6 +7,10 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/sea.css') }}">
   <script src="{{ url_for('static', filename='js/htmx.min.js') }}" defer></script>
   <script src="{{ url_for('static', filename='js/d3.v7.min.js') }}"></script>
+  {# Per-page scripts. Only the C4 view has one so far, and it is 2.5 MB of Mermaid:
+     loading it everywhere would make every other page pay for a diagram it never
+     draws. #}
+  {% block head %}{% endblock %}
 </head>
 <body>
 <header class="topbar">
@@ -37,15 +41,18 @@
   {% endif %}
 
   <nav>
-    {# Endpoint prefixes so /review/<id> keeps the Review tab lit. #}
+    {# Endpoint prefixes so /review/<id> keeps the Review tab lit. Both sides are
+       reduced to their prefix: comparing the prefix against the whole endpoint name
+       left every endpoint containing an underscore — Map, C4 — never lit. #}
     {% set section = (request.endpoint or '').split('_')[0] %}
     {% for endpoint, label in [
         ('index', 'Overview'), ('ingest', 'Ingest'), ('design', 'Design'),
         ('review', 'Review'),
-        ('reconcile', 'Reconcile'), ('map_view', 'Map'), ('gaps', 'Gaps'),
+        ('reconcile', 'Reconcile'), ('map_view', 'Map'), ('c4_view', 'C4'),
+        ('gaps', 'Gaps'),
         ('quality', 'Quality'),
         ('changes', 'Changes'), ('ontology', 'Ontology')] %}
-      <a href="{{ url_for(endpoint) }}" class="{{ 'active' if section == endpoint else '' }}">{{ label }}</a>
+      <a href="{{ url_for(endpoint) }}" class="{{ 'active' if section == endpoint.split('_')[0] else '' }}">{{ label }}</a>
     {% endfor %}
   </nav>
 </header>

@@ -10,7 +10,7 @@ updated: 2026-09-27
 design: docs/design/async-run-progress.md
 record: docs/decisions/ADR-0027-async-run-progress.md
 superseded_by: []
-related: ["YB-020", "YB-023", "YB-024", "YB-025", "YB-033", "YB-035", "ADR-0026", "YB-037", "ADR-0028", "YB-050"]
+related: ["YB-020", "YB-023", "YB-024", "ADR-0029", "YB-033", "YB-035", "ADR-0026", "YB-037", "ADR-0028", "YB-050"]
 blocks: []
 blocked_by: []
 ---

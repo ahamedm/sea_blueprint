@@ -10,7 +10,7 @@ updated: 2026-09-26
 design: docs/design/c4-notation-parser.md
 record: null
 superseded_by: []
-related: ["YB-006", "YB-024", "YB-025"]
+related: ["YB-006", "YB-024", "ADR-0029"]
 blocks: []
 blocked_by: []
 ---

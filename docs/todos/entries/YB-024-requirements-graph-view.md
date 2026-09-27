@@ -10,7 +10,7 @@ updated: 2026-09-24
 design: null
 record: docs/decisions/ADR-0014-map-replaces-c4-view.md
 superseded_by: []
-related: ["ADR-0007", "ADR-0014", "YB-025", "YB-026"]
+related: ["ADR-0007", "ADR-0014", "ADR-0029", "YB-026"]
 blocks: []
 blocked_by: []
 ---
