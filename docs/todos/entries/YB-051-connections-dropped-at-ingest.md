@@ -211,17 +211,49 @@ other undeclared referent follows.
    two ends collapse to the same ancestor is dropped, because that is coupling inside a
    single box. The count travels with the diagram, so a rolled-up arrow says so.
 
-### Still needed to close this
+### Still needed to close this — and the closing condition FAILED its first test
 
 The two shapes above are decided, and the emission fix has landed — `/c4` emits
-`Connection` nodes as arrows and `to_payload` reports a relationship per pair. What is
-not yet demonstrated end to end is a **live run whose connections pass succeeded**:
-`data/sea-deepseek` scope `async` still shows `relationships: 0` on `/api/c4`, because
-the run that produced its graph is the one whose connections pass answered `empty` for
-all three chunks (§ "Second finding"). Closing condition: re-extract
-`payment_platform_arch.md` after [YB-052](../entries/YB-052-reflexive-and-duplicate-extraction.md)'s
-guards, and confirm `/api/c4` reports a non-zero `relationships` count with `/c4` drawing
-arrows.
+`Connection` nodes as arrows and `to_payload` reports a relationship per pair. What was
+not demonstrated end to end was a **live run whose connections pass succeeded**, so that
+was written as the closing condition: re-extract `payment_platform_arch.md` and confirm
+`/api/c4` reports a non-zero `relationships` count.
+
+**Re-run, 2026-09-27** (`run_da71f1dfac87`, same document, same scope, 3 chunks, ~28 min
+wall): the run succeeded as a run — `PARTIAL`, and `structure`/`technology`/
+`traceability` all produced triples — and the connections pass produced **nothing usable
+in any chunk**:
+
+| Chunk | Outcome | Path | Elapsed | Triples |
+|---|---|---|---|---|
+| 1/3 | **failed** | none | 256.5 s | 0 |
+| 2/3 | **empty** | none | 255.8 s | 0 |
+| 3/3 | ok | structured | **1.9 s** | **0** |
+
+So `relationships: 0` on `/api/c4` is current, not stale. Three things follow.
+
+**1. `ok` with zero records is a distinct outcome from `empty`, and neither is a
+connection.** Chunk 3 returned a *valid structured result carrying nothing* in 1.9 s,
+where `technology` on the same chunk took 50.3 s for 8 triples and `structure` on chunk 2
+took 23.7 s for 15. A pass that answers a schema-shaped "nothing" almost instantly is
+being asked something it can decline — the prompt or the schema, not the model's speed.
+`empty` and `ok`/0 are both silent here, and only the count distinguishes them, which is
+why the count belongs in the run record (it does, via `triples_produced`).
+
+**2. The ~255-second cluster is systematic and is not model slowness.** Every
+failed-or-empty attempt in this run landed between 255.8 s and 282.9 s — chunk 1
+`structure` 264.8 s, chunk 1 `connections` 256.5 s, chunk 1 `traceability` 267.3 s,
+chunk 2 `connections` 255.8 s, chunk 2 `traceability` 282.9 s — while every successful
+structured call took 1.9–88.3 s. Three different passes converging on the same ~4-minute
+ceiling is a budget being exhausted (timeout or retry ceiling), not a model that was
+thinking hard. The earlier 250.3 s failure recorded above is the same number. This is
+[YB-020](../entries/YB-020-structured-path-budget.md) with a measurement that names the
+mechanism, and it is the most actionable thing in this entry: whatever the budget is, it
+is being spent in full and returning nothing.
+
+**3. Chunk 1's `structure` pass also came back `empty` after 264.8 s, and the run merged
+anyway.** A missing structure pass is a missing set of boxes, not just missing arrows, and
+`PARTIAL` is the only thing that said so.
 
 ### Related
 
@@ -230,3 +262,8 @@ arrows.
   — notation *in*; the round-trip needs the same shape.
 - [YB-007](../entries/YB-007-prompt-scaffolding-instruction-dilution.md) — the pass that
   returns empty is a prompt/instruction question, and this is a second measurement of it.
+- [YB-020](../entries/YB-020-structured-path-budget.md) — the ~255 s cluster is its
+  measurement, not a coincidence.
+- [YB-004](../entries/YB-004-model-output-not-structurally-stable.md) — the second run also
+  reclassified existing elements: the scope's context-level count moved 16 → 12 and
+  container-level 17 → 24 across two runs of the same document.

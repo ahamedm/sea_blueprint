@@ -83,6 +83,16 @@ missing information.
   pass produced no `Connection` nodes, so the container diagram has no arrows and the
   page says so — rather than looking finished. Without decision 3 that would have read as
   a working view.
+- **Not a one-off: re-running the extraction reproduced both defects and moved the
+  numbers.** A second run of the same document into the same scope (`run_da71f1dfac87`)
+  produced a **fourth** `X part_of X` — on `Settlement Platform`, a system the first run
+  never named — and 21 duplicate-of-concept labels rather than 12. Its connections pass
+  came back `failed` (chunk 1, 256.5 s), `empty` (chunk 2, 255.8 s) and `ok/structured
+  with zero records` (chunk 3, 1.9 s), so `relationships: 0` is current rather than
+  stale. The measurements and the ~255 s budget ceiling behind them are in
+  [YB-051](../todos/entries/YB-051-connections-dropped-at-ingest.md); the reproductions
+  are in [YB-052](../todos/entries/YB-052-reflexive-and-duplicate-extraction.md). The
+  figures above stay as the first run's, because that is what the decision was made on.
 - **`/api/c4` changed meaning.** It used to redirect to `/api/map`. Anything calling it
   gets the C4 model now, which is what the name always promised.
 - **Nav highlighting was fixed in passing**: the active-tab comparison reduced the

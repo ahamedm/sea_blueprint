@@ -120,7 +120,9 @@ arrives with its cause attached instead of unexplained.
 element a containment *root*, so it silently becomes a boundary in the notation rather
 than a child of one. The general fix is a review-gate rule that a reflexive assertion is
 never valid; that is [YB-052](../todos/entries/YB-052-reflexive-and-duplicate-extraction.md),
-not this item.
+not this item. A re-extraction of the same document produced a **fourth** one, on a
+system the first run never named — so the check is not reporting a one-off artefact of
+one sampling, which is what a single run could not have told us.
 
 ## 5. What the first live run found
 

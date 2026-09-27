@@ -27,11 +27,19 @@ blocked_by: []
 
 Against `payment_platform_arch.md` in `data/sea-deepseek` scope `async`, via `/api/c4`:
 
-| Defect | Count | Reported by |
+| Defect | First run | After a second, independent run |
 |---|---|---|
-| `X part_of X` — an element that contains itself | 3 | `reflexive` and `acyclic` checks |
-| Elements at the code level with no component to contain them | 23 | `nesting` check |
-| The same label extracted as a structural element *and* as a concept | 12 | `duplicate-of-concept` gap |
+| `X part_of X` — an element that contains itself | 3 | **4** |
+| Elements at the code level with no component to contain them | 23 | 23 |
+| The same label extracted as a structural element *and* as a concept | 12 | **21** |
+
+The second column is `run_da71f1dfac87`, a re-extraction of the same document into the
+same scope. It is not a duplicate count: the graph holds only **one** structural label
+appearing on more than one node, so `_resolve` deduplicated as designed. The fourth
+self-loop is a **different system** — `Settlement Platform`, a name the first run never
+used — which means the reflexive containment is reproducible across independent runs and
+not a one-off artefact of one sampling. Extracting the same document twice separately
+also reclassified existing elements: context-level 16 → 12, container-level 17 → 24.
 
 ### Defect 1 — `X part_of X`, and it survived review
 
@@ -39,9 +47,10 @@ Against `payment_platform_arch.md` in `data/sea-deepseek` scope `async`, via `/a
 Payment Gateway Platform                        part_of  Payment Gateway Platform
 Payment Processing Platform                     part_of  Payment Processing Platform
 Payment Settlement and Processing Platform      part_of  Payment Settlement and Processing Platform
+Settlement Platform                             part_of  Settlement Platform      # second run
 ```
 
-All three are `VERIFIED`, all three carry
+All four are `VERIFIED`, all carry
 `source_type=HUMAN_REVIEWER, pass_name=triples, correction_note="bulk verify (selected)"`
 and `derived_from=payment_platform_arch.md`.
 
@@ -65,11 +74,14 @@ rather than a child of one. In the emitted Structurizr DSL that is a system decl
 itself inside itself — the file is rejected. And on the graph side, a self-loop means
 `repair_containment` and every ancestor walk have to be cycle-safe or they hang: the
 `_ancestors` helper in `app/viewpoints/c4.py` is written cycle-safe *because of these
-three facts*, which is a workaround standing in for a guard.
+facts*, which is a workaround standing in for a guard. It stays: defensive code should
+outlive the reason it was written.
 
 ### Defect 2 — the same thing extracted under two kinds
 
-Twelve labels exist twice in the graph, once as an element and once as a concept:
+Twelve labels exist twice in the graph, once as an element and once as a concept — 21
+after the second run, which is the same defect at a different sampling rather than a new
+one:
 
 | Label | Also extracted as |
 |---|---|
