@@ -35,7 +35,7 @@ import pytest
 from agents.architecture_extraction.agent import ArchitectureExtractionAgent
 from agents.base_agent import AgentConfig
 from agents.extraction.chunking import Chunk
-from agents.extraction.passes import PassSpec, run_passes
+from agents.extraction.passes import PassSpec, outcome_records, run_passes
 from agents.extraction.progress import PROGRESS_PAYLOAD_KEYS, JournalProgress
 from core.events import (
     ERROR,
@@ -399,3 +399,52 @@ def test_a_null_journal_is_a_valid_sink_that_retains_nothing():
     assert progress.finished("COMPLETE") == ""
     assert progress.seq == 2
     assert isinstance(progress.journal, NullJournal)
+
+
+# ============================================================================
+# Nothing from either path is a FAILURE, not an empty pass
+# ============================================================================
+
+
+def test_a_pass_that_answers_nothing_is_recorded_as_a_failure():
+    """`empty` reads as "the model had nothing to say", which sends the next reader
+    to the prompt. A pass where the structured call returned nothing AND the text
+    fallback produced no usable answer is a failure to answer, and saying so is what
+    turns "no connections were found" into "the pass did not run" (YB-051)."""
+    def handler(prompt, schema):
+        return None                     # schema never satisfied, no exception raised
+
+    journal = FakeJournal()
+    outcomes = run_passes(
+        _agent(handler), _specs()[:1], _chunks()[:1],
+        progress=JournalProgress(journal, run_id="run_silent"),
+    )
+
+    outcome = outcomes[0]
+    assert outcome.empty is False, "a pass that answered nothing is not an empty pass"
+    assert outcome.error, "and the reason is recorded"
+    assert "structured call returned nothing" in outcome.error
+    assert "text fallback" in outcome.error
+
+    # The run record and the stream agree: this is a failure, with a cause.
+    assert outcome_records(outcomes)[0].outcome == "failed"
+    assert [e.kind for e in journal.events] == [PASS_STARTED, ERROR]
+    assert "no schema-valid answer" in journal.events[-1].payload["error"]
+
+
+def test_a_pass_that_legitimately_finds_nothing_is_empty_not_failed():
+    """An answer of "nothing here" is an answer. It arrives as a valid result with
+    empty collections, so it is `empty` — which is what that state is FOR — and must
+    not be confused with having received nothing at all. Two states, two meanings,
+    and the difference is the whole point of the change above."""
+    def handler(prompt, schema):
+        return TripleResult(triples=[])
+
+    outcomes = run_passes(
+        _agent(handler), _specs()[:1], _chunks()[:1], allow_text_fallback=False
+    )
+
+    outcome = outcomes[0]
+    assert outcome.error is None
+    assert outcome.empty is True
+    assert outcome_records(outcomes)[0].outcome == "empty"

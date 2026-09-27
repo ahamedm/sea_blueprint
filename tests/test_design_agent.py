@@ -288,7 +288,9 @@ def test_a_failed_pass_does_not_discard_the_others():
     """One pass coming back empty must not cost the run its other five."""
     def handler(prompt, schema):
         if schema is ConnectionPassResult:
-            return None                      # this pass produces nothing
+            # A valid answer of "nothing here" — distinct from returning None, which
+            # is a failure to answer at all and is reported as one (YB-051).
+            return ConnectionPassResult()
         return good_handler()(prompt, schema)
 
     agent = make_agent(handler)

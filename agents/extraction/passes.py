@@ -170,6 +170,24 @@ def _sampling(agent, temperature: Optional[float]):
     return override(temperature)
 
 
+def _result_is_empty(result: Any) -> bool:
+    """Whether a valid pass result carried nothing at all.
+
+    `empty` has to mean "the model answered, and the answer was nothing" — the
+    distinction ADR-0013's completeness vocabulary exists for. It used to be computed
+    as "the structured call returned no object", which is a *failure to answer*, not
+    an answer of nothing; conflating the two hid a run's worth of missing connections
+    behind a benign-looking `empty` (YB-051).
+
+    A collection is what every pass result carries (triples, connections, elements,
+    stacks), so "every collection is empty" is the honest reading of "found nothing".
+    A result with no collections at all is not called empty — it cannot be read.
+    """
+    values = vars(result).values() if hasattr(result, "__dict__") else ()
+    collections = [v for v in values if isinstance(v, (list, tuple, set, dict))]
+    return bool(collections) and not any(collections)
+
+
 def _outcome_state(error: Optional[str], empty: bool, result: Any) -> str:
     """Name a pass attempt's outcome: `failed` | `empty` | `ok`.
 
@@ -330,8 +348,27 @@ def run_passes(
                         err = f"text fallback failed: {type(e).__name__}: {e}"
                         path = "none"
 
+            # A pass that returned NOTHING is not an empty pass. `empty` reads as
+            # "the model had nothing to say" — a document that genuinely describes no
+            # connections — and that sends the next reader to the prompt instead of
+            # at the model. Both paths returning nothing is a failure to ANSWER, and
+            # it is recorded as one, for the same reason a repetition loop is: a
+            # silently empty pass hid a whole run's worth of missing connections
+            # (`YB-051`) because 0 facts looked like 0 facts to find.
+            if result is None and err is None:
+                took = time.time() - t0
+                err = (
+                    f"no schema-valid answer from either path after {took:.0f}s: the "
+                    "structured call returned nothing and "
+                    + ("the text fallback produced no usable answer"
+                       if allow_text_fallback else "the text fallback is disabled")
+                )
+
             elapsed = time.time() - t0
-            empty = result is None and err is None
+            # Three outcomes, three meanings: a valid result with content is `ok`, a
+            # valid result with none is `empty` ("answered nothing"), and no valid
+            # result from either path is `failed` (the branch above).
+            empty = result is not None and _result_is_empty(result)
 
             outcomes.append(PassOutcome(
                 pass_name=spec.name, chunk=chunk, result=result,

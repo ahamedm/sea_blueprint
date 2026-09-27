@@ -84,16 +84,61 @@ The model was designed. The plumbing was never written.
   diagram with no arrows is a box chart, and the notation would be emitted without the
   part that carries meaning.
 
-### Second, separate finding — the pass itself returned empty
+### Second finding, diagnosed: the pass is intermittent — and reported it as "empty"
 
-On the live architecture run the `connections` pass reported
-`outcome=empty, triples=0` for **all three chunks**, while `structure` and
-`technology` succeeded in structured mode (`traceability` succeeded on one chunk via
-the text fallback). That is why that run is `PARTIAL`. It needs its own diagnosis —
-the baseline (`docs/reference/extraction-baseline.md`) recorded 26 connections on an
-earlier document, so the pass *can* work. Fixing ingest alone will not put arrows in
-this graph; it will put arrows in the *next* one. Recorded here so the two are not
-confused when the diagram is still empty.
+The run in that scope reports `connections outcome=empty, triples=0` for **all three
+chunks**, while `structure` and `technology` succeeded in structured mode. That run
+read **exactly this document** (`payment_platform_arch.md`, hash `3e7b5cc59fc82a11`,
+14,893 chars, 3 chunks), so the pass was reproduced against it directly:
+
+| Attempt | Outcome | Path | Triples | Time |
+|---|---|---|---|---|
+| 1 | ok | structured | 8 | 12.3 s |
+| 2 | **failed** | none | 0 | **250.3 s** |
+| 3 | ok | structured | 16 | 24.2 s |
+
+Two things follow, and neither is a prompt defect:
+
+1. **The pass is intermittent on the local 4B model, and the variance is large** —
+   8 triples or 16 from identical input, and one attempt burning 250 s before
+   answering nothing. That is
+   [YB-004](../entries/YB-004-model-output-not-structurally-stable.md) and
+   [YB-020](../entries/YB-020-structured-path-budget.md) with a concrete measurement.
+   The failing attempt died in the text fallback with a `ValidationError`, so the
+   model produced prose that could not be read as the schema either.
+2. **The failure was labelled `empty`, which is why nobody looked.** `empty` was
+   computed as "the structured call returned no object" — a failure to *answer* — and
+   read as "the model had nothing to say", so a whole missing pass looked benign.
+   Fixed: the three outcomes now mean what ADR-0013 says they mean.
+   - `ok` — a valid result carrying something;
+   - `empty` — a valid result carrying nothing ("nothing here", which is an answer);
+   - `failed` — no valid result from either path, recorded **with a cause** naming
+     what was tried and how long it took.
+
+   Verdicts are unchanged (`failed or empty` both yield `PARTIAL`), with one honest
+   exception: a run whose every pass answers nothing is now `FAILED`, not `PARTIAL`.
+
+### Corrected: `connects_to` is *not* an ontology gap
+
+This entry first claimed the pass demanded a predicate the vocabulary does not
+declare. It does not declare it — but it does not declare `part_of` or
+`uses_technology` either, and those work. The ontology models **classes and typed
+attributes** (`depends_on_components`, `hosted_on`, `implements_interfaces`,
+`protocol`, `style`), not a closed list of graph predicates; free-form predicates are
+minted by the passes and stored by ingestion. The missing declaration was never the
+cause, and the reproduction proves it: the same prompt produced `connects_to` records
+fine.
+
+### Now open: the edge exists twice
+
+With both halves fixed, a successful connections pass yields **two** representations of
+one fact — the `connects_to` triples the pass is instructed to emit, and the
+`Connection` node ingestion materialises from the records. They are not equivalent
+(the node carries protocol, style and failure handling; the edge is the topology every
+existing consumer uses — `repair_containment`, `edge_records`, the exclusion filters),
+but two representations is exactly the drift this codebase keeps refusing. Decide:
+derive the edge from the record in ingestion and stop asking the model for the triple,
+or keep both and say why.
 
 ### Checked, and *not* the same defect: the requirements profile's edge key
 
