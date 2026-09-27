@@ -275,3 +275,39 @@ def test_the_warning_is_derived_not_remembered():
     hosted = "https://api.deepseek.com"
     assert extra_params_mismatch(local, {"extra_body": {"thinking": {}}})
     assert extra_params_mismatch(hosted, {"extra_body": {"reasoning_effort": "none"}})
+
+
+def test_a_hosted_endpoint_uses_the_hosted_model_id(monkeypatch):
+    """THE BUG. The hosted branch read `local_model_id` for ANY base URL, so pointing
+    at api.deepseek.com while LOCAL_MODEL_ID still named a llama.cpp GGUF sent that
+    name to the paid API:
+
+        The supported API model names are deepseek-flash, deepseek-v4-pro, but you
+        passed unsloth/Qwen3.5-4B-GGUF:Q4_K_M
+
+    DEFAULT_MODEL_ID was only consulted when no base URL was set at all, which is the
+    one configuration where a hosted model id is not needed. The endpoint's locality
+    now decides, so the two variables describe the two servers they are named for.
+    """
+    monkeypatch.setenv("OPENAI_BASEURL", "https://api.deepseek.com")
+    monkeypatch.setenv("DEFAULT_MODEL_ID", "deepseek-v4-pro")
+    monkeypatch.setenv("LOCAL_MODEL_ID", "unsloth/Qwen3.5-4B-GGUF:Q4_K_M")
+
+    config = get_default_agent_config("architecture_extraction")
+
+    assert config["model_id"] == "deepseek-v4-pro"
+    assert config["base_url"] == "https://api.deepseek.com"
+
+
+def test_a_local_endpoint_still_uses_the_local_model_id(monkeypatch):
+    """The other half, and the reason the fix is a switch rather than a rename: a LAN
+    server must keep taking the GGUF name, and a hosted id there would be just as
+    wrong."""
+    monkeypatch.setenv("OPENAI_BASEURL", "http://192.168.3.176:8080/v1")
+    monkeypatch.setenv("DEFAULT_MODEL_ID", "deepseek-v4-pro")
+    monkeypatch.setenv("LOCAL_MODEL_ID", "unsloth/Qwen3.5-4B-GGUF:Q4_K_M")
+
+    config = get_default_agent_config("architecture_extraction")
+
+    assert config["model_id"] == "unsloth/Qwen3.5-4B-GGUF:Q4_K_M"
+    assert config["base_url"] == "http://192.168.3.176:8080/v1"
