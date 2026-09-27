@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Workspace · {{ workspace.workspace_id }}{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Workspace <code>{{ workspace.workspace_id }}</code></h1>
+    <p>
+      The scopes this deployment serves. A scope is one system or product — the unit of
+      graph, baseline and review — and its own store is what keeps two systems with the
+      same element name apart, because node identity is the label.
+    </p>
+  </div>
+</div>
+
+{% if workspace.brief %}
+  <p class="hint">
+    Enterprise brief: <code>{{ workspace.brief }}</code> — grounding for the agents,
+    not the policy register.
+  </p>
+{% else %}
+  <p class="hint">
+    No enterprise brief configured. It is the one-pager describing the enterprise, used
+    to teach the agents its vocabulary; without it they infer names from each document.
+  </p>
+{% endif %}
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Scope</th>
+      <th>Kind</th>
+      <th>Store</th>
+      <th>Writes guarded</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+      <tr class="{{ 'is-current' if row.current else '' }}">
+        <td>
+          <strong>{{ row.name }}</strong>
+          <div class="hint"><code>{{ row.scope_id }}</code></div>
+        </td>
+        <td>{{ row.kind }}</td>
+        <td><code>{{ row.backend }}</code></td>
+        <td>
+          {% if row.concurrency_safe %}
+            <span class="tag">yes</span>
+          {% else %}
+            <span class="tag tag-warn">no — single writer</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if row.current %}
+            <span class="hint">viewing</span>
+          {% else %}
+            <a href="{{ url_for('select_scope', scope_id=row.scope_id) }}">switch</a>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+
+{# Be explicit about the gap rather than showing an empty column: a reviewer should not
+   have to guess whether "no baseline" means none exists or none is reported. #}
+<p class="hint">
+  Baseline and outstanding-review state per scope are <strong>not shown yet</strong>.
+  Reading it means one query per scope, and a workspace must be able to list 200
+  products without loading 200 graphs — that is the workspace index, YB-042 §6.
+</p>
+{% endblock %}

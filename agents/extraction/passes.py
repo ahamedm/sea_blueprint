@@ -17,7 +17,9 @@ that is fast when it works and silently lossy when it does not.
 
 from dataclasses import dataclass, field
 from contextlib import nullcontext
-from typing import Any, Dict, List, Optional, Sequence, Type
+from typing import Any, Callable, Dict, List, Optional, Sequence, Type
+
+from core.events import ERROR, PASS_FINISHED, PASS_STARTED, RunEvent
 
 from ..base_agent import looks_like_a_repetition_loop
 from .chunking import Chunk
@@ -168,12 +170,77 @@ def _sampling(agent, temperature: Optional[float]):
     return override(temperature)
 
 
+def _outcome_state(error: Optional[str], empty: bool, result: Any) -> str:
+    """Name a pass attempt's outcome: `failed` | `empty` | `ok`.
+
+    The one place that decides the vocabulary, shared by `run_passes` (which
+    reports the transition on the progress channel) and `outcome_records` (which
+    stores the `PassRecord`). One decider, so a watcher and the stored run record
+    can never disagree about what a pass did.
+    """
+    if error:
+        return "failed"
+    if empty or result is None:
+        return "empty"
+    return "ok"
+
+
+def _triples_produced(result: Any) -> int:
+    """How many triples a pass result carried, without assuming its shape.
+
+    A counter is a state transition; the triples themselves are content and never
+    travel on the progress channel. `getattr` rather than a schema check because a
+    pass result is whatever the profile's schema produced, and a result with no
+    `triples` collection simply produced none.
+    """
+    if result is None:
+        return 0
+    triples = getattr(result, "triples", None)
+    return len(triples) if triples else 0
+
+
+def _emit_progress(
+    progress: Optional[Callable[[RunEvent], Any]],
+    kind: str,
+    payload: Dict[str, Any],
+    log: Optional[Any] = None,
+) -> None:
+    """Hand one state transition to the progress sink, if one is attached.
+
+    A SINK MUST NEVER BREAK A RUN. Progress is a notification channel: the pass
+    result, not the event, is the run's product, and YB-036's failure contract is
+    that a slow, broken or dead subscriber degrades *live progress only*. So an
+    exception from the sink is caught here and reported on the run log; it must
+    not fail the pass, skip the remaining passes, or change a single outcome.
+    Sinks are expected to be non-blocking for the same reason — the durable
+    append is the source of truth, any live push is best-effort.
+
+    The sink owns run identity and sequencing (`run_id`, `scope_id`, `seq` are
+    read off it when it exposes them and stamped by it when it journals); the
+    pipeline just names the transition. See `agents.extraction.progress`.
+    """
+    if progress is None:
+        return
+    try:
+        progress(RunEvent(
+            run_id=getattr(progress, "run_id", "") or "",
+            scope_id=getattr(progress, "scope_id", "") or "",
+            seq=0,  # the sink assigns the monotonic sequence
+            kind=kind,
+            payload=dict(payload),
+        ))
+    except Exception as e:                                           # noqa: BLE001
+        if log:
+            log(f"    progress sink failed (ignored): {type(e).__name__}: {e}")
+
+
 def run_passes(
     agent,
     passes: Sequence[PassSpec],
     chunks: Sequence[Chunk],
     shared_context: str = "",
     log: Optional[Any] = None,
+    progress: Optional[Callable[[RunEvent], Any]] = None,
     allow_text_fallback: bool = True,
 ) -> List[PassOutcome]:
     """Run every pass over every chunk, collecting outcomes.
@@ -181,6 +248,14 @@ def run_passes(
     Deliberately does not fail fast: one pass failing on one chunk should not
     discard the rest. Failures are recorded and reported, and the merge step
     works with whatever arrived.
+
+    `progress` is an optional sink called with a `RunEvent` on every state
+    transition: `PASS_STARTED` before a pass call and `PASS_FINISHED` (or `ERROR`
+    when it failed) after. The payload carries transitions only — pass name,
+    chunk label, outcome, elapsed, triples produced, path — never the extracted
+    content, which stays in the run record. The pipeline emits and knows nothing
+    about subscribers; a sink that raises is logged and ignored (see
+    `_emit_progress`), so attaching one cannot change the run.
     """
     import time
 
@@ -196,6 +271,11 @@ def run_passes(
                 label += f" (temperature {spec.temperature})"
             if log:
                 log(f"  pass: {label}")
+
+            _emit_progress(progress, PASS_STARTED, {
+                "pass_name": spec.name,
+                "chunk_label": chunk.label,
+            }, log)
 
             t0 = time.time()
             prompt = build_pass_prompt(spec, chunk, shared_context)
@@ -247,6 +327,20 @@ def run_passes(
                 error=err, elapsed=elapsed, empty=empty, path=path,
                 temperature=spec.temperature,
             ))
+
+            # The transition, not the result: what changed, not what was found.
+            outcome_state = _outcome_state(err, empty, result)
+            transition: Dict[str, Any] = {
+                "pass_name": spec.name,
+                "chunk_label": chunk.label,
+                "outcome": outcome_state,
+                "elapsed": round(elapsed, 3),
+                "triples_produced": _triples_produced(result),
+                "path": path,
+            }
+            if err:
+                transition["error"] = err[:200]
+            _emit_progress(progress, ERROR if err else PASS_FINISHED, transition, log)
 
             if log:
                 if err:
@@ -306,15 +400,7 @@ def outcome_records(outcomes: Sequence[PassOutcome]) -> List[Any]:
 
     records: List[PassRecord] = []
     for o in outcomes:
-        if o.error:
-            state = "failed"
-        elif o.empty or o.result is None:
-            state = "empty"
-        else:
-            state = "ok"
-        triples = 0
-        if o.result is not None:
-            triples = len(getattr(o.result, "triples", []) or [])
+        state = _outcome_state(o.error, o.empty, o.result)
         records.append(
             PassRecord(
                 pass_name=o.pass_name,
@@ -323,7 +409,7 @@ def outcome_records(outcomes: Sequence[PassOutcome]) -> List[Any]:
                 path=o.path,
                 elapsed=round(o.elapsed, 1),
                 error=(o.error or "")[:200],
-                triples_produced=triples,
+                triples_produced=_triples_produced(o.result),
                 temperature=o.temperature,
             )
         )

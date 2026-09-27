@@ -334,7 +334,12 @@ def graph_from_extraction(
 
     model_id = str(metadata.get("model_id") or metadata.get("model") or "")
     run = ExtractionRun(
-        id=_run_id(document_ref, document_text, model_id),
+        # A caller may mint the id and pass it in, which is what lets a live progress
+        # journal carry the SAME id as the run record it eventually becomes. Without
+        # it, events published during extraction could not be correlated with the run
+        # afterwards — and the id cannot be predicted, because `_run_id` includes the
+        # current time.
+        id=str(metadata.get("run_id") or "") or _run_id(document_ref, document_text, model_id),
         document_ref=document_ref,
         document_type=_document_type(metadata),
         document_hash=_document_hash(document_text) if document_text else "",

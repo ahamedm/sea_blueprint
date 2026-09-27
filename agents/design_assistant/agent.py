@@ -140,7 +140,8 @@ class DesignAssistantAgent(ArchitectureExtractionAgent):
             passes = design_passes(
                 pattern_prompt_context(catalogue), quality_attributes=stated_attributes
             )
-            outcomes = run_passes(self, passes, chunks, shared, log=self.log)
+            outcomes = run_passes(self, passes, chunks, shared, log=self.log,
+                                  progress=input_data.get("progress"))
             summary = summarise(outcomes, len(chunks), len(passes))
             self.log(summary.describe(len(chunks), len(passes)),
                      level="success" if summary.failed == 0 else "warning")

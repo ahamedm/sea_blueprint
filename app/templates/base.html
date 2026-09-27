@@ -14,6 +14,28 @@
     <span class="mark">SEA</span>
     <span class="sub">Semantic Enterprise Architect</span>
   </div>
+  {# Which world this page is showing. A multi-scope workspace falls back to its
+     first scope, so without this the wrong system is reviewed silently — the whole
+     hazard the workspace exists to remove. #}
+  {% if scopes %}
+    <div class="workspace">
+      <span class="label">Scope</span>
+      {% if scopes|length > 1 %}
+        <select class="scope-switcher" aria-label="Switch scope"
+                onchange="if (this.value) { location.href = this.value; }">
+          {% for s in scopes %}
+            <option value="{{ url_for('select_scope', scope_id=s.scope_id, next=request.path) }}"
+                    {{ 'selected' if s.scope_id == scope_id else '' }}>{{ s.name }}</option>
+          {% endfor %}
+        </select>
+      {% else %}
+        <strong>{{ scope_name or scope_id }}</strong>
+      {% endif %}
+      <a class="all" href="{{ url_for('workspace_view') }}"
+         title="Every scope in this workspace">workspace</a>
+    </div>
+  {% endif %}
+
   <nav>
     {# Endpoint prefixes so /review/<id> keeps the Review tab lit. #}
     {% set section = (request.endpoint or '').split('_')[0] %}
@@ -43,7 +65,9 @@
 </main>
 
 <footer class="footer">
-  SEA Platform MVP · initiative <code>{{ initiative_id }}</code> · reviewer <code>{{ reviewer }}</code> ·
+  SEA Platform MVP · workspace <code>{{ workspace.workspace_id }}</code> ·
+  scope <code>{{ scope_id or '—' }}</code> ·
+  initiative <code>{{ initiative_id }}</code> · reviewer <code>{{ reviewer }}</code> ·
   the graph is the memory; agents are stateless functions over it.
 </footer>
 </body>

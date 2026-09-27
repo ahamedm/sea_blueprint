@@ -300,3 +300,71 @@ and the first fix for page cost is to **stop loading the whole graph to render a
 
 **A cache is never the correctness mechanism here.** The version token is. Any cache must
 be able to prove it is current by reading one indexed row, or it must not serve the read.
+
+## 12. The app is wired to the workspace — what changed and what did not
+
+`create_app` no longer resolves one `RevisionStore` root. It loads a **workspace**, and
+a request resolves a scope:
+
+- `current_scope_id()` — `?scope=` first, then the session, then the configured default,
+  then the first scope. A **single-scope workspace needs no selection**, so every
+  existing `data/sea` deployment behaves exactly as before; that is the migration path
+  and it is tested.
+- `current_store()` — one store per scope, built once and reused, because building a SQL
+  engine per request would open a connection pool per page view.
+- `save(snapshot)` passes `meta["version"]` back as `expected_version`, but only when
+  `store.concurrency_safe`. On SQLite a stale version raises `StoreConflict`; the file
+  backend has no version, so the guard is *absent* there rather than pretended.
+- `@app.errorhandler(StoreConflict)` turns that into a redirect and a flash — **"nothing
+  was overwritten"** — because both alternatives are worse: a 500 tells the reviewer
+  nothing, and a silent overwrite is the defect the token exists to prevent.
+- `current_drafts()` stages design proposals **per scope**, so a proposal drafted against
+  one system can never be applied to another.
+- `GET /api/workspace` reports the scopes, the current one, and each backend's
+  `concurrency_safe`; `GET /scope/<id>` switches scope for the session. The listing asks
+  the *backend* whether it can guard a write rather than opening a store to find out —
+  a listing endpoint must not create a database as a side effect of asking a question.
+
+Two things deliberately still open:
+
+1. **No template change yet.** `inject_globals` now exposes `workspace`, `scope_id`,
+   `scope_name` and `scopes`, so a page *can* render a switcher and say which world it is
+   showing — but it does not yet. Until it does, a multi-scope workspace falls back to
+   its first scope silently, which is exactly the hazard the exposure is there to fix.
+2. **A conflict discards the change rather than merging it.** Correct for a review
+   decision (reapply it), questionable for a twenty-minute extraction whose save lands
+   after someone else's — that needs the retry/rebase story, not a flash message.
+
+The test that caught a real bug worth noting: `SqliteStore.ensure()` never created its
+parent directory, so the first write to `scopes/<id>.sqlite` failed with "unable to open
+database file" instead of creating the store. The workspace layout put a scope's database
+somewhere that did not exist yet.
+
+### The journal, wired — and the one join still missing
+
+The producer chain is closed and tested end to end
+(`tests/test_run_progress_wiring.py`):
+
+- `run_passes(..., progress=...)` emits `PASS_STARTED` / `PASS_FINISHED` (or `ERROR`) with
+  transition-only payloads. A raising sink is caught and logged, so a dead subscriber
+  cannot fail a run.
+- `agents/extraction/progress.JournalProgress` stamps the envelope and owns the monotonic
+  `seq`; `finished(completeness)` takes the verdict **positionally**, so a run cannot end
+  on this channel without stating whether it was `COMPLETE`, `PARTIAL` or `UNKNOWN`.
+- Both extraction profiles forward `input_data["progress"]` to `run_passes`.
+- `graph_from_extraction` now accepts a **caller-minted `run_id`** in metadata. Necessary
+  rather than cosmetic: `_run_id` includes `utc_now()`, so a caller cannot predict it, and
+  events published *during* extraction could never be correlated with the run record
+  created *afterwards*.
+- `GET /api/runs/<id>/events?since=` reads the journal back, `since` being an exclusive
+  stream cursor. The default is `NullJournal` — no Valkey, no dependency, no error — and a
+  broken journal degrades to **503**, because a page that cannot show live progress is a
+  smaller problem than a page that cannot load.
+
+**What is still missing: `/ingest` does not create a sink yet**, so a real run publishes
+nothing. The join is a few lines — mint a run id, build the sink, pass it to the
+extractor, publish `finished(run.completeness)` once the record exists — but it belongs
+with the asynchronous-progress work in
+[YB-026](../todos/entries/YB-026-asynchronous-progress.md): wiring it inside today's
+synchronous request buys a user nothing they can see, and the point of the whole channel
+is to stop the request blocking on the run.

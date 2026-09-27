@@ -152,8 +152,12 @@ class ArchitectureExtractionAgent(KnowledgeExtractionAgent):
 
             # ---- 2. run passes over chunks ----
             shared = self._format_ontology_context()
+            # A sink the caller attached, if any. The pipeline emits; who listens is
+            # not this profile's business — and a dead sink cannot fail the run
+            # (`run_passes` swallows sink errors deliberately).
+            progress = input_data.get("progress")
             outcomes = run_passes(self, ARCHITECTURE_PASSES, chunks, shared,
-                                  log=self.log)
+                                  log=self.log, progress=progress)
             summary = summarise(outcomes, len(chunks), len(ARCHITECTURE_PASSES))
             # The real per-attempt records, not just the totals below. Without
             # them ingest reconstructs `pass_name="(unspecified)"` and the run

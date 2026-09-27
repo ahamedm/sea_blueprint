@@ -169,6 +169,14 @@ class SqliteStore:
             conn.exec_driver_sql("COMMIT")
 
     def ensure(self) -> "SqliteStore":
+        """Create the schema, and the directory it lives in.
+
+        A workspace puts a scope's database under `scopes/`, which does not exist until
+        something writes there — so without the mkdir the first connect fails with
+        "unable to open database file" rather than creating the store.
+        """
+        if self.path is not None:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
         _metadata.create_all(self.engine)
         return self
 

@@ -43,6 +43,21 @@ BACKEND_FILE = "file"
 BACKEND_SQLITE = "sqlite"
 BACKENDS = (BACKEND_FILE, BACKEND_SQLITE)
 
+#: Whether a backend can guard a write, declared WITHOUT opening it. A listing
+#: endpoint must not create a database as a side effect, and `open_store` costs an
+#: engine and a connection pool — so the answer is a property of the backend, not
+#: something you ask an instance.
+BACKEND_CONCURRENCY_SAFE = {
+    BACKEND_FILE: False,     # atomic per file, no lock, no version check
+    BACKEND_SQLITE: True,    # version-guarded, `BEGIN IMMEDIATE`
+}
+
+
+def backend_is_concurrency_safe(backend: str) -> bool:
+    """False for a backend this build does not know, which is the conservative read:
+    assuming a write is guarded when it is not is how lost updates stay hidden."""
+    return BACKEND_CONCURRENCY_SAFE.get(backend, False)
+
 
 class WorkspaceError(Exception):
     """A manifest that cannot be honoured — bad YAML, an unknown backend, no scopes."""

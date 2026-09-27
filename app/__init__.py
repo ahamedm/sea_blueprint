@@ -38,6 +38,7 @@ from flask import (
     render_template,
     request,
     send_file,
+    session,
     url_for,
 )
 from werkzeug.utils import secure_filename
@@ -87,6 +88,18 @@ from core.knowledge import (
     to_turtle,
 )
 from core.knowledge.model import compute_graph_delta
+# The run journal. `core.events` imports its client lazily, so this costs nothing
+# when the deployment does not run Valkey.
+from core.events import NullJournal, RunEvent
+# The store contract and the workspace that addresses scopes. `StoreConflict` is
+# imported here because a lost update must surface as a message, not a 500.
+from core.knowledge import StoreConflict
+from core.workspace import (
+    Scope,
+    WorkspaceError,
+    backend_is_concurrency_safe,
+    load_workspace,
+)
 from core.ontology import (
     OntologyError,
     discover_domain_packs,
@@ -141,11 +154,27 @@ def _default_design_agent():
 # ============================================================================
 
 
+def _default_journal():
+    """The run journal this deployment reports progress through.
+
+    `NullJournal` unless a Valkey endpoint is configured, so an MVP install with no
+    stream server behaves exactly as before — runs simply report nothing live, which is
+    also what an unattended run looked like anyway.
+    """
+    host = os.environ.get("SEA_VALKEY_HOST", "")
+    if not host:
+        return NullJournal()
+    from core.events import ValkeyJournal
+
+    return ValkeyJournal(host=host, port=int(os.environ.get("SEA_VALKEY_PORT", "6379")))
+
+
 def create_app(
     test_config: Optional[Dict[str, Any]] = None,
     store_root: Optional[str] = None,
     extractor_factory: Optional[Callable[[str], Any]] = None,
     design_factory: Optional[Callable[[], Any]] = None,
+    journal_factory: Optional[Callable[[], Any]] = None,
 ) -> Flask:
     app = Flask(__name__, static_folder="static", template_folder="templates")
 
@@ -157,16 +186,81 @@ def create_app(
         MAX_CONTENT_LENGTH=MAX_UPLOAD_BYTES,
         EXTRACTOR_FACTORY=extractor_factory or _default_extractor,
         DESIGN_FACTORY=design_factory or _default_design_agent,
+        JOURNAL_FACTORY=journal_factory or _default_journal,
         INITIATIVE_ID=os.environ.get("SEA_INITIATIVE", "INIT-MVP-001"),
         ONTOLOGY_DIR=os.environ.get("SEA_ONTOLOGY_DIR", "ontology"),
+        SCOPE_ID=os.environ.get("SEA_SCOPE", ""),
     )
     if test_config:
         app.config.update(test_config)
 
-    store = RevisionStore(app.config["STORE_ROOT"]).ensure()
+    # A workspace lists the scopes (systems/products) this deployment serves. A bare
+    # store directory is a single-scope workspace pointing at itself, so every existing
+    # `data/sea` keeps working with no manifest — see `core.workspace`.
+    workspace = load_workspace(app.config["STORE_ROOT"])
+    app.config["WORKSPACE"] = workspace
+    if not app.config.get("SCOPE_ID") and len(workspace.scopes) == 1:
+        app.config["SCOPE_ID"] = workspace.scopes[0].scope_id
+
+    # One store per scope, built once and reused. Building a SQL engine per request
+    # would open a pool per page view, and the engine is the expensive part.
+    stores: Dict[str, Any] = {}
+    drafts_by_scope: Dict[str, DesignDraftStore] = {}
+
+    def current_scope_id() -> str:
+        """Which scope this request is about.
+
+        The single-scope case needs no selection, which is what keeps the MVP path —
+        and every existing deployment — unchanged. A multi-scope workspace with no
+        selection falls back to the first scope rather than erroring on every route;
+        `inject_globals` exposes which one, so the page can say so instead of the app
+        silently reviewing the wrong world.
+        """
+        chosen = request.args.get("scope") or session.get("scope_id")
+        if chosen:
+            return chosen
+        configured = current_app.config.get("SCOPE_ID") or ""
+        if configured:
+            return configured
+        if workspace.scopes:
+            return workspace.scopes[0].scope_id
+        return ""
+
+    def current_scope() -> Optional[Scope]:
+        try:
+            return workspace.scope(current_scope_id() or None)
+        except WorkspaceError:
+            return None
+
+    def current_store():
+        scope_id = current_scope_id()
+        if scope_id not in stores:
+            try:
+                stores[scope_id] = workspace.open_store(scope_id or None)
+            except WorkspaceError as exc:
+                abort(404, description=str(exc))
+        return stores[scope_id]
+
+    journal = app.config["JOURNAL_FACTORY"]()
+
+    def current_journal():
+        """The journal is built once per process, not per request: a Valkey client
+        holds a connection pool, and rebuilding it per page view would defeat it."""
+        return journal
+
+    def current_drafts() -> DesignDraftStore:
+        """Drafts are staged per scope, so a proposal drafted against one system can
+        never be applied to another."""
+        scope_id = current_scope_id()
+        if scope_id not in drafts_by_scope:
+            scope = current_scope()
+            base = workspace.paths(scope)["root"] if scope and scope.backend == "file" \
+                else workspace.root / "scopes" / (scope_id or "default")
+            drafts_by_scope[scope_id] = DesignDraftStore(base).ensure()
+        return drafts_by_scope[scope_id]
+
     # Design proposals are staged beside the working set, never merged into it
     # until a human applies them. See `core.knowledge.drafts` for why.
-    drafts = DesignDraftStore(app.config["STORE_ROOT"]).ensure()
 
     # The ontologies are read once, at startup. Parse failure is recorded rather
     # than raised: the reference page can then say what is wrong, instead of the
@@ -181,22 +275,51 @@ def create_app(
     # -- helpers ---------------------------------------------------------
 
     def state() -> Snapshot:
-        return store.load_working()
+        return current_store().load_working()
 
     def save(snapshot: Snapshot) -> None:
-        store.save_working(snapshot.graph, snapshot.log, snapshot.meta)
+        """Persist the working set, guarded where the backend can guard.
+
+        `meta["version"]` is what the read returned. Passing it back is what turns a
+        silent lost update into a visible conflict: on a concurrency-safe backend a
+        stale version raises `StoreConflict`, which the error handler below reports.
+        The file backend carries no version and declares `concurrency_safe = False`,
+        so the guard is simply absent there rather than pretended.
+        """
+        store = current_store()
+        version = snapshot.meta.get("version") if store.concurrency_safe else None
+        store.save_working(snapshot.graph, snapshot.log, snapshot.meta,
+                           expected_version=version)
 
     def reviewer() -> str:
         return (
             request.form.get("actor") or request.args.get("actor") or current_app.config["REVIEWER"]
         )
 
+    @app.errorhandler(StoreConflict)
+    def _scope_changed(exc):
+        """A write lost the race. The caller's work is NOT applied — say so plainly
+        and send them back, because "my edit vanished" is the failure this replaced."""
+        flash(
+            "Someone else changed this scope while you were working, so your change "
+            "was not applied — nothing was overwritten. Reload and reapply it.",
+            "error",
+        )
+        return redirect(request.referrer or url_for("index"))
+
     @app.context_processor
     def inject_globals():
+        scope = current_scope()
         return {
             "low_confidence_threshold": LOW_CONFIDENCE,
             "reviewer": current_app.config["REVIEWER"],
             "initiative_id": current_app.config["INITIATIVE_ID"],
+            # Which world this page is showing. A multi-scope workspace renders the
+            # wrong scope silently without this, which is the whole hazard.
+            "workspace": workspace,
+            "scope_id": scope.scope_id if scope else "",
+            "scope_name": scope.name if scope else "",
+            "scopes": workspace.scopes,
         }
 
     @app.template_filter("pct")
@@ -206,6 +329,99 @@ def create_app(
         except (TypeError, ValueError):
             return "—"
 
+    # -- workspace -------------------------------------------------------
+
+    @app.route("/api/workspace")
+    def api_workspace():
+        """What this deployment serves, and which scope the caller is looking at.
+
+        The page needs this to render a switcher, and an operator needs it to see
+        whether a store is still on the file backend or has been migrated.
+        """
+        current = current_scope()
+        return jsonify({
+            "workspace_id": workspace.workspace_id,
+            "name": workspace.name,
+            "brief": workspace.brief,
+            "current_scope": current.scope_id if current else "",
+            "scopes": [
+                {
+                    "scope_id": scope.scope_id,
+                    "name": scope.name,
+                    "kind": scope.kind,
+                    "backend": scope.backend,
+                    # Asked of the backend, not of an instance: opening a store from a
+                    # listing endpoint would create engines (and databases) as a side
+                    # effect of asking a question.
+                    "concurrency_safe": backend_is_concurrency_safe(scope.backend),
+                }
+                for scope in workspace.scopes
+            ],
+        })
+
+    @app.route("/scope/<scope_id>")
+    def select_scope(scope_id):
+        """Switch scope for this session.
+
+        Validated against the workspace first, so a typo cannot silently create an
+        empty store and look like a scope whose work has vanished.
+        """
+        try:
+            workspace.scope(scope_id)
+        except WorkspaceError as exc:
+            abort(404, description=str(exc))
+        session["scope_id"] = scope_id
+        return redirect(request.args.get("next") or url_for("index"))
+
+    @app.route("/api/runs/<run_id>/events")
+    def api_run_events(run_id):
+        """The run's progress events, from `since` onward.
+
+        A read of the journal, not the record: the graph stays the source of truth, and
+        this is what a page tails (or polls) to show a run in flight. `since` is an
+        exclusive stream id, so a client that reconnects passes the last id it saw and
+        receives exactly what it missed — the property that makes this a Stream rather
+        than a pub/sub fire-and-forget.
+        """
+        since = request.args.get("since") or None
+        try:
+            events = current_journal().read(run_id, since=since)
+        except Exception as exc:  # noqa: BLE001 - a dead journal must not 500 the page
+            return jsonify({"run_id": run_id, "since": since, "events": [],
+                            "error": f"journal unavailable: {type(exc).__name__}"}), 503
+        return jsonify({
+            "run_id": run_id,
+            "since": since,
+            "events": [event.to_dict() for event in events],
+            "terminal": any(event.is_terminal for event in events),
+        })
+
+    @app.route("/workspace")
+    def workspace_view():
+        """Every scope this deployment serves, and what is known about each.
+
+        Deliberately NOT loading each scope's graph. Listing 200 products would mean
+        200 loads — the thing `workspace-structure.md` §6 says the workspace index
+        exists to avoid — so what is shown here comes from the manifest and costs
+        nothing. Baseline and review state per scope land with that index (YB-042).
+        """
+        current = current_scope()
+        return render_template(
+            "workspace.html",
+            rows=[
+                {
+                    "scope_id": scope.scope_id,
+                    "name": scope.name,
+                    "kind": scope.kind,
+                    "backend": scope.backend,
+                    "concurrency_safe": backend_is_concurrency_safe(scope.backend),
+                    "current": bool(current and scope.scope_id == current.scope_id),
+                }
+                for scope in workspace.scopes
+            ],
+            current=current,
+        )
+
     # -- dashboard -------------------------------------------------------
 
     @app.route("/")
@@ -214,7 +430,7 @@ def create_app(
         return render_template(
             "dashboard.html",
             view=project_dashboard(
-                snapshot.graph, snapshot.log, store.list_revisions(), snapshot.meta
+                snapshot.graph, snapshot.log, current_store().list_revisions(), snapshot.meta
             ),
         )
 
@@ -343,7 +559,7 @@ def create_app(
         save(Snapshot(graph=merged, log=before.log, meta=meta))
 
         revision_label = request.form.get("revision_label") or f"Ingest · {filename}"
-        store.commit(
+        current_store().commit(
             merged,
             before.log,
             label=revision_label,
@@ -372,12 +588,12 @@ def create_app(
     def _design_inputs() -> Dict[str, Any]:
         """Which graph a design run reads, and what it should be grounded on."""
         snapshot = state()
-        baselines = store.baselines()
+        baselines = current_store().baselines()
         return {
             "snapshot": snapshot,
             # The frozen baseline when one exists: a design should extend the
             # architecture the enterprise has accepted, not the draft in progress.
-            "baseline": store.load_revision(baselines[0].id).graph if baselines else None,
+            "baseline": current_store().load_revision(baselines[0].id).graph if baselines else None,
             "base_ref": baselines[0].id if baselines else "",
             "baseline_label": baselines[0].label if baselines else "",
         }
@@ -387,7 +603,7 @@ def create_app(
         graph = snapshot.graph
         gaps = project_gap_report(graph)
         quality = project_quality_report(graph)["summary"]
-        baselines = store.baselines()
+        baselines = current_store().baselines()
         return {
             "requirements": gaps["realization"]["summary"]["requirements"],
             "unrealized": gaps["unrealized_count"],
@@ -450,7 +666,7 @@ def create_app(
         return render_template(
             "design.html",
             preconditions=_design_preconditions(snapshot),
-            drafts=drafts.list(),
+            drafts=current_drafts().list(),
             proposal=None,
             domain_packs=discover_domain_packs(current_app.config["ONTOLOGY_DIR"]),
             active_domain_pack=snapshot.meta.get("domain_pack", ""),
@@ -527,7 +743,7 @@ def create_app(
         merged = merge_graphs(snapshot.graph, proposal_graph)
         delta = compute_graph_delta(snapshot.graph, merged)
 
-        draft = drafts.save(
+        draft = current_drafts().save(
             proposal_graph,
             label=f"Design draft · {initiative_id}",
             initiative_id=initiative_id,
@@ -548,7 +764,7 @@ def create_app(
         return render_template(
             "design.html",
             preconditions=_design_preconditions(snapshot),
-            drafts=drafts.list(),
+            drafts=current_drafts().list(),
             proposal=_proposal_view(output, run, draft, delta, snapshot.graph, merged),
             domain_packs=discover_domain_packs(current_app.config["ONTOLOGY_DIR"]),
             active_domain_pack=active_pack,
@@ -560,7 +776,7 @@ def create_app(
         snapshot = state()
         draft_id = (request.form.get("draft_id") or "").strip()
         try:
-            draft, proposal_graph = drafts.load(draft_id)
+            draft, proposal_graph = current_drafts().load(draft_id)
         except KeyError as exc:
             flash(str(exc), "error")
             return redirect(url_for("design"))
@@ -575,7 +791,7 @@ def create_app(
             "base_ref": draft.base_ref,
         }
         save(Snapshot(graph=merged, log=snapshot.log, meta=meta))
-        revision = store.commit(
+        revision = current_store().commit(
             merged,
             snapshot.log,
             label=draft.label or "Design draft",
@@ -583,7 +799,7 @@ def create_app(
             note=f"Applied design {draft.id}",
             initiative_id=draft.initiative_id,
         )
-        drafts.discard(draft_id)
+        current_drafts().discard(draft_id)
         flash(
             f"Applied {draft.label or draft.id}: +{len(delta.added_nodes)} concept(s), "
             f"+{len(delta.added_assertions)} fact(s) as UNVERIFIED proposals. "
@@ -595,7 +811,7 @@ def create_app(
     @app.route("/design/discard", methods=["POST"])
     def design_discard():
         draft_id = (request.form.get("draft_id") or "").strip()
-        if drafts.discard(draft_id):
+        if current_drafts().discard(draft_id):
             flash(f"Discarded design draft {draft_id}. The graph was never touched.", "warning")
         else:
             flash(f"No design draft {draft_id}.", "error")
@@ -604,8 +820,8 @@ def create_app(
     @app.route("/api/design")
     def api_design():
         return jsonify({
-            "drafts": [d.to_dict() for d in drafts.list()],
-            "latest": (drafts.latest().to_dict() if drafts.latest() else None),
+            "drafts": [d.to_dict() for d in current_drafts().list()],
+            "latest": (current_drafts().latest().to_dict() if current_drafts().latest() else None),
         })
 
     # -- review gate -----------------------------------------------------
@@ -984,7 +1200,7 @@ def create_app(
     @app.route("/changes")
     def changes():
         snapshot = state()
-        revisions = store.list_revisions()
+        revisions = current_store().list_revisions()
         return render_template(
             "changes.html",
             revisions=revisions,
@@ -998,7 +1214,7 @@ def create_app(
     def changes_commit():
         snapshot = state()
         label = (request.form.get("label") or "").strip()
-        revision = store.commit(
+        revision = current_store().commit(
             snapshot.graph,
             snapshot.log,
             label=label,
@@ -1013,7 +1229,7 @@ def create_app(
         revision_id = (request.form.get("revision_id") or "").strip() or None
         allow = request.form.get("allow_unverified") == "on"
         try:
-            revision = store.freeze(
+            revision = current_store().freeze(
                 revision_id,
                 label=(request.form.get("label") or "").strip(),
                 actor=reviewer(),
@@ -1062,10 +1278,10 @@ def create_app(
 
         try:
             if old_id:
-                old = store.load_revision(old_id)
+                old = current_store().load_revision(old_id)
             else:
                 old = Snapshot(graph=KnowledgeGraph())
-            new = state() if new_id == "working" else store.load_revision(new_id)
+            new = state() if new_id == "working" else current_store().load_revision(new_id)
         except KeyError as exc:
             flash(str(exc), "error")
             return redirect(url_for("changes"))
@@ -1074,17 +1290,17 @@ def create_app(
         return render_template(
             "diff.html",
             view=project_delta(delta, old.graph, new.graph),
-            old_ref=store.get_revision(old_id) if old_id else None,
-            new_ref=store.get_revision(new_id) if new_id != "working" else None,
+            old_ref=current_store().get_revision(old_id) if old_id else None,
+            new_ref=current_store().get_revision(new_id) if new_id != "working" else None,
             new_is_working=new_id == "working",
-            revisions=store.list_revisions(),
+            revisions=current_store().list_revisions(),
             old_id=old_id,
             new_id=new_id,
         )
 
     @app.route("/changes/discard", methods=["POST"])
     def changes_discard():
-        store.discard_working()
+        current_store().discard_working()
         flash("Working set discarded. The next load starts from an empty graph.", "warning")
         return redirect(url_for("changes"))
 
