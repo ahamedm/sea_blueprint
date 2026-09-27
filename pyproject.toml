@@ -63,6 +63,31 @@ dev = [
     "black>=24.0.0",
     "ruff>=0.5.0",
     "mypy>=1.10.0",
+    # Container-backed tests for the Valkey run journal and, later, PostgreSQL.
+    # They SKIP when this or Docker is absent, so the default suite stays runnable.
+    "testcontainers[redis]>=4.0",
+]
+
+# The system of record. SQLite is in the standard library, so this extra only adds
+# the portability layer: `SQLAlchemy Core` is what makes the PostgreSQL/MariaDB step
+# a URL change rather than a rewrite. Core, not the ORM — the ORM hydrated 4.00x raw
+# against 1.77x for Core on this workload (`scripts/bench_store_backends.py`).
+sor-sql = [
+    "sqlalchemy>=2.0",
+]
+
+# The PostgreSQL/MariaDB target itself. MariaDB is reached through the psycopg
+# dialect only if it speaks the PostgreSQL wire protocol; otherwise add the MySQL
+# dialect alongside. Install when migrating off SQLite.
+sor-postgres = [
+    "psycopg[binary]>=3.1",
+]
+
+# The run journal: agents publish minimal status events to a Valkey Stream and the
+# web app tails it. `redis` is the client for both Redis and Valkey wire protocols;
+# `core/events.py` accepts either and imports neither unless you use the journal.
+valkey = [
+    "redis>=5.0",
 ]
 
 [project.scripts]
