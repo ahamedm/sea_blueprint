@@ -3,7 +3,7 @@
 
 Open work only. Each item is one file under `docs/todos/entries/` — that file is the source of truth and this index is generated from it.
 
-**26 active · 1 parked · 2 superseded · 29 closed records**
+**27 active · 1 parked · 2 superseded · 29 closed records**
 
 | Where | What |
 |---|---|
@@ -38,6 +38,7 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [YB-046](docs/todos/entries/YB-046-branching-and-promotion.md) | Branching and guarded promotion — two architects on one initiative, and the merge between them | open | `core/knowledge/store.py`, `core/knowledge/model.py`, `core/knowledge/review.py`, `core/knowledge/ingest.py` |
 | [YB-051](docs/todos/entries/YB-051-connections-dropped-at-ingest.md) | Connections are extracted and then discarded — the graph has no C4 arrows | in-progress | `core/knowledge/ingest.py` (does not read `connections`), `app/viewpoints/merged.py` (kind registry), tests |
 | [YB-052](docs/todos/entries/YB-052-reflexive-and-duplicate-extraction.md) | Reflexive `part_of` and concepts extracted twice — the two defects the C4 view found | open | `agents/architecture_extraction/` (triples/connections passes), `core/knowledge/ingest.py` (reflexive guard), `core/knowledge/review.py` (bulk-verify guard), tests |
+| [YB-053](docs/todos/entries/YB-053-category-elements-and-duplicate-system.md) | Category-word elements and one system named twice — the two content defects left in the C4 model | open | `agents/architecture_extraction/passes.py` (structure rules), `agents/extraction/validators.py` (a name validator), `core/knowledge/ingest.py` (`_resolve` identity) |
 
 ## Medium
 

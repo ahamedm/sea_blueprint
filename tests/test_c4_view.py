@@ -576,3 +576,29 @@ def test_every_page_loads_mermaid_only_on_the_c4_view(seeded_client):
 
     assert b"mermaid.min.js" in c4_page
     assert b"mermaid.min.js" not in map_page
+
+
+def test_a_complete_run_is_not_reported_as_a_gap(arch_graph):
+    """A gap list is only useful if everything in it is a gap.
+
+    This fired for any run set at all, so a scope whose every run was COMPLETE still
+    carried a gap reading "0 of 1 run(s) not COMPLETE". The scorecard caught it on a
+    clean requirements-only scope, where it was the only entry in "what this view
+    cannot represent".
+    """
+    next(iter(arch_graph.runs.values())).completeness = "COMPLETE"
+
+    model = c4.c4_model(arch_graph)
+
+    assert not [g for g in model["gaps"] if g["kind"] == "run-completeness"]
+
+
+def test_an_incomplete_run_is_reported(arch_graph):
+    """The other half: the check still exists, it just has to be true to fire."""
+    run = next(iter(arch_graph.runs.values()))
+    run.completeness = "PARTIAL"
+    model = c4.c4_model(arch_graph)
+
+    gaps = [g for g in model["gaps"] if g["kind"] == "run-completeness"]
+    assert len(gaps) == 1
+    assert "1 of 1" in gaps[0]["label"]

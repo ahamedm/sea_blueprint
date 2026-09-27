@@ -272,3 +272,57 @@ def test_the_merge_does_not_duplicate_an_edge_the_anchor_already_has():
     matches = [t for t in out_triples
                if t.predicate == "uses_technology" and t.object == "REST"]
     assert len(matches) == 1
+
+
+def test_the_repair_reads_the_triples_the_pipeline_actually_hands_it():
+    """THE DEFECT THIS PINS. `merge_triples` returns DICTS (`t.model_dump()`), and
+    `validators` and `core.knowledge.ingest` both read them with `.get(...)`. These
+    repair steps assumed the Pydantic objects that come straight off a pass, so
+    `t.subject` raised `'dict' object has no attribute 'subject'`.
+
+    The cost was not a wrong answer. It was a whole run: a DeepSeek extraction
+    finished 12/12 passes, 183 triples, 32 elements and 22 connections in 167s and
+    then threw all of it away in the merge, because the document yields both triples
+    and an unplaced element — which is every real architecture document. The local 4B
+    model never produced a connection, so nothing had ever exercised this path.
+    """
+    elements = [
+        {"name": "Payment Gateway Platform", "element_type": "SoftwareSystem",
+         "system_class": "BUSINESS_TECHNOLOGY_PLATFORM"},
+        {"name": "Microservices", "element_type": "Container",
+         "parent": "Payment Gateway Platform"},
+        {"name": "Settlement Container", "element_type": "Container", "parent": ""},
+    ]
+    triples = [
+        {"subject": "Microservices", "predicate": "connects_to", "object": "Valkey"},
+        {"subject": "Settlement Container", "predicate": "part_of",
+         "object": "Payment Gateway Platform"},
+    ]
+
+    _elements_out, _styles, moved, style_flags = merge_style_elements(
+        elements, [{"name": "Microservices", "style": "MICROSERVICES"}], triples)
+    assert [f.kind for f in style_flags] == ["style_element_merged"]
+    # Rewritten in the shape it arrived in: a dict pipeline stays a dict pipeline.
+    assert all(isinstance(t, dict) for t in moved)
+    assert moved[0]["subject"] == "Payment Gateway Platform"
+
+    _elements_out, repaired, repair_flags = repair_containment(
+        [dict(e) for e in elements if e["name"] != "Microservices"], moved)
+    assert all(isinstance(t, dict) for t in repaired)
+    assert repair_flags  # the unplaced container was attached
+
+
+def test_the_repair_still_accepts_the_objects_off_a_pass():
+    """Tolerant, not converted: repair is called directly by tests and by any caller
+    holding raw pass output, so the object shape must keep working."""
+    elements = [
+        {"name": "Payment Gateway Platform", "element_type": "SoftwareSystem",
+         "system_class": "BUSINESS_TECHNOLOGY_PLATFORM"},
+        {"name": "Loose Container", "element_type": "Container", "parent": ""},
+    ]
+    triples = [ExtractedTriple(subject="A", predicate="connects_to", object="B")]
+
+    _elements_out, repaired, flags = repair_containment(elements, triples)
+
+    assert isinstance(repaired[0], ExtractedTriple)
+    assert flags

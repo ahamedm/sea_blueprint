@@ -145,11 +145,19 @@ def _slug(text: str, fallback: str = "element") -> str:
 
 
 def _identifiers(elements: List[Dict[str, Any]]) -> Dict[str, str]:
-    """One unique identifier per element, stable across runs.
+    """One unique identifier per element, stable across runs and readable.
 
-    A collision is resolved with a suffix taken from the node id, not from iteration
-    order, so the same graph always emits the same identifiers — which is what makes
-    the text diffable at all.
+    A collision means two elements share a label — usually the same system named once
+    by the requirements profile and once by the architecture profile. The suffix is
+    the element's KIND, which distinguishes them meaningfully: a reader of the emitted
+    DSL sees `payment_gateway_platform_platform` and
+    `payment_gateway_platform_softwaresystem` and knows which is which.
+
+    It used to be the last six characters of the node id, which produced
+    `payment_gateway_platform_atform` — a fragment of the word "platform" that tells a
+    reader nothing and looks like corruption. Stability is preserved either way,
+    because both the kind and the id are properties of the graph rather than of
+    iteration order.
     """
     out: Dict[str, str] = {}
     taken: Dict[str, int] = {}
@@ -158,7 +166,7 @@ def _identifiers(elements: List[Dict[str, Any]]) -> Dict[str, str]:
         candidate = base
         if candidate in out.values():
             taken[base] = taken.get(base, 0) + 1
-            candidate = f"{base}_{_slug(element['id'][-6:], 'x')}"
+            candidate = f"{base}_{_slug(element['kind'], 'x')}"
         while candidate in out.values():
             taken[base] = taken.get(base, 0) + 1
             candidate = f"{base}_{taken[base]}"
@@ -259,8 +267,17 @@ def c4_model(graph: Any) -> Dict[str, Any]:
                                             e["label"]), default=None)
 
     # ---- boundaries ----
+    #
+    # Only elements that MUST be contained are reported. A SoftwareSystem, an
+    # ExternalSystem or a Person is legitimately top-level in C4 — an external party
+    # is drawn outside the boundary on purpose, which is what the boundary is for — so
+    # reporting Elavon and Mastercard as "no parent to draw it inside" was a gap that
+    # was not a gap, in the one list whose whole purpose is that everything in it is
+    # one. It also inflated the count that made the graph look worse than it was.
+    # A container/component/code with no parent is a real hole; `nesting` reports the
+    # same set, and a rule belongs in one place.
     for element in sorted(elements.values(), key=lambda e: e["label"]):
-        if element["parent"] in elements:
+        if element["parent"] in elements or element["level"] == "context":
             continue
         if system is not None and element["id"] != system["id"]:
             gaps.append({
@@ -279,7 +296,12 @@ def c4_model(graph: Any) -> Dict[str, Any]:
     # form, kept as a fallback so a graph written before Connection nodes existed still
     # draws its arrows.
     pairs: Dict[Tuple[str, str], Dict[str, Any]] = {}
-    dangling: List[str] = []
+    # Keyed by the endpoint PAIR, not appended per representation. The graph holds a
+    # connection twice — the `Connection` node with its protocol, and the bare
+    # `connects_to` edge the pass also emits (YB-051's open question) — so the same
+    # missing arrow was reported once for each form and the count was double what the
+    # document lost. A measurement that overstates is no better than one that hides.
+    dangling: Dict[Tuple[Optional[str], Optional[str]], str] = {}
     # A `Connection` node is a relationship, not an element: it carries the protocol
     # and style a C4 arrow is annotated with, and it has no level and belongs in no
     # boundary. So it is read from the records rather than from `elements`, and it is
@@ -288,8 +310,8 @@ def c4_model(graph: Any) -> Dict[str, Any]:
         if record["kind"] != "Connection":
             continue
         node_facts = facts.get(record["id"], {})
-        endpoints = _connection_endpoints(graph, record["id"], elements)
-        if endpoints is None:
+        source_id, target_id = _connection_endpoints(graph, record["id"])
+        if source_id not in elements or target_id not in elements:
             gaps.append({
                 "kind": "dangling-connection",
                 "id": record["id"],
@@ -297,9 +319,8 @@ def c4_model(graph: Any) -> Dict[str, Any]:
                 "detail": ("a connection names an endpoint that is not a C4 element, "
                            "so there is nothing to draw it between"),
             })
-            dangling.append(record["label"])
+            dangling[(source_id, target_id)] = record["label"]
             continue
-        source_id, target_id = endpoints
         pairs[(source_id, target_id)] = {
             "source": source_id,
             "target": target_id,
@@ -314,9 +335,10 @@ def c4_model(graph: Any) -> Dict[str, Any]:
         if assertion.predicate not in _CONNECTION_PREDICATES:
             continue
         if assertion.subject not in elements or assertion.object not in elements:
-            dangling.append(
+            dangling.setdefault(
+                (assertion.subject, assertion.object),
                 f'{_endpoint_label(records, assertion.subject)} → '
-                f'{_endpoint_label(records, assertion.object)}'
+                f'{_endpoint_label(records, assertion.object)}',
             )
             continue
         pairs.setdefault((assertion.subject, assertion.object), {
@@ -348,7 +370,11 @@ def c4_model(graph: Any) -> Dict[str, Any]:
 
     runs = getattr(graph, "runs", {}) or {}
     partial = [r for r in runs.values() if getattr(r, "completeness", "") != "COMPLETE"]
-    if runs:
+    # Only when there IS something incomplete. This used to fire for any run set at
+    # all, so a scope whose runs were all COMPLETE still carried a gap reading
+    # "0 of 1 run(s) not COMPLETE" — a gap that is not a gap, in the one list whose
+    # whole purpose is that everything in it is one.
+    if partial:
         gaps.append({
             "kind": "run-completeness",
             "label": f"{len(partial)} of {len(runs)} run(s) not COMPLETE",
@@ -394,7 +420,7 @@ def c4_model(graph: Any) -> Dict[str, Any]:
         element["parent_label"] = parent["label"] if parent else ""
 
     relationships = [pairs[pair] for pair in sorted(pairs)]
-    checks = _well_formed(elements, relationships, dangling, system)
+    checks = _well_formed(elements, relationships, list(dangling.values()), system)
     return {
         "system": system,
         "elements": ordered,
@@ -416,9 +442,13 @@ def c4_model(graph: Any) -> Dict[str, Any]:
     }
 
 
-def _connection_endpoints(
-    graph: Any, connection_id: str, elements: Dict[str, Dict[str, Any]]
-) -> Optional[Tuple[str, str]]:
+def _connection_endpoints(graph: Any, connection_id: str) -> Tuple[Optional[str], Optional[str]]:
+    """The ids a `Connection` node names, whether or not they resolved to elements.
+
+    Returns the ids rather than a pass/fail, because the caller needs to report WHICH
+    endpoint is missing — and needs the pair as a key, so the same missing connection
+    is not counted twice when the graph also holds it as a bare edge.
+    """
     source = target = None
     for assertion in graph.active():
         if assertion.subject != connection_id:
@@ -427,9 +457,7 @@ def _connection_endpoints(
             source = assertion.object
         elif assertion.predicate == "target":
             target = assertion.object
-    if source in elements and target in elements:
-        return source, target
-    return None
+    return source, target
 
 
 def _endpoint_label(records: Dict[str, Dict[str, Any]], node_id: Optional[str]) -> str:

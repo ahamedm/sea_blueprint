@@ -369,7 +369,19 @@ Rules:
 3. Emit both the `connections` record and the matching
    `<source> --connects_to--> <target>` triple.
 4. Use only the listed protocol and style values. Leave a field empty rather than
-   inventing a term.""",
+   inventing a term.
+5. BOTH ENDPOINTS MUST BE A NAMED ELEMENT: a Container, Component, DataStore,
+   ExternalSystem or SoftwareSystem that the document names — use the SAME concrete
+   name the structure pass uses ("Valkey", not "Cache"; "PostgreSQL", not
+   "Database"; "Elavon", not "External Services").
+6. These are NOT connection endpoints, and a connection that names one cannot be
+   drawn: an architecture style or pattern ("Microservices", "Event-Driven"), a
+   quality attribute ("High Availability"), a design technique ("Performance
+   Monitoring"), a category word ("Database", "Cache", "Services", "Critical
+   Components"), or a group of things ("External Services", "External PGSP/PSP").
+   If the excerpt names no specific pair of elements, emit an EMPTY list — an empty
+   answer is a real answer, and a connection between two things the architecture
+   does not declare is a fact about nothing.""",
 )
 
 

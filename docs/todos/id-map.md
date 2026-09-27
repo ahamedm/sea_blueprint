@@ -74,3 +74,4 @@
 | None | Artifact retention and quota — the document store grows without a bound nobody chose | [YB-050](entries/YB-050-artifact-retention-and-quota.md) | entry (open) |
 | None | Connections are extracted and then discarded — the graph has no C4 arrows | [YB-051](entries/YB-051-connections-dropped-at-ingest.md) | entry (in-progress) |
 | None | Reflexive `part_of` and concepts extracted twice — the two defects the C4 view found | [YB-052](entries/YB-052-reflexive-and-duplicate-extraction.md) | entry (open) |
+| None | Category-word elements and one system named twice — the two content defects left in the C4 model | [YB-053](entries/YB-053-category-elements-and-duplicate-system.md) | entry (open) |

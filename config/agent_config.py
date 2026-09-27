@@ -343,11 +343,24 @@ def get_default_agent_config(agent_name: str) -> Dict[str, Any]:
         # differs: sending a llama.cpp dummy to a paid endpoint fails auth, and
         # sending a paid key to a local server is a secret on the wire for nothing.
         model_provider = "openai_compatible"
-        model_id = env_config.local_model_id or "local-model"
         local = endpoint_is_local(base_url)
+        # WHICH MODEL ID BELONGS TO WHICH ENDPOINT. This used to read
+        # `local_model_id` for *any* base URL, so pointing at a hosted service while
+        # `LOCAL_MODEL_ID` still named a llama.cpp GGUF sent that name to the paid
+        # API — every call answered "The supported API model names are … but you
+        # passed unsloth/Qwen3.5-4B-GGUF:Q4_K_M". The two variables describe two
+        # different servers; a single base URL is not evidence of which one it is,
+        # so the endpoint's locality decides. LOCAL_MODEL_ID stays the authority for
+        # a LAN endpoint (a hosted id there would be equally wrong), and
+        # DEFAULT_MODEL_ID for a hosted one.
+        if local:
+            model_id = env_config.local_model_id or env_config.default_model_id or "local-model"
+        else:
+            model_id = env_config.default_model_id or env_config.local_model_id or "local-model"
         api_key, key_source = choose_api_key(base_url, env_config)
         label = "local inference server" if local else "hosted endpoint"
         console.log(f"[green]✓ Using {label}:[/green] {base_url}")
+        console.log(f"[dim]  model: {model_id}[/dim]")
         # Name the credential's SOURCE, never the credential. A 401 is answered by
         # knowing which key was sent, and the previous silent inference is how a LAN
         # endpoint ended up carrying the paid key.

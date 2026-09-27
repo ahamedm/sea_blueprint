@@ -80,11 +80,30 @@ def system_under_design(elements: Sequence[Dict[str, Any]]) -> str:
     return ""
 
 
+def _field(triple: Any, name: str, default: Any = None) -> Any:
+    """One field of a triple, whether it arrives as a dict or a model object.
+
+    `merge_triples` returns **dicts** (`t.model_dump()`), and `validators` and
+    `core.knowledge.ingest` both read them with `.get(...)`. This module assumed the
+    Pydantic objects that come straight off a pass, so as soon as a document yielded
+    both triples and an unplaced element, `t.predicate` raised
+    `'dict' object has no attribute 'subject'` — AFTER a fully successful extraction,
+    which threw the whole run away.
+
+    Tolerant rather than "convert everything to dicts", because repair is also called
+    directly by tests and by any caller holding pass output. The pipeline's convention
+    is dicts; this reads either.
+    """
+    if isinstance(triple, dict):
+        return triple.get(name, default)
+    return getattr(triple, name, default)
+
+
 def _has_part_of(triples: Sequence[Any], child: str, parent: str) -> bool:
     for t in triples:
-        if (t.predicate == "part_of"
-                and str(t.subject).strip() == child
-                and str(getattr(t, "object", "") or "").strip() == parent):
+        if (_field(t, "predicate") == "part_of"
+                and str(_field(t, "subject")).strip() == child
+                and str(_field(t, "object", "") or "").strip() == parent):
             return True
     return False
 
@@ -222,7 +241,7 @@ def merge_style_elements(
     known = {str(s.get("name") or "") for s in styles}
     for name, hit in doomed.items():
         moved = sum(1 for t in triples
-                    if t.subject == name or getattr(t, "object", None) == name)
+                    if _field(t, "subject") == name or _field(t, "object") == name)
         if name not in known:
             styles.append({"name": name, "style": hit, "adopted_by": [anchor]})
             known.add(name)
@@ -237,23 +256,26 @@ def merge_style_elements(
     out: List[Any] = []
     seen = set()
     for t in triples:
-        subject, obj = t.subject, getattr(t, "object", None)
+        subject, obj = _field(t, "subject"), _field(t, "object")
         changed = False
 
         if subject in doomed:
-            if t.predicate == "part_of" and obj == anchor:
+            if _field(t, "predicate") == "part_of" and obj == anchor:
                 # The style element's own containment: its parent is the anchor, so
                 # merging would produce `PGP --part_of--> PGP`, which is not a fact.
                 continue
             subject, changed = anchor, True
 
-        if obj in doomed and t.predicate not in _VOCABULARY_OBJECT_PREDICATES:
+        if obj in doomed and _field(t, "predicate") not in _VOCABULARY_OBJECT_PREDICATES:
             obj, changed = anchor, True
 
         if changed:
-            t = t.model_copy(update={"subject": subject, "object": obj})
+            # Rewritten in the shape it arrived in. Returning a different type than
+            # the caller passed is how a dict pipeline ends up holding half models.
+            t = ({**t, "subject": subject, "object": obj} if isinstance(t, dict)
+                 else t.model_copy(update={"subject": subject, "object": obj}))
 
-        key = (t.subject, t.predicate, t.object)
+        key = (_field(t, "subject"), _field(t, "predicate"), _field(t, "object"))
         if key in seen:
             continue
         seen.add(key)

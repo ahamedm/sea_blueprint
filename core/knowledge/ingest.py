@@ -52,8 +52,25 @@ CONTAINMENT_PREDICATES = frozenset({"part_of", "belongs_to", "composed_of"})
 
 
 def _run_id(document_ref: str, document_text: str, model_id: str) -> str:
+    """A run id, unique per call and not merely per second.
+
+    `utc_now()` has SECOND resolution, so hashing it made two runs started within the
+    same second share an identifier. That is not cosmetic: `graph.runs` is keyed by
+    run id, so ingesting two documents in the same second made the second run's
+    `ExtractionRun` silently overwrite the first — losing its completeness verdict and
+    its per-pass outcomes, which is what `/c4`'s `run-completeness` gap and the run
+    page both read. The live journal prefixes every event with the same value, so two
+    concurrent runs also interleaved into one stream.
+
+    `new_revision_id` next door already carried a `uuid4` suffix with the docstring
+    "does not collide within a second". This is the same fix for the same reason; the
+    time component is kept because a readable creation stamp in a log is worth having,
+    and the uuid is what actually makes it unique.
+    """
     import hashlib
-    raw = f"{document_ref}|{len(document_text)}|{model_id}|{utc_now()}"
+    import uuid
+
+    raw = f"{document_ref}|{len(document_text)}|{model_id}|{utc_now()}|{uuid.uuid4().hex}"
     return "run_" + hashlib.sha1(raw.encode()).hexdigest()[:12]
 
 

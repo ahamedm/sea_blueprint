@@ -134,3 +134,36 @@ def test_a_run_with_no_sink_still_produces_its_record():
     # No caller-minted id, so ingest mints one — and it is still a usable run.
     assert run.id.startswith("run_")
     assert run.completeness
+
+
+def test_two_runs_started_in_the_same_second_get_different_ids():
+    """The id is the KEY of `graph.runs`, so a collision is a silent overwrite.
+
+    `new_run_id` hashed `utc_now()`, which has second resolution — so minting two ids
+    in one second returned the same string, and ingesting two documents back to back
+    made the second run's `ExtractionRun` replace the first. That loses the first run's
+    completeness and per-pass outcomes, which is what `/c4`'s run-completeness gap and
+    the run page read. `new_revision_id` beside it already added a uuid4 for exactly
+    this reason; this asserts the run id does too.
+    """
+    from core.knowledge.ingest import new_run_id
+
+    ids = [new_run_id() for _ in range(200)]
+
+    assert len(set(ids)) == len(ids)
+    assert all(i.startswith("run_") for i in ids)
+
+
+def test_two_runs_in_one_second_keep_both_records():
+    """The consequence, stated as behaviour rather than as an id property."""
+    from core.knowledge.ingest import new_run_id
+
+    first, second = new_run_id(), new_run_id()
+    graph = {}
+    for run_id in (first, second):
+        _, run = graph_from_extraction(_agent().run(
+            {"document": DOCUMENT, "document_type": "architecture"}).output,
+            {"run_id": run_id}, document_ref="doc.md", document_text=DOCUMENT)
+        graph[run.id] = run
+
+    assert set(graph) == {first, second}
