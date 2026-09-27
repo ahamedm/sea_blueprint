@@ -47,6 +47,7 @@ yeah_blueprint/
 ├── docs/                        # Documentation
 ├── pyproject.toml              # Python project configuration
 ├── .env.example                # Environment variables template
+├── workspace.yaml.example      # Workspace / scope manifest template
 └── README.md                   # This file
 ```
 
@@ -87,6 +88,20 @@ yeah_blueprint/
    - `ANTHROPIC_API_KEY` - For Claude models (recommended)
    - `OPENAI_API_KEY` - For GPT models (optional)
    - `DEEPEVAL_API_KEY` - For evaluation metrics
+
+5. **Configure the workspace (optional):**
+   ```bash
+   cp workspace.yaml.example data/my_workspace/workspace.yaml
+   # then set SEA_DATA_DIR=data/my_workspace in .env
+   ```
+
+   A directory with no `workspace.yaml` already works — it is read as a workspace
+   with one scope whose store is that directory. The manifest is needed to declare
+   **more than one system (scope)** in one deployment, or a **SQLite** scope, which
+   is the only backend that can run work in the background (`sea-worker` refuses a
+   file-backed scope, because the file store cannot refuse a stale write).
+   `workspace.yaml.example` documents every key, how `path` resolves, what lands on
+   disk, and which manifest mistakes are rejected.
 
 ---
 

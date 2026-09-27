@@ -265,7 +265,7 @@ def load_workspace(root: str | Path) -> Workspace:
     if duplicates:
         raise WorkspaceError(f"{manifest} declares duplicate scope ids: {sorted(duplicates)}")
 
-    return Workspace(
+    workspace = Workspace(
         workspace_id=str(data.get("workspace_id") or root.name),
         name=str(data.get("name") or data.get("workspace_id") or root.name),
         root=root,
@@ -273,3 +273,37 @@ def load_workspace(root: str | Path) -> Workspace:
         brief=str(data.get("brief") or ""),
         ontology_dir=str(data.get("ontology_dir") or "ontology"),
     )
+
+    # A sqlite scope's `path` names a FILE STEM — the database is `<path>.sqlite`.
+    # `path: "."` names a directory, and resolution then lands the database BESIDE
+    # the workspace (`<root>.sqlite`, a sibling of `<root>/`) while `scope_data_dir`
+    # resolves back to the workspace root itself. Nothing crashed and nothing warned,
+    # which is the problem: the graph and its artifacts end up outside the directory
+    # the operator backs up, `.gitignore`s and deletes. Rejected here, with the
+    # manifest named, because a copied line from a file-backed scope plus one changed
+    # word is exactly how it happens.
+    for scope in workspace.scopes:
+        if scope.backend == BACKEND_SQLITE and scope.path:
+            stem = Path(scope.path).name
+            if stem in ("", ".", ".."):
+                raise WorkspaceError(
+                    f"{manifest} scope {scope.scope_id!r} is {BACKEND_SQLITE} with "
+                    f"path={scope.path!r}, which names no file to append '.sqlite' to. "
+                    f"A sqlite scope needs a stem (`async`, `pillar01`); `path: '.'` "
+                    f"belongs to the {BACKEND_FILE} backend, which stores IN that "
+                    f"directory instead of beside it."
+                )
+
+    # Then resolve every scope's store path here, while there is a manifest to blame:
+    # `paths()` derives the sqlite filename itself, and an unresolvable one should
+    # surface as a config error rather than from whichever store opened first.
+    for scope in workspace.scopes:
+        try:
+            workspace.paths(scope)
+        except Exception as exc:  # noqa: BLE001 - re-raised with the manifest named
+            raise WorkspaceError(
+                f"{manifest} scope {scope.scope_id!r} cannot resolve its "
+                f"{scope.backend} store path from path={scope.path!r}: {exc}"
+            ) from exc
+
+    return workspace

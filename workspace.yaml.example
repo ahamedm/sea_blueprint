@@ -1,0 +1,191 @@
+# ============================================================================
+# SEA Platform — Workspace manifest
+# ============================================================================
+# Copy this file to the root of a workspace as `workspace.yaml`:
+#
+#     mkdir -p data/my_workspace
+#     cp workspace.yaml.example data/my_workspace/workspace.yaml
+#
+# and point the app at that directory in .env:
+#
+#     SEA_DATA_DIR=data/my_workspace
+#
+# ----------------------------------------------------------------------------
+# THE FILE IS OPTIONAL, AND THAT IS A FEATURE
+# ----------------------------------------------------------------------------
+# A directory with no `workspace.yaml` is read as a workspace with ONE scope whose
+# store IS the directory — `path: "."`. That is how every store predating this
+# file keeps working untouched. Write a manifest only when you need what it adds:
+#
+#   * more than one system (scope) in one deployment, or
+#   * a SQLite-backed scope, which is the only kind that can run work in the
+#     background (see `backend` below), or
+#   * a per-workspace ontology directory or enterprise brief.
+#
+# ----------------------------------------------------------------------------
+# A SCOPE IS THE UNIT OF ISOLATION
+# ----------------------------------------------------------------------------
+# One scope is one system or product: its own graph, its own baseline, its own
+# review queue, its own revision history. Node identity is the LABEL, so two
+# systems that each contain a "Database" would collapse into one node if they
+# shared a store. The scope's store is what prevents that, which is why the
+# backend is chosen per scope rather than per deployment.
+# ============================================================================
+
+# Identifier for the workspace itself. Defaults to the directory name.
+workspace_id: my_workspace
+
+# Display name. Shown in the UI's scope switcher.
+name: My Workspace
+
+# The enterprise one-pager, as a path relative to the workspace root.
+# Grounding for the agents — who the organisation is, what it sells, which
+# systems exist, who owns them. This is NOT the policy register and NOT the
+# ontology. Empty is fine: the agents then work from the ontology alone.
+brief: ""
+
+# Where the vocabulary lives, relative to the workspace root.
+# Workspace-level rather than per-scope because the ontology is shared: two
+# systems in one enterprise are described with one vocabulary, and a per-scope
+# copy is how the same concept acquires two names.
+ontology_dir: ontology
+
+# ----------------------------------------------------------------------------
+# SCOPES — at least one is REQUIRED if this file exists
+# ----------------------------------------------------------------------------
+# A manifest that declares no scopes is an error rather than an empty workspace:
+# "a workspace with no scope has nothing to open". Omit the file entirely if you
+# want the single-scope default.
+#
+# Each scope takes:
+#
+#   scope_id      REQUIRED. Stable identifier. Used in URLs (/scope/<id>),
+#                 as the session's scope key, and as the directory name when
+#                 `path` is not given. Never renumber or reuse one.
+#
+#   name          Display name for the scope switcher. Defaults to scope_id.
+#
+#   kind          "system" (default) or "product".
+#
+#   backend       "file" (default) or "sqlite".  <-- READ THE NOTE BELOW
+#
+#   path          Optional store location override. Relative paths resolve
+#                 against the workspace root; absolute paths are used as given.
+#                 Omitted, a scope lives in <root>/scopes/<scope_id>/.
+#
+#   baseline_ref  Optional. The central baseline this scope's work started from,
+#                 for a scope promoted from another workspace.
+#
+# ----------------------------------------------------------------------------
+# backend: file vs sqlite — this is the one that changes what you can DO
+# ----------------------------------------------------------------------------
+# file    Today's layout: a directory of JSON (working set, revisions, drafts).
+#         Atomic per file, but with no lock and no version token, so TWO writers
+#         cannot be reconciled — a stale write is silently a lost update.
+#
+# sqlite  Version-guarded (`BEGIN IMMEDIATE`), so a write that lost the race is
+#         REFUSED rather than applied. This is the only backend `sea-worker` will
+#         run: a background job re-reads the working set and applies under the
+#         version it read, and a backend that cannot refuse a stale version would
+#         let the worker clobber a reviewer's edit.
+#
+# So: a file-backed scope runs ingestion INSIDE the web request, and
+# `uv run sea-worker` skips it with a warning. If you want background runs,
+# scheduled or event-driven work, the scope must be sqlite.
+#
+# ----------------------------------------------------------------------------
+# HOW `path` RESOLVES — the subtlest key here
+# ----------------------------------------------------------------------------
+# For a file scope, `path` IS the store directory:
+#     path: .          the workspace root itself (the single-scope layout)
+#     path: default    <root>/default/
+#
+# For a sqlite scope, the database is `<path>.sqlite` and side-car state
+# (artifacts, the job store) lives in a directory named after it:
+#     path: async      <root>/async.sqlite + <root>/async/
+#
+# Two consequences worth knowing before you pick a value:
+#
+#   1. The LAST dot-suffix is replaced, not appended: `path: my.scope` produces
+#      `my.sqlite`. Keep scope paths dot-free — `pillar01`, `async`, `payments`.
+#
+#   2. `path: "."` is NOT valid for sqlite, and the reason is worth stating
+#      because nothing about it looks wrong. It names a directory, so there is no
+#      stem to append ".sqlite" to; resolution walks up and lands the database
+#      BESIDE the workspace — `<root>.sqlite`, a sibling of `<root>/` — while the
+#      artifacts and job store resolve back to the workspace root itself. The
+#      graph, its input bytes and its queue then sit outside the directory you
+#      back up, .gitignore and delete, and nothing warns. A manifest saying so is
+#      REJECTED at load: `path: "."` belongs to the file backend, which stores IN
+#      that directory instead of beside it.
+# ============================================================================
+
+scopes:
+  # --------------------------------------------------------------------------
+  # The pre-existing store, unchanged. `path: "."` is what keeps it reading the
+  # working.json, revisions/ and drafts/ already sitting in this directory; a
+  # scope with no path would look in scopes/default/ instead and appear EMPTY.
+  # --------------------------------------------------------------------------
+  - scope_id: default
+    name: Current (file)
+    kind: system
+    backend: file
+    path: .
+
+  # --------------------------------------------------------------------------
+  # A second scope on SQLite, which is where background work can run. Two scopes
+  # in one deployment is the intended shape, not a workaround: an enterprise
+  # works on many systems, and the file-backed one stays readable while the new
+  # one carries the async pipeline.
+  # --------------------------------------------------------------------------
+  - scope_id: async
+    name: Async (SQLite)
+    kind: system
+    backend: sqlite
+    path: async
+
+  # --------------------------------------------------------------------------
+  # Minimal form: everything except `scope_id` has a default, so this is a valid
+  # scope — no name, a "system", file-backed, living in <root>/scopes/payments/.
+  # Path is DERIVED here rather than written, which is why it is omitted.
+  # --------------------------------------------------------------------------
+  # - scope_id: payments
+
+  # --------------------------------------------------------------------------
+  # A scope carrying its baseline from elsewhere (branching and promotion).
+  # --------------------------------------------------------------------------
+  # - scope_id: payments_v2
+  #   name: Payments (promoted)
+  #   kind: product
+  #   backend: sqlite
+  #   path: payments_v2
+  #   baseline_ref: baseline_2026_09
+
+# ----------------------------------------------------------------------------
+# WHAT LANDS ON DISK — so you know what to back up
+# ----------------------------------------------------------------------------
+# file scope,   path: .        ->  <root>/working.json, revisions/, drafts/,
+#                                  index.json
+# file scope,   no path        ->  <root>/scopes/<scope_id>/  (same files)
+# sqlite scope, path: async    ->  <root>/async.sqlite  (+ -wal, -shm)
+#                                  <root>/async/artifacts/     input bytes,
+#                                  <root>/async/jobs.sqlite     the work queue
+#                                  <root>/scopes/async/         design drafts
+#
+# A SQLite store is three files while the app is running — `.sqlite`, `-wal` and
+# `-shm`. Copy all three together or copy none; a database copied without its WAL
+# is silently missing the most recent writes.
+#
+# ----------------------------------------------------------------------------
+# ERRORS THIS FILE CAN RAISE, AND WHAT THEY MEAN
+# ----------------------------------------------------------------------------
+#   "is not valid YAML"              indentation, usually a tab
+#   "must contain a mapping"         the file is a list or a scalar
+#   "declares no scopes"             `scopes:` is present but empty
+#   "scope #N needs a `scope_id`"    a list entry without one
+#   "names backend 'x'"              not "file" or "sqlite"
+#   "declares duplicate scope ids"   two scopes with the same scope_id
+#   "cannot resolve its sqlite store path"   e.g. `backend: sqlite` + `path: "."`
+#
+# All of these are reported at load, before a store is opened, so a typo fails
+# with an explanation rather than as a missing-data surprise later.

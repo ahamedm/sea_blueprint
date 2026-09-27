@@ -215,3 +215,58 @@ def test_importing_the_workspace_module_does_not_require_sqlalchemy():
         and "store_sql" in ast.dump(node)
     ]
     assert top_level == [], "the SQL backend must be imported lazily"
+
+
+def test_a_sqlite_scope_cannot_be_pointed_at_the_workspace_directory(tmp_path):
+    """THE DEFECT. `path: "."` names a directory, so there is no stem to append
+    `.sqlite` to and resolution walks up: the database lands BESIDE the workspace
+    (`<root>.sqlite`, a sibling of `<root>/`) while `scope_data_dir` resolves back to
+    the workspace root itself. Nothing crashed and nothing warned — the graph, its
+    input bytes and its job queue simply sat outside the directory an operator backs
+    up, .gitignore's and deletes.
+
+    It is the likeliest manifest typo there is: copy a file-backed scope's line and
+    change one word. So it is refused, with the manifest named.
+    """
+    root = _manifest(tmp_path / "ws", "scopes:\n  - {scope_id: a, backend: sqlite, path: '.'}\n")
+
+    with pytest.raises(WorkspaceError) as raised:
+        load_workspace(root)
+
+    assert "path='.'" in str(raised.value)
+    assert "sqlite" in str(raised.value)
+
+
+def test_a_sqlite_scope_needs_a_stem_not_a_directory(tmp_path):
+    """The same rule stated as the property, not as one example."""
+    for bad in (".", ".."):
+        root = _manifest(tmp_path / f"bad_{bad.strip('.') or 'dot'}",
+                         f"scopes:\n  - {{scope_id: a, backend: sqlite, path: '{bad}'}}\n")
+        with pytest.raises(WorkspaceError):
+            load_workspace(root)
+
+    # And the shapes that ARE a stem keep working, including a derived one.
+    ok = _manifest(tmp_path / "ok", "scopes:\n  - {scope_id: a, backend: sqlite, path: async}\n")
+    assert load_workspace(ok).scope_ids() == ["a"]
+    derived = _manifest(tmp_path / "derived", "scopes:\n  - {scope_id: a, backend: sqlite}\n")
+    assert load_workspace(derived).scope_ids() == ["a"]
+
+
+def test_the_shipped_example_manifest_is_valid_and_loads(tmp_path):
+    """`workspace.yaml.example` is documentation that can rot silently.
+
+    Its active (uncommented) body is the copy-paste default, so it has to parse and
+    produce the two-scope shape it describes — and it must not be a manifest that the
+    loader now rejects.
+    """
+    from pathlib import Path as _Path
+
+    example = _Path(__file__).resolve().parent.parent / "workspace.yaml.example"
+    active = "\n".join(line for line in example.read_text(encoding="utf-8").splitlines()
+                       if not line.lstrip().startswith("#"))
+
+    workspace = load_workspace(_manifest(tmp_path / "example", active))
+
+    assert workspace.scope_ids() == [DEFAULT_SCOPE_ID, "async"]
+    assert workspace.scopes[0].backend == "file"
+    assert workspace.scopes[1].backend == BACKEND_SQLITE
