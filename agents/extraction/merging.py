@@ -43,6 +43,18 @@ def merge_triples(groups: Sequence[Sequence[Any]]) -> List[Dict[str, Any]]:
     For a repeated triple, keeps the maximum confidence and the longest source
     text — the fuller observation is the more useful one, and a chunk boundary
     often truncates whichever copy happened to land there.
+
+    RETURNS PLAIN DICTS, whatever it is handed — that is the contract, and it is the
+    whole reason this layer can be shared between profiles. It is stated HERE because a
+    caller reads the producer, and the return annotation above is easy to read past:
+    `repair_containment` and `merge_style_elements` read `t.subject` off the result and
+    raised `'dict' object has no attribute 'subject'` *after* a fully successful
+    extraction, which discarded 183 triples, 32 elements and 22 connections in one run.
+
+    A profile that needs attributes must re-type at its own boundary — see
+    `agents/knowledge_extraction/agent.py::_as_records`, which does exactly that and is
+    where this convention was documented before it was written down here. `validators`
+    and `core.knowledge.ingest` consume the dicts directly.
     """
     merged: Dict[tuple, Dict[str, Any]] = {}
 
