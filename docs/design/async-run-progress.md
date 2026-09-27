@@ -888,7 +888,9 @@ be read without ambiguity):
    hurt? Whoever runs `scripts/sanity_check.py` should own that reading.
 3. **Job backend.** Not decided here: the design requires only an atomic `claim()`
    and a `concurrency_safe` scope. The concrete backend is a YB-043 coordination
-   point, and the current file-backed install cannot run a worker until it moves.
+   point. The existing file-backed scope cannot run a worker — and
+   [ADR-0028](../decisions/ADR-0028-no-workspace-migration.md) records the decision
+   that it does not need to: MVP validation starts on the fresh SQLite scope.
 4. **Which source is first, and who owns its credentials?** The design commits to
    the adapter protocol and the text-only restriction; the first system
    (Confluence, SharePoint, or a generic API) also decides where its MCP server

@@ -10,7 +10,7 @@ updated: 2026-09-27
 design: docs/design/async-run-progress.md
 record: docs/decisions/ADR-0027-async-run-progress.md
 superseded_by: []
-related: ["YB-020", "YB-023", "YB-024", "YB-025", "YB-033", "YB-035", "ADR-0026", "YB-037", "YB-049", "YB-050"]
+related: ["YB-020", "YB-023", "YB-024", "YB-025", "YB-033", "YB-035", "ADR-0026", "YB-037", "ADR-0028", "YB-050"]
 blocks: []
 blocked_by: []
 ---
@@ -30,8 +30,10 @@ blocked_by: []
 > item's tail is now other items: the source fetch is
 > [YB-033](../entries/YB-033-event-ingress.md), retry/recovery/cancellation and the
 > jobs page are [YB-037](../entries/YB-037-background-workflow-management.md), the
-> file→sqlite migration is [YB-049](../entries/YB-049-workspace-migration-to-sqlite.md),
-> and artifact retention is [YB-050](../entries/YB-050-artifact-retention-and-quota.md).
+> file→sqlite migration was **decided against**
+> ([ADR-0028](../../decisions/ADR-0028-no-workspace-migration.md)) — MVP validation
+> starts on the fresh SQLite scope — and artifact retention is
+> [YB-050](../entries/YB-050-artifact-retention-and-quota.md).
 
 ### Implemented — 2026-09-27
 
@@ -108,8 +110,8 @@ finished one:
 - the **source fetch** (phase 4) — [YB-033](../entries/YB-033-event-ingress.md), whose
   adapters and credentials it always was;
 - **artifact retention and quota** — [YB-050](../entries/YB-050-artifact-retention-and-quota.md);
-- the **file→sqlite migration** that lets the existing graph run in the background —
-  [YB-049](../entries/YB-049-workspace-migration-to-sqlite.md);
+- the **file→sqlite migration** — not required: MVP validation starts afresh on the
+  SQLite scope ([ADR-0028](../../decisions/ADR-0028-no-workspace-migration.md));
 - **retry, recovery, cancellation, idempotency and the jobs page** —
   [YB-037](../entries/YB-037-background-workflow-management.md), which now inherits a
   working substrate instead of building one.

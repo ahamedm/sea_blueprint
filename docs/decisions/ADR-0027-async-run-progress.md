@@ -4,7 +4,7 @@ title: "Asynchronous run progress — the execution substrate, and one view over
 status: accepted
 date: 2026-09-27
 area: "`core/jobs.py` (new), `core/artifacts.py` (new), `core/events.py`, `core/workspace.py`, `app/runner.py` (new), `app/worker.py` (new), `app/__init__.py`, `app/templates/`, `pyproject.toml`"
-related: ["ADR-0026", "YB-037", "YB-033", "YB-049", "YB-050", "ADR-0013", "YB-020", "YB-023"]
+related: ["ADR-0026", "YB-037", "YB-033", "ADR-0028", "YB-050", "ADR-0013", "YB-020", "YB-023"]
 ---
 
 # ADR-0027 — Asynchronous run progress
@@ -56,7 +56,9 @@ One code path executes a run, whether the request or the worker drives it
    write runs in the background; a **file-backed** scope gets no job store and runs the
    work in the request, exactly as before. The worker's apply step re-reads the working
    set and writes under its version token, so a scope that cannot refuse a stale write
-   must not run one. This is why YB-049 (migration) exists.
+   must not run one. A scope therefore has to *be* SQLite before it can run in the
+   background; [ADR-0028](ADR-0028-no-workspace-migration.md) records that no
+   migration is needed for MVP validation.
 5. **Both transports, one view.** Polling is the fallback for installs with no journal;
    SSE is the transport when the journal retains events. Both render
    `partials/run_events.html`, and the server decides from `RunJournal.retains` — so
@@ -107,8 +109,8 @@ exists to protect.
   jobs page. This item built the substrate; YB-037 owns what the states *mean*.
 - **YB-033** — the source fetch (phase 4) and its adapters. A `source` job fails
   legibly today rather than producing a confidently empty graph.
-- **YB-049** — the file→SQLite migration, without which the existing graph cannot run
-  in the background.
+- **ADR-0028** — no workspace migration: MVP validation starts on a fresh SQLite
+  scope, and the existing file-backed graph is left untouched.
 - **YB-050** — artifact retention and quota. The store's `delete()`/`total_bytes()`
   have no caller; nothing deletes anything yet.
 
@@ -139,7 +141,7 @@ killing the worker loop. All are fixed with tests.
 - [YB-037](../todos/entries/YB-037-background-workflow-management.md) — durable
   execution semantics.
 - [YB-033](../todos/entries/YB-033-event-ingress.md) — the unattended producer.
-- [YB-049](../todos/entries/YB-049-workspace-migration-to-sqlite.md) — moving a scope
-  to a store that can guard a write.
+- [ADR-0028](ADR-0028-no-workspace-migration.md) — why no migration is needed, and
+  what would bring the question back.
 - [YB-050](../todos/entries/YB-050-artifact-retention-and-quota.md) — the document
   store's retention.

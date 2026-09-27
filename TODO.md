@@ -3,7 +3,7 @@
 
 Open work only. Each item is one file under `docs/todos/entries/` — that file is the source of truth and this index is generated from it.
 
-**26 active · 1 parked · 2 superseded · 27 closed records**
+**25 active · 1 parked · 2 superseded · 28 closed records**
 
 | Where | What |
 |---|---|
@@ -36,7 +36,6 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [YB-044](docs/todos/entries/YB-044-platform-instances.md) | Platform instances and deployment topology — one platform type, many instances, each with a sharing scope | open | `ontology/architecture_base.yaml` (DeploymentNode, sharing scope), `agents/architecture_extraction/passes.py`, `core/knowledge/ingest.py` |
 | [YB-045](docs/todos/entries/YB-045-ontology-version-provenance.md) | Ontology version is not recorded per run — a graph cannot be attributed to the vocabulary that produced it | open | `core/knowledge/model.py`, `core/knowledge/ingest.py`, `core/ontology.py`, `agents/base_agent.py` |
 | [YB-046](docs/todos/entries/YB-046-branching-and-promotion.md) | Branching and guarded promotion — two architects on one initiative, and the merge between them | open | `core/knowledge/store.py`, `core/knowledge/model.py`, `core/knowledge/review.py`, `core/knowledge/ingest.py` |
-| [YB-049](docs/todos/entries/YB-049-workspace-migration-to-sqlite.md) | Workspace migration — move a file-backed scope to SQLite so it can run in the background | open | new `scripts/migrate_scope.py`, `core/workspace.py`, `core/knowledge/store.py`, `core/knowledge/store_sql.py`, `core/knowledge/drafts.py` |
 
 ## Medium
 
@@ -121,5 +120,6 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [ADR-0025](docs/decisions/ADR-0025-headless-reconciliation.md) | Headless reconciliation — a dry run by default, and the declines are reported | 2026-09-26 | item — |
 | [ADR-0026](docs/decisions/ADR-0026-run-journal-and-progress-transports.md) | Modular run streaming — one progress mechanism for the browser and for unattended runs | 2026-09-27 | item — |
 | [ADR-0027](docs/decisions/ADR-0027-async-run-progress.md) | Asynchronous run progress — the execution substrate, and one view over two transports | 2026-09-27 | item — |
+| [ADR-0028](docs/decisions/ADR-0028-no-workspace-migration.md) | No workspace migration — MVP validation starts on a fresh scope | 2026-09-27 | item — |
 
 The index is generated from the entries — do not edit `TODO.md` by hand.
