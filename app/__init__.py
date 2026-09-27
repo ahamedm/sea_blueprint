@@ -1586,7 +1586,19 @@ def create_app(
 
     @app.route("/graph")
     def graph_redirect():
-        return redirect(url_for("map_view", **request.args), code=301)
+        """The old name for `/map`, kept so a bookmark still lands somewhere.
+
+        NOT STORED BY THE BROWSER, and that is the whole point of the header. `/c4`
+        was retired exactly this way — a 301 to `/map` — and then reclaimed by YB-025
+        as a real view. A 301 is cacheable indefinitely, so every browser that had
+        followed the old redirect kept replaying it locally without asking the server,
+        and the reclaimed route looked broken no matter what the app returned. A
+        redirect for a route a later item might want back must not be permanent in the
+        browser's cache, even when it is permanent in intent.
+        """
+        response = redirect(url_for("map_view", **request.args), code=301)
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     @app.route("/api/map")
     def api_map():

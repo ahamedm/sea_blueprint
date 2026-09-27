@@ -552,6 +552,23 @@ def test_c4_is_a_real_view_and_graph_still_redirects(seeded_client):
     assert "/map?lens=architecture" in response.headers["Location"]
 
 
+def test_a_retired_route_is_not_left_in_the_browsers_cache(seeded_client):
+    """The bug this pins, in full.
+
+    `/c4` was retired as a 301 to `/map` and then reclaimed by YB-025. Because a 301
+    is cacheable indefinitely, every browser that had followed it kept replaying the
+    redirect locally and never asked the server again — so the reclaimed `/c4` returned
+    200 to curl and still showed the map in the browser. The remaining retired route
+    must therefore carry `no-store`: a redirect that is permanent in intent is still
+    not allowed to be permanent in a cache, because the next item may want the name
+    back too.
+    """
+    response = seeded_client.get("/graph")
+
+    assert response.status_code == 301
+    assert "no-store" in response.headers.get("Cache-Control", "")
+
+
 def test_every_page_loads_mermaid_only_on_the_c4_view(seeded_client):
     """2.5 MB on one page is a choice; on every page it would be a tax."""
     c4_page = seeded_client.get("/c4").data
