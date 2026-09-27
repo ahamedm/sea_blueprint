@@ -45,6 +45,7 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 import hashlib
 import re
+import uuid
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 
@@ -241,6 +242,17 @@ class Provenance:
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def new_revision_id() -> str:
+    """A revision id that sorts by creation and does not collide within a second.
+
+    Lives here rather than in one backend because every backend has to mint the same
+    shape: a revision committed through the file store and one committed through the
+    database must be interchangeable in an index, a diff or a `parent_id` chain.
+    """
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+    return f"rev_{stamp}_{uuid.uuid4().hex[:4]}"
 
 
 # ============================================================================

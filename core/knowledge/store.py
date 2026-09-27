@@ -26,13 +26,12 @@ from __future__ import annotations
 
 import json
 import os
-import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .model import GraphDelta, KnowledgeGraph, compute_graph_delta, utc_now
+from .errors import StoreConflict
+from .model import GraphDelta, KnowledgeGraph, compute_graph_delta, new_revision_id, utc_now
 from .review import ReviewLog, ReviewProgress, review_progress
 from .serialise import graph_from_dict, graph_to_dict
 
@@ -125,15 +124,23 @@ class Snapshot:
 
 
 def _new_revision_id() -> str:
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-    return f"rev_{stamp}_{uuid.uuid4().hex[:4]}"
+    """Delegates to the shared minter so both backends produce interchangeable ids."""
+    return new_revision_id()
 
 
 class RevisionStore:
-    """Filesystem-backed working set and revision history."""
+    """Filesystem-backed working set and revision history.
+
+    SINGLE-WRITER. Atomic per file, with no lock and no version check across files,
+    so it cannot honour a guarded write. `concurrency_safe` says so, and a caller that
+    passes `expected_version` is refused rather than quietly unprotected — the server
+    runs threaded, and a silent lost update is exactly what the SQL backend exists to
+    remove. See `docs/design/workspace-and-sor-enablers.md`.
+    """
 
     WORKING_FILE = "working.json"
     INDEX_FILE = "index.json"
+    concurrency_safe = False
 
     def __init__(self, root: str | os.PathLike):
         self.root = Path(root)
@@ -177,7 +184,21 @@ class RevisionStore:
         graph: KnowledgeGraph,
         log: Optional[ReviewLog] = None,
         meta: Optional[Dict[str, Any]] = None,
+        expected_version: Optional[int] = None,
     ) -> Snapshot:
+        """Write the working set.
+
+        `expected_version` is refused here rather than ignored: this backend has no
+        way to check it atomically, and accepting the argument while not enforcing it
+        would be worse than not offering it.
+        """
+        if expected_version is not None:
+            raise StoreConflict(
+                f"the file backend cannot guard writes (expected_version="
+                f"{expected_version}); use a concurrency-safe backend such as "
+                f"core.knowledge.store_sql.SqliteStore",
+                expected=expected_version,
+            )
         log = log or ReviewLog()
         meta = meta or {}
         meta = {**meta, "saved_at": utc_now()}

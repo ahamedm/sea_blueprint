@@ -118,6 +118,10 @@ from .store import (
     RevisionStore,
     Snapshot,
 )
+# The store contract and its failures. Deliberately NOT `store_sql`: importing it
+# would make SQLAlchemy a hard dependency of the knowledge layer, and the extras in
+# `pyproject.toml` exist so a SQLite-only deployment can leave it out.
+from .store_api import Store, StoreConflict, StoreError
 
 __all__ = [
     # model
@@ -211,6 +215,10 @@ __all__ = [
     "Revision",
     "Snapshot",
     "BaselineNotReady",
+    # the store contract — a second backend is checked against this, not assumed equal
+    "Store",
+    "StoreError",
+    "StoreConflict",
     # design drafts — a proposal staged before it is applied
     "DesignDraftStore",
     "DesignDraft",
