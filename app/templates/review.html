@@ -1,41 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Review gate · SEA{% endblock %}
 
-{#
-  The queue is long and its work is "filter, glance, select, verify". All three of
-  those live in the sticky bar, so none of them scrolls away above the rows: the
-  filter presets that used to be chips, a select-all, and the bulk verify they feed.
-  The row checkboxes reach this form by `form="bulk-form"`, which is why the form
-  itself can sit up here while the rows are far below it.
-#}
-{% block header_extra %}
-  {% if not empty %}
-    <div class="header-tools">
-      <label class="field-inline">
-        <span>Filter</span>
-        <select aria-label="Filter the review queue"
-                onchange="if (this.value) { location.href = this.value; }">
-          {% for preset in presets %}
-            <option value="{{ url_for('review') }}?{{ preset.query }}"
-                    {{ 'selected' if preset.active else '' }}>{{ preset.label }} ({{ preset.count }})</option>
-          {% endfor %}
-        </select>
-      </label>
-      <form id="bulk-form" method="post" action="{{ url_for('review_bulk') }}"
-            class="header-tools">
-        <input type="hidden" name="actor" value="{{ reviewer }}">
-        <label class="check-inline">
-          <input type="checkbox" id="select-all" aria-label="Select every filtered row"> All
-        </label>
-        <button class="btn btn-sm btn-ok" name="bulk_scope" value="selected">
-          Verify selected
-        </button>
-        <span class="count" id="sel-count">{{ total_rows }} shown</span>
-      </form>
-    </div>
-  {% endif %}
-{% endblock %}
-
 {% block content %}
 <div class="page-head">
   <div>
@@ -204,7 +169,7 @@
     <div class="row">
       <strong class="small">Bulk review</strong>
       <span class="muted small">·</span>
-      <span class="muted small">Select rows above (or “All” in the top bar), then</span>
+      <span class="muted small">Select rows in the table header (or “All” there), then</span>
       <button class="btn btn-sm btn-ok" form="bulk-form" name="bulk_scope" value="selected">
         Verify selected
       </button>
@@ -229,7 +194,42 @@
     <div class="table-wrap">
       <table>
         <thead>
-          <tr>
+          {#
+            The table's own header bar: filter, select-all, verify. It is the first
+            row of the sticky `<thead>`, so it stays pinned with the column labels
+            while the rows scroll under it — "filter, glance, select, verify" without
+            going back up the page. The row checkboxes reach this form by
+            `form="bulk-form"`, so the form can live up here and the rows far below.
+          #}
+          <tr class="table-tools">
+            <th colspan="7">
+              <div class="table-tools-inner">
+                <label class="field-inline">
+                  <span>Filter</span>
+                  <select aria-label="Filter the review queue"
+                          onchange="if (this.value) { location.href = this.value; }">
+                    {% for preset in presets %}
+                      <option value="{{ url_for('review') }}?{{ preset.query }}"
+                              {{ 'selected' if preset.active else '' }}>{{ preset.label }} ({{ preset.count }})</option>
+                    {% endfor %}
+                  </select>
+                </label>
+                <form id="bulk-form" method="post" action="{{ url_for('review_bulk') }}"
+                      class="bulk-inline">
+                  <input type="hidden" name="actor" value="{{ reviewer }}">
+                  <label class="check-inline">
+                    <input type="checkbox" id="select-all"
+                           aria-label="Select every filtered row"> All
+                  </label>
+                  <button class="btn btn-sm btn-ok" name="bulk_scope" value="selected">
+                    Verify selected
+                  </button>
+                  <span class="count" id="sel-count">{{ total_rows }} shown</span>
+                </form>
+              </div>
+            </th>
+          </tr>
+          <tr class="col-heads">
             <th class="col-check"></th>
             <th>Subject</th>
             <th>Predicate</th>

@@ -36,11 +36,6 @@
     </div>
   {% endif %}
 
-  {# Page-specific controls that belong in the sticky bar: a page whose work happens
-     in a long table can put its filter and its selection actions here, so they stay
-     reachable instead of scrolling away above the rows. #}
-  {% block header_extra %}{% endblock %}
-
   <nav>
     {# Endpoint prefixes so /review/<id> keeps the Review tab lit. #}
     {% set section = (request.endpoint or '').split('_')[0] %}

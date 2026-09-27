@@ -85,31 +85,6 @@ code, .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monos
 .topbar .workspace a.all { color: var(--text-faint); }
 .topbar .workspace a.all:hover { color: #fff; text-decoration: none; }
 
-/* -- page controls inside the sticky bar ---------------------------------
-   The review table is long; its filter and its selection actions live up here so
-   they do not scroll out of reach. Kept visually quieter than the nav, which is
-   still the page's primary navigation. */
-.header-tools { display: flex; align-items: center; gap: 10px; }
-.header-tools .field-inline { display: flex; align-items: center; gap: 6px; }
-.header-tools .field-inline > span {
-  color: var(--text-faint); text-transform: uppercase;
-  letter-spacing: .5px; font-size: 11px;
-}
-.header-tools select {
-  background: #1e293b; color: #e2e8f0;
-  border: 1px solid #334155; border-radius: 6px;
-  padding: 5px 8px; font: inherit; max-width: 200px;
-}
-.header-tools .check-inline {
-  display: flex; align-items: center; gap: 5px;
-  color: #cbd5e1; font-size: 12px; white-space: nowrap;
-}
-.header-tools .count { color: var(--text-faint); font-size: 11.5px; white-space: nowrap; }
-.header-tools .btn-ok {
-  background: var(--ok); border-color: var(--ok); color: #fff;
-}
-.header-tools .btn[disabled] { opacity: .5; cursor: not-allowed; }
-
 tr.is-current { background: #eff6ff; }
 tr.is-current:hover { background: #dbeafe; }
 
@@ -254,6 +229,39 @@ tr.status-disputed { background: #fff5f5; }
 .table-wrap.sm { max-height: 42vh; }
 /* Plain tables are not in a scroll container, so their headers must not float. */
 .table-plain th { position: static; box-shadow: inset 0 -2px 0 var(--border); }
+
+/* -- the table's own header bar ------------------------------------------
+   Filter, select-all and "Verify selected", pinned to the top of the scroll
+   container with the column labels. Two sticky rows need two offsets: the toolbar
+   holds `top: 0`, and the column labels tuck one pixel under it so a sub-pixel
+   rounding difference cannot show a sliver of scrolling rows between them. */
+:root { --table-tools-h: 42px; }
+thead tr.table-tools th {
+  top: 0; z-index: 6;
+  height: var(--table-tools-h); box-sizing: border-box;
+  padding: 0 10px; background: var(--surface);
+  text-transform: none; letter-spacing: normal; font-size: 12.5px;
+  white-space: nowrap;
+}
+thead tr.col-heads th { top: calc(var(--table-tools-h) - 1px); }
+.table-tools-inner { display: flex; align-items: center; gap: 14px; }
+.table-tools .field-inline { display: flex; align-items: center; gap: 6px; }
+.table-tools .field-inline > span {
+  color: var(--text-dim); text-transform: uppercase;
+  letter-spacing: .5px; font-size: 11px; font-weight: 600;
+}
+.table-tools select {
+  border: 1px solid var(--border-strong); border-radius: 6px;
+  padding: 4px 8px; font: inherit; font-size: 12.5px; max-width: 220px;
+  background: var(--surface); color: var(--text);
+}
+.bulk-inline { display: flex; align-items: center; gap: 8px; }
+.table-tools .check-inline {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 12.5px; white-space: nowrap;
+}
+.table-tools .count { color: var(--text-dim); font-size: 11.5px; white-space: nowrap; }
+.table-tools .btn-ok { background: var(--ok); border-color: var(--ok); color: #fff; }
 
 /* -- buttons -------------------------------------------------------------- */
 

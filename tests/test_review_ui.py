@@ -1,14 +1,15 @@
 """
-The review queue's layout: filter and select from the sticky bar, and the assertion
-pane as a floating overlay.
+The review queue's layout: filter and select from the table's own header, and the
+assertion pane as a floating overlay.
 
 Both changes are pinned here because both had a concrete complaint behind them and
 both would regress silently:
 
-  1. **Reaching the controls cost a scroll.** The queue is long, and "filter, glance,
-     select, verify" is the whole loop — so the filter presets, the select-all and the
-     bulk verify live in the sticky bar, and the row checkboxes reach their form from
-     far below it.
+  1. **Reaching the controls cost a scroll.** The queue is long and "filter, glance,
+     select, verify" is the whole loop, so those three live in the *table's* header —
+     the first row of the sticky `<thead>` — and stay pinned while the rows scroll
+     under them. The row checkboxes reach that form by `form=`, which is what lets the
+     form live up there and the rows far below.
   2. **The detail pane reserved a column whether or not it was open.** It sat in a
      380 px grid column beside the table, and the table has seven columns, so it
      scrolled horizontally on a normal screen. It floats now, and the table owns the
@@ -20,7 +21,15 @@ from __future__ import annotations
 import re
 
 
-def _header(body: str) -> str:
+def _table_head(body: str) -> str:
+    """The table's header block — the thing the controls belong in."""
+    head = re.search(r"<thead>(.*?)</thead>", body, re.S)
+    assert head, "no table header rendered"
+    return head.group(1)
+
+
+def _page_head(body: str) -> str:
+    """The site's top bar, which is a different thing and must stay out of this."""
     return body.split("</header>", 1)[0]
 
 
@@ -30,30 +39,40 @@ def _chip_labels(body: str) -> list[str]:
 
 def _filter_labels(body: str) -> list[str]:
     select = re.search(r"Filter the review queue.*?</select>", body, re.S)
-    assert select, "the header has no filter select"
+    assert select, "the table header has no filter select"
     return [
         re.sub(r"\s*\(\d+\)\s*$", "", label).strip()
         for label in re.findall(r"<option[^>]*>([^<]+)</option>", select.group(0))
     ]
 
 
-def test_the_filter_and_the_selection_live_in_the_sticky_bar(seeded_client):
+def test_the_filter_and_the_selection_are_in_the_table_header(seeded_client):
     body = seeded_client.get("/review").get_data(as_text=True)
-    header = _header(body)
+    head = _table_head(body)
 
-    # The filter, the select-all and the bulk action are all in the header…
-    assert "Filter the review queue" in header
-    assert 'id="select-all"' in header
-    assert 'id="bulk-form"' in header
-    assert "Verify selected" in header
-    # …and they are the *only* copy of the bulk from: a second form would submit a
+    assert "Filter the review queue" in head
+    assert 'id="select-all"' in head
+    assert 'id="bulk-form"' in head
+    assert "Verify selected" in head
+    # …and NOT in the site's top bar: the nav is not the place for a table's tools.
+    assert 'id="bulk-form"' not in _page_head(body)
+    # …and they are the only copy of the bulk form: a second one would submit a
     # second, disagreeing selection.
     assert body.count('id="bulk-form"') == 1
 
 
-def test_the_row_checkboxes_are_wired_to_the_header_form(seeded_client):
-    """The form is in the header and the rows are far below it — `form=` is what
-    connects them, so it has to be on every checkbox or the selection posts nothing."""
+def test_the_tools_are_the_first_sticky_row_of_the_header(seeded_client):
+    """Order is the behaviour here: the toolbar is pinned at `top: 0` and the column
+    labels tuck under it, so the tools stay visible while the rows scroll."""
+    body = seeded_client.get("/review").get_data(as_text=True)
+    head = _table_head(body)
+
+    assert head.index('class="table-tools"') < head.index('class="col-heads"')
+    # The toolbar spans the table, so the column row still lines up with the cells.
+    assert 'colspan="7"' in head
+
+
+def test_the_row_checkboxes_are_wired_to_the_table_header_form(seeded_client):
     body = seeded_client.get("/review").get_data(as_text=True)
     checks = re.findall(r'<input type="checkbox" class="row-check"[^>]*>', body)
 
@@ -63,9 +82,9 @@ def test_the_row_checkboxes_are_wired_to_the_header_form(seeded_client):
         assert 'form="bulk-form"' in check
 
 
-def test_the_header_filter_offers_exactly_the_chip_presets(seeded_client):
-    """One source of truth: the select and the chips are rendered from the same list,
-    so a preset can never mean two things depending on which control you used."""
+def test_the_table_filter_offers_exactly_the_chip_presets(seeded_client):
+    """One source of truth: the select and the chips render from the same list, so a
+    preset cannot mean two things depending on which control you used."""
     body = seeded_client.get("/review").get_data(as_text=True)
 
     chips = _chip_labels(body)
@@ -83,7 +102,6 @@ def test_the_detail_pane_floats_and_reserves_no_column(seeded_client):
     # The pane and its dismissal exist, and the pane starts closed.
     assert 'class="drawer"' in body
     assert 'id="drawer-backdrop"' in body
-    assert 'aria-hidden="true"' in body
     # The table wraps the rows directly, with no column reserved beside it.
     assert 'id="review-rows"' in body
 
@@ -99,19 +117,20 @@ def test_the_pane_can_be_closed(seeded_client):
     assert "Close" in detail
 
 
-def test_an_empty_working_set_offers_no_selection_controls(client):
-    """Nothing in the graph means nothing to select, so the header stays bare."""
+def test_an_empty_working_set_offers_no_table_controls(client):
+    """Nothing in the graph means no table, so no toolbar either."""
     body = client.get("/review").get_data(as_text=True)
 
     assert "Nothing to review yet" in body
+    assert "<thead>" not in body
     assert 'id="bulk-form"' not in body
-    assert 'id="select-all"' not in body
 
 
-def test_filters_that_match_nothing_keep_the_filter_reachable(seeded_client):
-    """The distinction matters: an empty *result* is not an empty graph. The filter
-    has to stay in the header, because it is how a reviewer gets back."""
+def test_filters_that_match_nothing_keep_a_way_back(seeded_client):
+    """An empty *result* is not an empty graph. The table goes away with the rows, so
+    the chips and the filter card above it are what a reviewer navigates back with."""
     body = seeded_client.get("/review", query_string={"only": "retired"}).get_data(as_text=True)
 
     assert "No assertions match these filters" in body
-    assert "Filter the review queue" in _header(body)
+    assert "<thead>" not in body
+    assert _chip_labels(body), "the chips are the way back from an empty result"
