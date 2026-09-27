@@ -447,37 +447,74 @@ def _endpoint_label(records: Dict[str, Dict[str, Any]], node_id: Optional[str]) 
 
 def roll_up(
     model: Dict[str, Any], level: str
-) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], int]:
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], int, List[str]]:
     """One level's elements, and the relationships between them.
 
     A relationship below the drawn level is re-pointed at the ancestors that ARE drawn
-    and counted, so the coupling is not lost when a diagram is drawn higher up.
-    Returns (elements, relationships, rolled_up_count).
+    and counted, so the coupling is not lost when a diagram is drawn higher up. One
+    whose two ends collapse to the same ancestor is dropped — that is coupling inside a
+    single box, which the box's own diagram shows.
+
+    A relationship the level cannot draw *at all* is returned separately rather than
+    skipped. Discovering that an arrow had vanished — an external system is a context
+    element, so a container diagram silently lost every call to one — is exactly the
+    class of bug this view exists to make impossible, and it would have been committed
+    silently.
+
+    Returns `(elements, relationships, rolled_up_count, undrawable)`.
     """
-    elements = {e["id"]: e for e in model["by_level"][level]}
     all_elements = {e["id"]: e for e in model["elements"]}
+    drawn: Dict[str, Dict[str, Any]] = {e["id"]: e for e in model["by_level"][level]}
     relationships: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
     rolled = 0
+    undrawable: List[str] = []
     for relationship in model["relationships"]:
-        source = _at_level(all_elements, relationship["source"], level)
-        target = _at_level(all_elements, relationship["target"], level)
-        if source not in elements or target not in elements or source == target:
+        source = _drawable_at(all_elements, relationship["source"], level)
+        target = _drawable_at(all_elements, relationship["target"], level)
+        if source is None or target is None:
+            undrawable.append(
+                f'{_label_of(all_elements, relationship["source"])} → '
+                f'{_label_of(all_elements, relationship["target"])}'
+            )
+            continue
+        if source == target:
             continue
         if source != relationship["source"] or target != relationship["target"]:
             rolled += 1
+        # An external system is drawn at every level, so it joins the drawn set here
+        # rather than being filtered out with the rest of its level.
+        drawn.setdefault(source, all_elements[source])
+        drawn.setdefault(target, all_elements[target])
         relationships.setdefault(
             (source, target, relationship["label"]),
             {**relationship, "source": source, "target": target},
         )
-    return (list(elements.values()),
-            [relationships[key] for key in sorted(relationships)], rolled)
+    ordered = sorted(drawn.values(),
+                     key=lambda e: (LEVELS.index(e["level"]), e["label"]))
+    return (ordered, [relationships[key] for key in sorted(relationships)], rolled,
+            undrawable)
 
 
-def _at_level(
+def _label_of(elements: Dict[str, Dict[str, Any]], node_id: str) -> str:
+    element = elements.get(node_id)
+    return element["label"] if element else str(node_id)
+
+
+def _drawable_at(
     elements: Dict[str, Dict[str, Any]], node_id: str, level: str
 ) -> Optional[str]:
-    for ancestor in _ancestors(elements, node_id):
+    """What to draw for `node_id` in a diagram at `level`, if anything.
+
+    Its own ancestor at that level. Failing that, an external system — C4 draws
+    external systems in every diagram, because the point of a boundary is what it
+    exchanges with the outside. Failing that, nothing, and the caller reports it.
+    """
+    ancestors = _ancestors(elements, node_id)
+    for ancestor in ancestors:
         if elements[ancestor]["level"] == level:
+            return ancestor
+    for ancestor in ancestors:
+        if elements[ancestor]["kind"] == "ExternalSystem":
             return ancestor
     return None
 
@@ -672,7 +709,7 @@ def to_mermaid(model: Dict[str, Any], level: str = "container") -> str:
     Structurizr DSL above. The system is drawn as a subgraph, because a container
     diagram without its boundary is a list of boxes.
     """
-    elements, relationships, rolled = roll_up(model, level)
+    elements, relationships, rolled, undrawable = roll_up(model, level)
     ids = {e["id"]: _slug(e["label"], "element") for e in elements}
     by_id = {e["id"]: e for e in model["elements"]}
     system = model["system"]
@@ -685,6 +722,9 @@ def to_mermaid(model: Dict[str, Any], level: str = "container") -> str:
     lines = ["flowchart TB"]
     if rolled:
         lines.append(f"    %% {rolled} relationship(s) rolled up from a lower level")
+    if undrawable:
+        lines.append(f"    %% {len(undrawable)} relationship(s) have no endpoint at "
+                     f"this level: {'; '.join(undrawable)}")
 
     def node(element: Dict[str, Any], indent: str) -> None:
         shape = ("[/", "/]") if element["level"] == "code" else ("[", "]")
@@ -730,7 +770,7 @@ def to_payload(model: Dict[str, Any], level: str = "container") -> Dict[str, Any
     """
     if level not in LEVELS:
         level = "container"
-    elements, relationships, rolled_up = roll_up(model, level)
+    elements, relationships, rolled_up, undrawable = roll_up(model, level)
     return {
         "system": model["system"],
         "counts": model["counts"],
@@ -772,6 +812,7 @@ def to_payload(model: Dict[str, Any], level: str = "container") -> Dict[str, Any
                 for r in relationships
             ],
             "rolled_up": rolled_up,
+            "undrawable": undrawable,
         },
         "checks": model["checks"],
         "gaps": model["gaps"],

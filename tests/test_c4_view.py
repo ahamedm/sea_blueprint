@@ -188,7 +188,7 @@ def test_a_relationship_below_the_drawn_level_is_rolled_up_and_counted(layered_o
     """A component-to-datastore write is still coupling at the container diagram."""
     model = c4.c4_model(_graph(layered_output))
 
-    elements, relationships, rolled_up = c4.roll_up(model, "container")
+    elements, relationships, rolled_up, _undrawable = c4.roll_up(model, "container")
     # The system is context level, so the container diagram is its contents and not
     # the system itself.
     assert {e["label"] for e in elements} == {"Orchestrator", "Ledger"}
@@ -217,14 +217,14 @@ def test_rolling_up_drops_a_relationship_whose_ends_collapse_together(layered_ou
     }
     model = c4.c4_model(_graph(output))
 
-    _elements, relationships, _rolled = c4.roll_up(model, "container")
+    _elements, relationships, _rolled, _undrawable = c4.roll_up(model, "container")
     assert relationships == []
 
 
 def test_every_level_can_be_rolled_up(layered_output):
     model = c4.c4_model(_graph(layered_output))
     for level in c4.LEVELS:
-        elements, _relationships, _rolled = c4.roll_up(model, level)
+        elements, _relationships, _rolled, _undrawable = c4.roll_up(model, level)
         assert isinstance(elements, list)
 
 
@@ -405,6 +405,50 @@ def test_a_pipe_in_a_label_cannot_end_a_mermaid_edge_label(layered_output):
 
     assert "reads / writes" in text
     assert "reads | writes" not in text
+
+
+def test_an_external_system_is_drawn_at_every_level(layered_output):
+    """C4 draws external systems in every diagram: a boundary is what it exchanges."""
+    output = {
+        "elements": [
+            _element("Payments", "SoftwareSystem"),
+            _element("Orchestrator", "Container", "Payments"),
+            _element("Legacy Gateway", "ExternalSystem"),
+        ],
+        "connections": [{"source": "Orchestrator", "target": "Legacy Gateway",
+                         "description": "calls"}],
+    }
+    model = c4.c4_model(_graph(output))
+
+    elements, relationships, _rolled, undrawable = c4.roll_up(model, "container")
+    assert {e["label"] for e in elements} == {"Orchestrator", "Legacy Gateway"}
+    assert undrawable == []
+    assert len(relationships) == 1
+
+    text = c4.to_mermaid(model, "container")
+    # Outside the system boundary, because that is what it is.
+    assert 'legacy_gateway["Legacy Gateway"]' in text
+    assert 'orchestrator -->|"calls"| legacy_gateway' in text
+
+
+def test_a_relationship_with_no_endpoint_at_this_level_is_reported(layered_output):
+    """The first version dropped these silently — which is how a bug gets committed."""
+    output = {
+        "elements": [
+            _element("Payments", "SoftwareSystem"),
+            _element("Partner Bank", "SoftwareSystem"),
+        ],
+        "connections": [{"source": "Payments", "target": "Partner Bank",
+                         "description": "settles with"}],
+    }
+    model = c4.c4_model(_graph(output))
+
+    _elements, _relationships, _rolled, undrawable = c4.roll_up(model, "code")
+    assert undrawable and "Partner Bank" in undrawable[0]
+
+    text = c4.to_mermaid(model, "code")
+    assert "no endpoint at this level" in text
+    assert "Partner Bank" in text
 
 
 def test_mermaid_draws_the_system_as_one_boundary_without_duplicating_it(layered_output):

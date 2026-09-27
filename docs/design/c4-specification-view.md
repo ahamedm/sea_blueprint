@@ -82,6 +82,19 @@ box's own diagram shows. The count of rolled-up relationships is printed in the
 diagram's header and as a Mermaid comment, so an arrow that means "something inside
 this" says so.
 
+Two further cases, and the second is why this section exists:
+
+- **An external system is drawn at every level.** A boundary is defined by what it
+  exchanges with the outside, and C4 draws `System_Ext` boxes in container and component
+  diagrams for exactly that reason — so an external system joins the drawn set even
+  though its own level is context.
+- **A relationship the level genuinely cannot draw is reported, not skipped.** The first
+  version used "no ancestor at this level ⇒ drop", and a container calling an external
+  system silently lost its arrow: the app would have shipped a diagram quietly missing
+  information, which is the specific failure this view exists to prevent. `roll_up`
+  returns the undrawable relationships by name, the page shows them in a warning, and the
+  Mermaid source carries them as a comment.
+
 ## 4. Well-formedness: the half a picture cannot tell you
 
 This is the part that earns the view its place. Five rules C4 actually states are

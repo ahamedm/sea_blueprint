@@ -1,5 +1,6 @@
 ---
 id: ADR-0029
+legacy: "25"
 title: "A C4 specification view: text notation first, a rendering second, well-formedness as the point"
 status: accepted
 date: 2026-09-27
@@ -61,6 +62,12 @@ representations drift, so the constraint YB-025 set is kept.
 **8. The model is exposed as data, not only as HTML.** `/api/c4` returns the elements,
 the relationships, the checks and the notation, so the verdict can be asserted or
 consumed without parsing a page.
+
+**9. A relationship the drawn level cannot represent is reported, not dropped.**
+External systems are drawn at every level — a boundary is defined by what it exchanges
+with the outside — and anything still undrawable is named on the page and in the Mermaid
+source. The first version dropped them silently; that is how a diagram ends up quietly
+missing information.
 
 ### Consequences
 

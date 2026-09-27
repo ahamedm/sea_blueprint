@@ -31,6 +31,7 @@
 | 22 | Deterministic quality classification and identifier recovery | [ADR-0011](../decisions/ADR-0011-deterministic-quality-classification.md) | record |
 | 23 | Requirements extraction never reports completeness — so REQ-G can never be audited | [YB-023](entries/YB-023-requirements-completeness-reporting.md) | entry (done) |
 | 24 | Graph view — cover the requirements graph, not only C4 | [YB-024](entries/YB-024-requirements-graph-view.md) | entry (done) |
+| 25 | A C4 specification view: text notation first, a rendering second, well-formedness as the point | [ADR-0029](../decisions/ADR-0029-c4-specification-view.md) | record |
 | 26 | Asynchronous progress — stream pass and tool-call completion to the view | [YB-026](entries/YB-026-asynchronous-progress.md) | entry (done) |
 | — | REQ ⇄ ARC reconciliation — both directions, and the citation rule | [ADR-0012](../decisions/ADR-0012-req-arc-reconciliation-inversion.md) | record |
 | — | Requirements runs report their own completeness — REQ-G can be audited | [ADR-0013](../decisions/ADR-0013-requirements-completeness-reporting.md) | record |
@@ -49,7 +50,6 @@
 | — | Modular run streaming — one progress mechanism for the browser and for unattended runs | [ADR-0026](../decisions/ADR-0026-run-journal-and-progress-transports.md) | record |
 | — | Asynchronous run progress — the execution substrate, and one view over two transports | [ADR-0027](../decisions/ADR-0027-async-run-progress.md) | record |
 | — | No workspace migration — MVP validation starts on a fresh scope | [ADR-0028](../decisions/ADR-0028-no-workspace-migration.md) | record |
-| — | A C4 specification view: text notation first, a rendering second, well-formedness as the point | [ADR-0029](../decisions/ADR-0029-c4-specification-view.md) | record |
 | None | Semantic reference matching — bridge the paraphrase the deterministic scorer cannot | [YB-027](entries/YB-027-semantic-reference-matching.md) | entry (open) |
 | None | Remove a fact the extractor invented — and stop a dispute withholding the audit | [YB-028](entries/YB-028-remove-extracted-facts.md) | entry (done) |
 | None | Quality-attribute views for the map — the architect's primary focus has no view of its own | [YB-029](entries/YB-029-quality-attribute-views.md) | entry (done) |

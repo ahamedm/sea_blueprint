@@ -122,6 +122,6 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [ADR-0026](docs/decisions/ADR-0026-run-journal-and-progress-transports.md) | Modular run streaming — one progress mechanism for the browser and for unattended runs | 2026-09-27 | item — |
 | [ADR-0027](docs/decisions/ADR-0027-async-run-progress.md) | Asynchronous run progress — the execution substrate, and one view over two transports | 2026-09-27 | item — |
 | [ADR-0028](docs/decisions/ADR-0028-no-workspace-migration.md) | No workspace migration — MVP validation starts on a fresh scope | 2026-09-27 | item — |
-| [ADR-0029](docs/decisions/ADR-0029-c4-specification-view.md) | A C4 specification view: text notation first, a rendering second, well-formedness as the point | 2026-09-27 | item — |
+| [ADR-0029](docs/decisions/ADR-0029-c4-specification-view.md) | A C4 specification view: text notation first, a rendering second, well-formedness as the point | 2026-09-27 | item 25 |
 
 The index is generated from the entries — do not edit `TODO.md` by hand.

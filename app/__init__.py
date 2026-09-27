@@ -1534,6 +1534,7 @@ def create_app(
         level = requested if requested in c4_viewpoint.LEVELS else ""
         level_error = requested if requested and not level else ""
         level = level or "container"
+        drawn = c4_viewpoint.roll_up(model, level)
         return render_template(
             "c4.html",
             model=model,
@@ -1542,7 +1543,8 @@ def create_app(
             levels=c4_viewpoint.LEVELS,
             level_titles=c4_viewpoint.LEVEL_TITLES,
             mermaid_source=c4_viewpoint.to_mermaid(model, level),
-            roll_up_count=c4_viewpoint.roll_up(model, level)[2],
+            roll_up_count=drawn[2],
+            undrawable=drawn[3],
             structurizr=c4_viewpoint.to_structurizr(model),
             plantuml=c4_viewpoint.to_c4_plantuml(model),
         )

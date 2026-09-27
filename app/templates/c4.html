@@ -133,6 +133,15 @@
           absent level is a fact about the graph.
         </p>
       {% endif %}
+      {% if undrawable %}
+        <div class="banner banner-warn" style="margin-bottom:12px;">
+          <strong>{{ undrawable|length }} relationship(s) cannot be drawn at this level.</strong>
+          Neither endpoint has an ancestor here, and no endpoint is an external system —
+          so the arrow exists in the graph and not in this picture:
+          {{ undrawable[:10]|join('; ') }}{% if undrawable|length > 10 %} and {{ undrawable|length - 10 }} more{% endif %}.
+          A higher level, or the Structurizr DSL below, carries them.
+        </div>
+      {% endif %}
       <div class="c4-diagram" id="c4-diagram" data-source="{{ mermaid_source }}">
         <p class="muted small">Rendering…</p>
       </div>
