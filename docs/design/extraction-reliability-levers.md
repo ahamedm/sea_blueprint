@@ -167,6 +167,79 @@ hypothesis to test.
     independent oracle on our model; today the failure path is a human pasting it and
     getting a parse error with no cause attached.
 
+### G. DSPy-class optimizers — evaluated, and the verdict
+
+Asked directly: can DSPy auto-tune agent output, or is it prompt fine-tuning by another
+name? **It is a different category — and it is blocked on exactly the prerequisite in
+§3.13, which makes it a payoff of the harness rather than a substitute for it.**
+
+Read against DSPy 3.4.0's own documentation, it does three things hand-tuning cannot:
+
+1. **Searches against a metric instead of against intuition.** Every optimizer is
+   `compile(program, trainset=..., valset=..., metric=...)`, so a change comes with a
+   before/after number. That is the falsifiability §3.13 exists to provide, which is why
+   §5 currently says not to tune prompts without it.
+2. **Uses a stronger model to write instructions for a weaker one — reflectively.** GEPA
+   takes a separate `reflection_lm`, lets the metric return *natural-language* feedback
+   ("don't reference the input season verbatim"), and rewrites instructions from examples
+   that failed. This is the mechanism that could actually help the local 4B: a frontier
+   model reading our validators' complaint strings and rewriting the rule, rather than a
+   human guessing. The harness already emits exactly that shape of text — every `gap` and
+   failed `check` carries a `detail` sentence explaining the consequence.
+3. **Tunes weights as well as text.** `BootstrapFinetune` and `BetterTogether` are in the
+   shipped optimizer list, so "DSPy = prompt tuning" is wrong on its face. Weight tuning
+   is a different cost class (thousands of examples, a training loop) and a different
+   project from anything else in this document.
+
+**What it would and would not fix here.** It optimises the *program's* instructions and
+demonstrations. It cannot touch five of the nine defects in §1 — a perfect run discarded
+by a dict/object mismatch, connections never read by ingest, findings dropped, two runs
+colliding on an id, an endpoint that could not run. Optimising a discarded run makes the
+discarded run better. It also cannot fix the decoder-level failures (#6, #7): compiling
+against an endpoint that 400s on `tool_choice: "required"` optimises noise.
+
+**The repo-specific objection is YB-007.** GEPA's own worked example shows the optimised
+prompt growing from one sentence into a long multi-section list of requirements — and
+[YB-007](../todos/entries/YB-007-prompt-scaffolding-instruction-dilution.md) already
+measures this project's scaffolding at ~2.5:1 against the document, with instruction
+dilution as the named failure. Bootstrapped demonstrations and reflective instruction
+growth push the same direction. If the local model is the target, an optimizer whose
+metric does not penalise prompt length can make things worse; retrieval-style demo
+selection (`KNNFewShot`) rather than appended demos is the shape that would avoid it.
+
+**The blocker is data, not the framework.** Every optimizer needs `trainset`/`valset`, and
+§1 measured 27-vs-30-element and 19-vs-13-connection
+variance on *identical* input. Optimising against a metric whose noise floor exceeds the
+effect being chased fits the noise — and the named test corpus is two documents plus four
+small fixtures. So a compile needs a dev set of tens of items, not four. Two sources
+exist: section-sliced chunks of the tracked `test_data/` documents (chunking is already
+deterministic, so a slice is a stable example), and the human verdicts already sitting in
+the graph as positive and negative labels (§3.12).
+
+**The pragmatic integration: use it as a build-time tool, not a runtime.** DSPy has its
+own LM abstraction, and this project's runtime is Strands plus `PassSpec`/`run_passes`.
+There is no need to replace either. Compile offline, export the tuned instructions and
+demos as an artifact, and paste them into `PassSpec.instructions` — then hash that
+artifact into provenance (§3.15), which is the same discipline the rest of this document
+argues for. The runtime stays as it is, and the optimisation becomes reviewable.
+
+**Smallest useful experiment, if it is ever tried.** One pass (`connections`, where the
+failure is measurable and the metric is almost entirely programmatic), a dev set built
+from section-sliced chunks, `payment_platform_arch.md` held out *entirely* as the test
+set, `auto="light"` (about six candidates), and `c4_scorecard.py` before/after on the
+held-out document. If the arrow count and the dangling-endpoint count do not move, the
+lever is spent. Note that this experiment presupposes §3.13 for the "no improvement is
+distinguishable from noise" reason, and presupposes the test document stating its request
+path ([YB-053](../todos/entries/YB-053-category-elements-and-duplicate-system.md)) —
+otherwise the payment-flow edges are absent from the dev set too and nothing can learn
+them.
+
+For the record, DSPy's own reported case studies are the kind of result that motivates
+this: Shopify at ~75× cheaper and ~2× more reliable on a small Qwen model after GEPA, and
+a nano-model optimised from 78.1% to 90.1% against a frontier baseline of 82.4%. Those are
+the project's published figures, not independently reproduced here, and both were on tasks
+with a clean metric and a real labelled set — which is the point.
+
 ---
 
 ## 4. If five were chosen, in this order
@@ -190,6 +263,11 @@ The first two are cheap and would have prevented or exposed five of the nine fai
 - **More prompt tuning before §3.13 exists.** With 27 vs 30 elements of run-to-run
   variance, a one-run improvement is indistinguishable from noise. Prompt changes made now
   are unfalsifiable.
+- **DSPy-class prompt compilation, for the same reason and one more** (§3.G). It needs a
+  metric and a dev set of tens of examples; the corpus is two documents and four fixtures.
+  Compiling now would fit the noise floor rather than the effect — and if the target is the
+  local model, an optimised prompt that grows makes YB-007's instruction dilution worse.
+  The framework is not the obstacle.
 - **An ML extractor before §3.6.** Span-anchored fields plus a constrained decoder gets
   most of the reliability for a fraction of the cost, and `element_type` labels are not
   clean enough to train on until the category-word class of error is stopped at the
