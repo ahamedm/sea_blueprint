@@ -3,7 +3,7 @@
 
 Open work only. Each item is one file under `docs/todos/entries/` — that file is the source of truth and this index is generated from it.
 
-**25 active · 1 parked · 2 superseded · 28 closed records**
+**26 active · 1 parked · 2 superseded · 28 closed records**
 
 | Where | What |
 |---|---|
@@ -36,6 +36,7 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [YB-044](docs/todos/entries/YB-044-platform-instances.md) | Platform instances and deployment topology — one platform type, many instances, each with a sharing scope | open | `ontology/architecture_base.yaml` (DeploymentNode, sharing scope), `agents/architecture_extraction/passes.py`, `core/knowledge/ingest.py` |
 | [YB-045](docs/todos/entries/YB-045-ontology-version-provenance.md) | Ontology version is not recorded per run — a graph cannot be attributed to the vocabulary that produced it | open | `core/knowledge/model.py`, `core/knowledge/ingest.py`, `core/ontology.py`, `agents/base_agent.py` |
 | [YB-046](docs/todos/entries/YB-046-branching-and-promotion.md) | Branching and guarded promotion — two architects on one initiative, and the merge between them | open | `core/knowledge/store.py`, `core/knowledge/model.py`, `core/knowledge/review.py`, `core/knowledge/ingest.py` |
+| [YB-051](docs/todos/entries/YB-051-connections-dropped-at-ingest.md) | Connections are extracted and then discarded — the graph has no C4 arrows | in-progress | `core/knowledge/ingest.py` (does not read `connections`), `app/viewpoints/merged.py` (kind registry), tests |
 
 ## Medium
 

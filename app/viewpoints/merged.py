@@ -98,6 +98,10 @@ ARCHITECTURE_KINDS: FrozenSet[str] = frozenset(
         "Component",
         "DataStore",
         "Interface",
+        # A Connection is reified as a node (its protocol and style have nowhere else
+        # to live), so it is an architecture kind a view includes deliberately rather
+        # than an unclassified node it stumbles over.
+        "Connection",
         "CodeElement",
         "DeploymentNode",
         "Application",

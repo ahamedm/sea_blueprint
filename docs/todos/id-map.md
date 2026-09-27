@@ -72,3 +72,4 @@
 | None | Enterprise governance layer — Policy, Principle, Control, Risk, and Standard clauses | [YB-047](entries/YB-047-enterprise-governance-layer.md) | entry (in-progress) |
 | None | Traversal index — cache adjacency per scope load, and use networkx for algorithms, not speed | [YB-048](entries/YB-048-traversal-index.md) | entry (open) |
 | None | Artifact retention and quota — the document store grows without a bound nobody chose | [YB-050](entries/YB-050-artifact-retention-and-quota.md) | entry (open) |
+| None | Connections are extracted and then discarded — the graph has no C4 arrows | [YB-051](entries/YB-051-connections-dropped-at-ingest.md) | entry (in-progress) |

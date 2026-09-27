@@ -439,6 +439,50 @@ def graph_from_extraction(
                 graph.add_assertion(nid, attr, value=part,
                                     confidence=1.0, provenance=p, scope=scope, initiative_id=init_id)
 
+    # ---- connections: the edges a C4 diagram is made of ----
+    #
+    # THE PASS WAS RUNNING AND ITS OUTPUT WAS DISCARDED. The profile emits these
+    # records under their own key, and this function read eleven keys without this
+    # one — so every run paid for a model call per chunk and put nothing in the
+    # graph (YB-051). The ontology already declares `Connection` and describes it as
+    # "the arrow in a C4 diagram — and the edge the auditor walks to find coupling
+    # and single points of failure"; only the plumbing was missing.
+    #
+    # Reified as a NODE rather than a bare element->element edge, because protocol,
+    # style, `via_interface` and failure handling have nowhere to live on an
+    # assertion, which is (subject, predicate, object|value). Same move the quality
+    # attributes already make above.
+    for c in output.get("connections", []) or []:
+        if not isinstance(c, dict):
+            continue
+        source_label = str(c.get("source") or "").strip()
+        target_label = str(c.get("target") or "").strip()
+        if not (source_label and target_label):
+            continue
+
+        p = prov("connections")
+        scope = default_scope
+        init_id = initiative_id or c.get("initiative_id")
+        cid = graph.add_node("Connection", f"{source_label} → {target_label}")
+        # An endpoint that names nothing declared becomes a placeholder through
+        # `_resolve`, exactly as every other undeclared referent does: the connection
+        # stays visible and surfaces as an unresolved reference instead of vanishing.
+        source_id = _resolve(graph, source_label, by_label)
+        target_id = _resolve(graph, target_label, by_label)
+        graph.add_assertion(cid, "source", obj=source_id,
+                            confidence=1.0, provenance=p, scope=scope, initiative_id=init_id)
+        graph.add_assertion(cid, "target", obj=target_id,
+                            confidence=1.0, provenance=p, scope=scope, initiative_id=init_id)
+        if c.get("protocol"):
+            graph.add_assertion(cid, "protocol", value=str(c["protocol"]),
+                                confidence=1.0, provenance=p, scope=scope, initiative_id=init_id)
+        if c.get("style"):
+            graph.add_assertion(cid, "style", value=str(c["style"]),
+                                confidence=1.0, provenance=p, scope=scope, initiative_id=init_id)
+        if c.get("description"):
+            graph.add_assertion(cid, "description_text", value=str(c["description"]),
+                                confidence=1.0, provenance=p, scope=scope, initiative_id=init_id)
+
     # ---- technology / style usage ----
     for t in output.get("technology_stacks", []) or []:
         if not isinstance(t, dict):
