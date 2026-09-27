@@ -1,0 +1,13 @@
+{#
+  The polling wrapper: used only when there is no journal to push from (the default
+  install, where `NullJournal` retains nothing) or when JavaScript is unavailable.
+  It carries the hx attributes on its own root, so the timer stops because a terminal
+  response stops carrying `poll_url` — there is no client-side state to fall out of
+  step with the server.
+#}
+<div id="run-progress"
+     {% if poll_url %}
+       hx-get="{{ poll_url }}" hx-trigger="every 2s" hx-swap="outerHTML"
+     {% endif %}>
+  {% include "partials/run_events.html" %}
+</div>

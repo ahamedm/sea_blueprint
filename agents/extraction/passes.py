@@ -234,6 +234,17 @@ def _emit_progress(
             log(f"    progress sink failed (ignored): {type(e).__name__}: {e}")
 
 
+# Public name for the profiles that report transitions without going through
+# `run_passes`: the requirements profile chunks and calls the model itself
+# (`agents/knowledge_extraction/agent.py`), so it needs the same
+# "a sink must never break a run" guarantee without adopting `PassSpec`s.
+emit_progress = _emit_progress
+
+# ...and the same one decider for what an attempt's outcome is called, so a watcher
+# and the stored `PassRecord` cannot disagree about what a pass did.
+outcome_state = _outcome_state
+
+
 def run_passes(
     agent,
     passes: Sequence[PassSpec],

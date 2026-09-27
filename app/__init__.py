@@ -26,10 +26,13 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Callable, Dict, Optional
+import time
+from datetime import datetime, timezone
+from typing import Any, Callable, Dict, List, Optional
 
 from flask import (
     Flask,
+    Response,
     abort,
     current_app,
     flash,
@@ -39,6 +42,7 @@ from flask import (
     request,
     send_file,
     session,
+    stream_with_context,
     url_for,
 )
 from werkzeug.utils import secure_filename
@@ -69,7 +73,6 @@ from app.projections import (
 from app.viewpoints.merged import DEFAULT_LENS, merged_view
 from core.knowledge import (
     DEFAULT_MATCH_THRESHOLD,
-    SOURCE_DESIGN_ASSISTANT,
     BaselineNotReady,
     DesignDraftStore,
     KnowledgeGraph,
@@ -80,8 +83,8 @@ from core.knowledge import (
     apply_decisions,
     bulk_resolve,
     bulk_verify,
-    graph_from_extraction,
     merge_graphs,
+    new_run_id,
     promote_to_baseline,
     resolve_reference,
     review_progress,
@@ -91,6 +94,26 @@ from core.knowledge.model import compute_graph_delta
 # The run journal. `core.events` imports its client lazily, so this costs nothing
 # when the deployment does not run Valkey.
 from core.events import NullJournal, RunEvent
+# The execution substrate: the job record, the bytes a job reads, and the one code
+# path a run takes whether a request or the worker drives it.
+from core.artifacts import ArtifactStore
+from core.jobs import (
+    GRAPH,
+    INLINE,
+    QUEUED,
+    RUNNING,
+    TRIGGER_UI,
+    Job,
+    SqliteJobStore,
+    new_job_id,
+)
+from app.runner import (
+    DomainPackFailed,
+    ExtractorLoadFailed,
+    RunFailed,
+    run_design,
+    run_ingest,
+)
 # The store contract and the workspace that addresses scopes. `StoreConflict` is
 # imported here because a lost update must surface as a message, not a 500.
 from core.knowledge import StoreConflict
@@ -99,6 +122,8 @@ from core.workspace import (
     WorkspaceError,
     backend_is_concurrency_safe,
     load_workspace,
+    scope_data_dir,
+    scope_drafts_dir,
 )
 from core.ontology import (
     OntologyError,
@@ -107,8 +132,90 @@ from core.ontology import (
     pack_for_graph,
 )
 
+# The deployment's own settings live in `.env` (`SEA_DATA_DIR`, `SEA_REVIEWER`,
+# `SEA_HOST`, ...). The agents already load it through `config.agent_config`, but the
+# web app must load it EARLIER and for itself: `create_app` resolves `STORE_ROOT` and
+# reads the workspace manifest before any agent is constructed, so a `.env` loaded
+# later is one that never applied to where the data lives — the app quietly falls
+# back to `data/sea` while the operator's `.env` says otherwise.
+
+
+def load_env(path: Optional[str] = None) -> None:
+    """Populate `os.environ` from `.env`, without overriding a real variable.
+
+    `override=False` is what keeps `SEA_DATA_DIR=data/other uv run sea-app` meaning
+    what it says. `path=None` lets python-dotenv discover the file (it walks up from
+    this package, so the app finds the repository's `.env` from any working
+    directory); passing a path is for tests. A missing `python-dotenv` is not fatal:
+    the app falls back to its defaults exactly as it did before this existed.
+    """
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv(dotenv_path=path, override=False)
+    except ImportError:  # pragma: no cover - python-dotenv is a declared dependency
+        pass
+
+
+load_env()
+
 DEFAULT_STORE_ROOT = "data/sea"
 MAX_UPLOAD_BYTES = 4 * 1024 * 1024
+#: How long a `RUNNING` job's silence is worth remarking on. It is not a timeout and
+#: nothing acts on it: recovery is YB-037's, and the honest thing this layer can do
+#: is say "no worker has been seen for N minutes" instead of showing a spinner.
+STALE_AFTER_SECONDS = 120
+
+# -- server-sent progress (phase 3b) -----------------------------------------
+#
+# A held connection is a resource, and the failure mode of an unbounded one is an
+# accidental load test: a browser retries an SSE stream every few seconds by itself,
+# so a handful of stale tabs against a dead or aged-out journal is a lot of requests.
+# Hence a cap on concurrent streams and a cap on how long one lives.
+SSE_MAX_CONNECTIONS = 8
+SSE_MAX_SECONDS = 30 * 60
+SSE_WAIT_MS = 1000
+SSE_HEARTBEAT_SECONDS = 15
+_SSE_ACTIVE = [0]
+"""Live stream count for this process. A list because a closure needs to mutate
+something; the GIL makes the increment safe enough for a bound that only needs to be
+approximately right."""
+
+_SSE_HEADERS = {
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+    # Tell a reverse proxy not to buffer the stream, which would defeat the point.
+    "X-Accel-Buffering": "no",
+}
+
+
+def _sse_frame(event_id: str, payload: Any) -> str:
+    """One SSE frame. JSON-encoded so multi-line HTML cannot break the framing."""
+    prefix = f"id: {event_id}\n" if event_id else ""
+    return f"{prefix}data: {json.dumps(payload)}\n\n"
+
+
+def _last_stream_id(events: List[Any]) -> str:
+    for event in reversed(events):
+        if getattr(event, "stream_id", ""):
+            return event.stream_id
+    return ""
+
+
+def _age_seconds(stamp: str) -> Optional[int]:
+    """Seconds since an ISO-8601 `Z` timestamp, or None when absent/unreadable.
+
+    Display-only, and tolerant on purpose: a page must not 500 because a clock
+    string was surprising. Missing is reported as missing, never as zero — "no
+    heartbeat" and "a heartbeat just now" are opposite facts.
+    """
+    if not stamp:
+        return None
+    try:
+        when = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return max(0, int((datetime.now(timezone.utc) - when).total_seconds()))
 
 # How many concepts the map's browse table renders. High enough that it is not a
 # filter in disguise, low enough that one page cannot grow without bound; the
@@ -160,13 +267,32 @@ def _default_journal():
     `NullJournal` unless a Valkey endpoint is configured, so an MVP install with no
     stream server behaves exactly as before — runs simply report nothing live, which is
     also what an unattended run looked like anyway.
+
+    A configured endpoint whose client library is missing degrades the same way
+    rather than stopping the app. The journal is a notification channel: the module
+    contract is that losing it degrades *live progress only*, so an install that
+    sets `SEA_VALKEY_HOST` before installing `redis`/`valkey` must still boot. The
+    failure is recorded, not swallowed, because silently reporting nothing is what
+    this fallback exists to make visible.
     """
     host = os.environ.get("SEA_VALKEY_HOST", "")
     if not host:
         return NullJournal()
-    from core.events import ValkeyJournal
+    try:
+        from core.events import ValkeyJournal
 
-    return ValkeyJournal(host=host, port=int(os.environ.get("SEA_VALKEY_PORT", "6379")))
+        return ValkeyJournal(
+            host=host, port=int(os.environ.get("SEA_VALKEY_PORT", "6379"))
+        )
+    except Exception as exc:  # noqa: BLE001 - a dead journal must not stop the app
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "run journal configured at %s but unavailable (%s: %s); "
+            "live progress is disabled, runs are unaffected",
+            host, type(exc).__name__, exc,
+        )
+        return NullJournal()
 
 
 def create_app(
@@ -175,6 +301,7 @@ def create_app(
     extractor_factory: Optional[Callable[[str], Any]] = None,
     design_factory: Optional[Callable[[], Any]] = None,
     journal_factory: Optional[Callable[[], Any]] = None,
+    job_store_factory: Optional[Callable[[str], Any]] = None,
 ) -> Flask:
     app = Flask(__name__, static_folder="static", template_folder="templates")
 
@@ -187,6 +314,7 @@ def create_app(
         EXTRACTOR_FACTORY=extractor_factory or _default_extractor,
         DESIGN_FACTORY=design_factory or _default_design_agent,
         JOURNAL_FACTORY=journal_factory or _default_journal,
+        JOB_STORE_FACTORY=job_store_factory,
         INITIATIVE_ID=os.environ.get("SEA_INITIATIVE", "INIT-MVP-001"),
         ONTOLOGY_DIR=os.environ.get("SEA_ONTOLOGY_DIR", "ontology"),
         SCOPE_ID=os.environ.get("SEA_SCOPE", ""),
@@ -248,14 +376,58 @@ def create_app(
         holds a connection pool, and rebuilding it per page view would defeat it."""
         return journal
 
+    # -- the execution substrate, per scope ------------------------------
+    #
+    # Both are built once per process and cached, like the graph stores: a SQLite
+    # connection and a directory are cheap to hold and expensive to rebuild per
+    # request.
+    job_stores: Dict[str, Any] = {}
+    artifacts_by_scope: Dict[str, ArtifactStore] = {}
+
+    def artifact_store() -> ArtifactStore:
+        """Where this scope's input bytes live. Content-addressed, raw bytes only."""
+        scope_id = current_scope_id()
+        if scope_id not in artifacts_by_scope:
+            artifacts_by_scope[scope_id] = ArtifactStore(
+                scope_data_dir(workspace, current_scope()) / "artifacts"
+            )
+        return artifacts_by_scope[scope_id]
+
+    def current_job_store():
+        """The job store for this scope, or None when it cannot run a worker.
+
+        A worker needs two things from storage: an atomic claim, and an apply step
+        that can refuse a stale write. A backend that offers neither would give a
+        duplicate-worker race and a silent clobber, so for those scopes the
+        substrate is simply absent and the route runs the work inline — exactly the
+        behaviour every existing install (and every test) already depends on. That
+        is the same "degrade, do not pretend" rule the journal follows.
+        """
+        scope_id = current_scope_id()
+        if scope_id in job_stores:
+            return job_stores[scope_id]
+        store = None
+        factory = app.config.get("JOB_STORE_FACTORY")
+        scope = current_scope()
+        try:
+            if factory is not None:
+                store = factory(scope_id)
+            elif scope is not None and backend_is_concurrency_safe(scope.backend):
+                store = SqliteJobStore(scope_data_dir(workspace, scope) / "jobs.sqlite")
+            if store is not None and not getattr(store, "concurrency_safe", False):
+                store = None
+        except Exception as exc:  # noqa: BLE001 - an unavailable queue is not fatal
+            app.logger.warning("job store unavailable for scope %s: %s", scope_id, exc)
+            store = None
+        job_stores[scope_id] = store
+        return store
+
     def current_drafts() -> DesignDraftStore:
         """Drafts are staged per scope, so a proposal drafted against one system can
         never be applied to another."""
         scope_id = current_scope_id()
         if scope_id not in drafts_by_scope:
-            scope = current_scope()
-            base = workspace.paths(scope)["root"] if scope and scope.backend == "file" \
-                else workspace.root / "scopes" / (scope_id or "default")
+            base = scope_drafts_dir(workspace, current_scope())
             drafts_by_scope[scope_id] = DesignDraftStore(base).ensure()
         return drafts_by_scope[scope_id]
 
@@ -384,17 +556,333 @@ def create_app(
         than a pub/sub fire-and-forget.
         """
         since = request.args.get("since") or None
+
+        # Scope discipline, not authentication. When this scope has a job store the
+        # run must belong to it; an unknown run id 404s rather than answering 200
+        # with an empty list, which reads as "nothing has happened yet" instead of
+        # "there is no such run". A file-backed scope has no jobs to check against
+        # (its runs are synchronous), so the journal is read as before.
+        job_store = current_job_store()
+        job = None
+        if job_store is not None:
+            job = job_store.find_by_run(run_id, current_scope_id())
+            if job is None:
+                return jsonify({"run_id": run_id, "error": "no such run in this scope",
+                                "events": []}), 404
+
         try:
-            events = current_journal().read(run_id, since=since)
+            all_events = current_journal().read(run_id)
         except Exception as exc:  # noqa: BLE001 - a dead journal must not 500 the page
             return jsonify({"run_id": run_id, "since": since, "events": [],
+                            "cursor": since,
                             "error": f"journal unavailable: {type(exc).__name__}"}), 503
+
+        # Terminal is a property of the RUN, not of the slice the cursor asked for.
+        # Computed from the whole log (and the job record) so a client that has
+        # already consumed the terminal event is still told to stop.
+        terminal = (job.is_terminal if job is not None else False) or any(
+            event.is_terminal for event in all_events
+        )
+
+        # The slice is taken here rather than by the journal so `terminal` above can
+        # see the whole run; `since` is an event's `stream_id` and the log is ordered.
+        events = all_events
+        if since:
+            index = next(
+                (i for i, event in enumerate(all_events) if event.stream_id == since),
+                None,
+            )
+            events = all_events[index + 1:] if index is not None else all_events
+
+        # `cursor` is the value to send back as `since` next time: the last stream id
+        # this response carried. Without it a polling client cannot advance, and
+        # "replay" degrades to "start over".
+        cursor = events[-1].stream_id if events and events[-1].stream_id else since
         return jsonify({
             "run_id": run_id,
             "since": since,
+            "cursor": cursor,
             "events": [event.to_dict() for event in events],
-            "terminal": any(event.is_terminal for event in events),
+            "terminal": terminal,
         })
+
+    # -- the run page ----------------------------------------------------
+
+    def _resolve_job(job_id: Optional[str] = None, run_id: Optional[str] = None):
+        """The scope's job for a job id OR a run id, or 404.
+
+        Scope discipline, not authentication: the store is resolved for the scope
+        this request is about, so an id from another product simply is not found. An
+        unknown id 404s rather than rendering an empty page that looks like a run
+        with no progress.
+
+        Two keys because the two sides address the run differently: the queue is
+        keyed by job id, while the journal — and therefore `Last-Event-ID` on a
+        reconnect — is keyed by run id.
+        """
+        store = current_job_store()
+        if store is None:
+            abort(404, description="this scope has no job store, so it has no runs")
+        if job_id:
+            job = store.get(job_id)
+        else:
+            job = store.find_by_run(run_id or "", current_scope_id())
+        if job is None or (job.scope_id and job.scope_id != current_scope_id()):
+            abort(404, description=f"no run {job_id or run_id}")
+        return store, job
+
+    def _job_view(job_id: str) -> Dict[str, Any]:
+        """Everything the run page and its polling partial render."""
+        store, job = _resolve_job(job_id=job_id)
+        return _job_context(store, job)
+
+    def _job_view_by_run(run_id: str) -> Dict[str, Any]:
+        store, job = _resolve_job(run_id=run_id)
+        return _job_context(store, job)
+
+    def _job_context(store: Any, job: Any) -> Dict[str, Any]:
+        """The run's state, rendered from the record plus whatever the journal has.
+
+        Re-read on every push, because it is the *current* state of the run that the
+        page shows, not a delta: one representation, so a reconnecting or
+        late-arriving viewer and a live one cannot disagree.
+        """
+        journal_error = ""
+        events: List[RunEvent] = []
+        try:
+            events = current_journal().read(job.run_id)
+        except Exception as exc:  # noqa: BLE001 - no live progress is not a failure
+            journal_error = f"{type(exc).__name__}"
+
+        # A job is terminal when the JOB says so, not only when a terminal event
+        # arrived: the default deployment has no journal at all (`NullJournal`), so
+        # "any terminal event" would leave a finished run polling forever.
+        terminal = job.is_terminal or any(event.is_terminal for event in events)
+
+        # The verdict's home is the run RECORD, and where that lives depends on the
+        # kind: an ingest run's record is in the working graph, a design run's is
+        # written with its draft because a proposal never touches the working set.
+        # The terminal journal event is published FROM the record, so it is a
+        # faithful last resort; `""` means "no verdict yet", which is not the same
+        # as a failed run and must not be rendered as one.
+        completeness = ""
+        record = state().graph.runs.get(job.run_id)
+        if record is not None:
+            completeness = record.completeness
+        elif job.kind == "design":
+            draft = next(
+                (d for d in current_drafts().list() if d.run_id == job.run_id), None
+            )
+            if draft is not None:
+                completeness = draft.completeness
+        if not completeness and terminal and events:
+            completeness = events[-1].completeness
+
+        stale = _age_seconds(job.worker_heartbeat_at) if job.state == "RUNNING" else None
+        queued_for = _age_seconds(job.created_at) if job.state == "QUEUED" else None
+        # The template renders a compact one-line detail per event rather than the
+        # raw payload: the payload is a closed set of counters and labels, and
+        # formatting it here keeps the view free of presentation logic that would
+        # drift between the page and the polling fragment.
+        event_rows = [
+            {
+                "seq": event.seq,
+                "at": event.at,
+                "kind": event.kind,
+                "detail": ", ".join(
+                    f"{key}={value}"
+                    for key, value in sorted(event.payload.items())
+                    if value not in ("", None)
+                ),
+                "terminal": event.is_terminal,
+            }
+            for event in events
+        ]
+        return {
+            "job": job,
+            "events": events,
+            "event_rows": event_rows,
+            "terminal": terminal,
+            "completeness": completeness,
+            "journal_error": journal_error,
+            "position": store.queue_position(job.job_id) if hasattr(store, "queue_position") else 0,
+            "queue_depth": store.queue_depth() if hasattr(store, "queue_depth") else 0,
+            "stale_seconds": stale,
+            "worker_stale": stale is not None and stale >= STALE_AFTER_SECONDS,
+            "queued_seconds": queued_for,
+            "queue_stalled": queued_for is not None and queued_for >= STALE_AFTER_SECONDS,
+            "age_seconds": _age_seconds(job.created_at),
+            # Which transport this page should use, decided here rather than in the
+            # template: push needs a journal that retains events, and there is
+            # nothing to watch once the run is over. With no journal (the default
+            # install) the page polls instead — the fragment reads job state from
+            # the store, so it still works.
+            "stream_url": (
+                url_for("run_stream", run_id=job.run_id)
+                if getattr(current_journal(), "retains", False) and not terminal
+                else ""
+            ),
+            "poll_url": (
+                url_for("run_events_partial", job_id=job.job_id) if not terminal else ""
+            ),
+        }
+
+    @app.route("/runs/<job_id>")
+    def run_view(job_id):
+        """The page a submitter is sent to instead of a blank wait.
+
+        Since the run no longer happens inside their request, the page has to say
+        what is happening: where the job is in the queue, whether a worker has been
+        seen recently, and what the run has done so far.
+        """
+        return render_template("run.html", **_job_view(job_id))
+
+    @app.route("/api/runs/<run_id>/stream")
+    def run_stream(run_id):
+        """Phase 3b: the run's progress as Server-Sent Events.
+
+        SSE rather than a WebSocket because progress is one-way: it reconnects by
+        itself, `Last-Event-ID` gives the resume cursor for free (phase 1b), and it
+        adds no new server capability. The frame payload is the *rendered fragment*,
+        not a second JSON representation of it, so the pushed view and the polling
+        view cannot drift apart.
+
+        Two things keep this from becoming an accidental load test:
+        `SSE_MAX_CONNECTIONS` bounds how many held connections one process serves,
+        and `SSE_MAX_SECONDS` bounds how long any one of them lives — a browser
+        whose run's events have aged out of the journal's TTL would otherwise retry
+        forever. Both close cleanly, and `EventSource` resumes with the cursor.
+        """
+        _resolve_job(run_id=run_id)  # 404s an unknown or other-scope run
+
+        if _SSE_ACTIVE[0] >= SSE_MAX_CONNECTIONS:
+            return (
+                jsonify({"run_id": run_id,
+                         "error": "too many live progress streams open"}),
+                503,
+            )
+
+        # `once` makes the stream testable and scriptable: one frame, then close.
+        # Without it a test client would block forever on a generator that only ends
+        # when the run does.
+        once = request.args.get("once") in ("1", "true", "yes")
+        journal = current_journal()
+        since = request.headers.get("Last-Event-ID") or request.args.get("since") or None
+
+        if not getattr(journal, "retains", False):
+            # No stream to tail. Say so once and close, rather than holding a
+            # connection that can never produce anything.
+            return Response(
+                iter([_sse_frame("", {"html": render_template(
+                    "partials/run_events.html", **_job_context(*_resolve_job(run_id=run_id))
+                ), "terminal": True, "reason": "no journal configured"})]),
+                mimetype="text/event-stream",
+                headers=_SSE_HEADERS,
+            )
+
+        def frames():
+            _SSE_ACTIVE[0] += 1
+            started = time.monotonic()
+            last_key = None
+            last_beat = time.monotonic()
+            try:
+                while True:
+                    context = _job_context(*_resolve_job(run_id=run_id))
+                    cursor = _last_stream_id(context["events"]) or since or ""
+                    # Push only when something actually changed. A run can be silent
+                    # for minutes inside one model call; re-sending an identical
+                    # fragment every 15 s would be noise, so the heartbeat covers the
+                    # silence and the fragment covers the change.
+                    key = (cursor, context["job"].state, context["completeness"])
+                    if key != last_key:
+                        last_key = key
+                        html = render_template("partials/run_events.html", **context)
+                        yield _sse_frame(cursor, {
+                            "html": html,
+                            "terminal": bool(context["terminal"]),
+                            "state": context["job"].state,
+                            "completeness": context["completeness"],
+                        })
+                        if context["terminal"] or once:
+                            return
+                        last_beat = time.monotonic()
+                    if once:
+                        return
+                    if time.monotonic() - started > SSE_MAX_SECONDS:
+                        # Close rather than retrying forever; the browser reconnects
+                        # with its cursor if it still cares.
+                        yield ": stream closed after the maximum duration\n\n"
+                        return
+                    new_events = journal.wait(run_id, since=cursor or None,
+                                              timeout_ms=SSE_WAIT_MS)
+                    if not new_events and time.monotonic() - last_beat >= SSE_HEARTBEAT_SECONDS:
+                        # A comment frame: keeps an idle proxy from severing the
+                        # connection without pretending anything happened.
+                        yield ": keep-alive\n\n"
+                        last_beat = time.monotonic()
+            finally:
+                _SSE_ACTIVE[0] -= 1
+
+        return Response(
+            stream_with_context(frames()),
+            mimetype="text/event-stream",
+            headers=_SSE_HEADERS,
+        )
+
+    @app.route("/runs/<job_id>/events.html")
+    def run_events_partial(job_id):
+        """The polling fragment — the fallback transport.
+
+        Used when no journal retains events (the default install) or when the run is
+        already over. HTMX swaps this over itself every couple of seconds; the
+        wrapper stops carrying the polling attributes once the run is terminal.
+        """
+        return render_template("partials/run_events_poll.html", **_job_view(job_id))
+
+    def jobs_panel(limit: int = 8) -> Dict[str, Any]:
+        """The queued/recent runs for this scope, and whether it can run them at all.
+
+        Shown on the ingest page because a background run is otherwise reachable only
+        through the redirect that created it — navigate away, or come back later, and
+        there is no route to a run you started. It also says *why* a scope is
+        synchronous instead of leaving an inert async path looking like a bug.
+        """
+        store = current_job_store()
+        if store is None:
+            scope = current_scope()
+            backend = scope.backend if scope else "file"
+            return {
+                "jobs": [],
+                "jobs_enabled": False,
+                "jobs_running": 0,
+                "jobs_note": (
+                    f"This scope uses the {backend} store, which cannot guard a "
+                    f"concurrent write, so extractions run inside this request and the "
+                    f"wait is as long as the model takes. A scope declared with "
+                    f"`backend: sqlite` runs them in a background worker instead."
+                ),
+            }
+        scope_id = current_scope_id()
+        rows = [
+            {
+                "job": job,
+                "queued_seconds": _age_seconds(job.created_at) if job.state == QUEUED else None,
+            }
+            for job in store.list(scope_id, limit=limit)
+        ]
+        running = store.counts(scope_id).get(RUNNING, 0)
+        return {
+            "jobs": rows,
+            "jobs_enabled": True,
+            "jobs_running": running,
+            "jobs_note": (
+                "Extractions for this scope are queued and run by a background "
+                "worker, so submitting one returns immediately and the result lands "
+                "whether or not this page stays open."
+                + ("" if running else " Nothing is running now — start a worker with "
+                                      "`uv run sea-worker` if the queue is not moving.")
+            ),
+        }
 
     @app.route("/workspace")
     def workspace_view():
@@ -447,20 +935,32 @@ def create_app(
                 # pack cannot take the whole form down with it.
                 domain_packs=discover_domain_packs(current_app.config["ONTOLOGY_DIR"]),
                 active_domain_pack=state().meta.get("domain_pack", ""),
+                # Queued and recent runs, plus whether this scope runs them in the
+                # background at all.
+                **jobs_panel(),
             )
 
         uploaded = request.files.get("document")
         text = (request.form.get("text") or "").strip()
         filename = ""
+        # The bytes as received, kept alongside the decoded text because the
+        # artifact store addresses BYTES. Re-encoding the decoded text would make
+        # the digest a hash of a lossy transform (`errors="replace"`), so two
+        # different documents could collide and a Latin-1 upload would lose every
+        # non-ASCII character before it was ever stored.
+        raw_bytes = b""
 
         if uploaded and uploaded.filename:
             filename = secure_filename(uploaded.filename)
-            text = uploaded.read().decode("utf-8", errors="replace")
+            raw_bytes = uploaded.read()
+            text = raw_bytes.decode("utf-8", errors="replace")
         elif not text:
             flash("Provide a Markdown file or paste document text.", "error")
             return redirect(url_for("ingest"))
         else:
             filename = (request.form.get("text_name") or "pasted-document.md").strip()
+            # A paste has no bytes of its own; UTF-8 is the honest encoding of it.
+            raw_bytes = text.encode("utf-8")
 
         doc_type = (request.form.get("type") or "requirements").strip()
         initiative_id = (
@@ -474,108 +974,104 @@ def create_app(
         domain_pack = (request.form.get("domain_pack") or "").strip()
         actor = reviewer()
 
-        try:
-            agent = current_app.config["EXTRACTOR_FACTORY"](doc_type)
-        except Exception as exc:  # noqa: BLE001 - surfaced to the user
-            flash(f"Could not load the {doc_type} extractor: {exc}", "error")
-            return redirect(url_for("ingest"))
-
-        try:
-            # Capability-probed rather than assumed. The extractor is injectable,
-            # and a test double that stands in for the model stack should not have
-            # to implement prompt compilation it never performs. A real agent does
-            # have this method; anything without it simply runs with no pack.
-            select_pack = getattr(agent, "use_domain_pack", None)
-            if domain_pack and callable(select_pack):
-                select_pack(domain_pack)
-        except Exception as exc:  # noqa: BLE001
-            flash(f"Could not load the domain pack: {exc}", "error")
-            return redirect(url_for("ingest"))
-
-        active_pack_id = ""
-        read_pack_id = getattr(agent, "active_domain_pack_id", None)
-        if callable(read_pack_id):
+        # WHERE THE WORK GOES. With a job store the request only *records* the work
+        # and returns; the worker runs it. Without one — the file-backed MVP, and
+        # every test that injects a fake extractor — it runs here, exactly as
+        # before. Both paths publish the same journal, so this is a fallback, not a
+        # second mechanism.
+        digest = ""
+        job_store = current_job_store()
+        if job_store is not None:
             try:
-                active_pack_id = read_pack_id() or ""
-            except Exception:  # noqa: BLE001 - provenance is best-effort here
-                active_pack_id = ""
+                digest = artifact_store().put(raw_bytes)
+                job = job_store.enqueue(Job(
+                    job_id=new_job_id(),
+                    run_id=new_run_id(),
+                    scope_id=current_scope_id(),
+                    kind="ingest",
+                    trigger=TRIGGER_UI,
+                    input_kind=INLINE,
+                    input={"artifact": digest},
+                    parameters={
+                        "document_type": doc_type,
+                        "initiative_id": initiative_id,
+                        "domain_pack": domain_pack,
+                        "filename": filename,
+                        "revision_label": request.form.get("revision_label") or "",
+                        "note": request.form.get("note", ""),
+                    },
+                    actor=actor,
+                ))
+            except Exception as exc:  # noqa: BLE001 - fall back to running it here
+                flash(
+                    f"Could not queue {filename} ({exc}); running it in this request "
+                    f"instead.", "warning",
+                )
+            else:
+                flash(
+                    f"Queued {filename} ({doc_type}) as {job.job_id} — the worker "
+                    f"will extract it. Nothing is written until it runs.", "success",
+                )
+                # A queue with no consumer is the failure this layer introduces, and
+                # it is silent by nature. The cheapest honest signal is the oldest
+                # waiting job: if something has been queued longer than a worker
+                # would plausibly take to notice, say so now rather than letting the
+                # page look busy forever.
+                try:
+                    waiting = job_store.list(current_scope_id(), states=[QUEUED])
+                    oldest = max(
+                        (_age_seconds(other.created_at) or 0) for other in waiting
+                    )
+                    if oldest >= STALE_AFTER_SECONDS:
+                        flash(
+                            f"No worker appears to be running — the oldest queued job "
+                            f"has waited {oldest}s. Start one with "
+                            f"`uv run sea-worker`.", "warning",
+                        )
+                except Exception as exc:  # noqa: BLE001 - a hint is not worth failing over
+                    # Logged, not swallowed: a broken hint is how a real queue-depth
+                    # bug hides (it did once during development).
+                    app.logger.warning("could not compute the queue-age hint: %s", exc)
+                return redirect(url_for("run_view", job_id=job.job_id))
 
         try:
-            result = agent.run(
-                {
-                    "document": text,
-                    "document_type": doc_type,
-                    "domain_pack": active_pack_id,
-                    "initiative_id": initiative_id,
-                }
+            outcome = run_ingest(
+                store=current_store(),
+                journal=current_journal(),
+                scope_id=current_scope_id(),
+                document=text,
+                filename=filename,
+                doc_type=doc_type,
+                extractor_factory=current_app.config["EXTRACTOR_FACTORY"],
+                initiative_id=initiative_id,
+                domain_pack=domain_pack,
+                actor=actor,
+                revision_label=request.form.get("revision_label") or "",
+                note=request.form.get("note", ""),
+                document_digest=digest,
             )
+        except (ExtractorLoadFailed, DomainPackFailed) as exc:
+            flash(str(exc), "error")
+            return redirect(url_for("ingest"))
+        except RunFailed as exc:
+            flash(f"Extraction reported failure: {exc}", "error")
+            return redirect(url_for("ingest"))
+        except StoreConflict:
+            # A lost update is a *known* outcome with a handler that explains it
+            # ("nothing was overwritten") — re-raised so it reaches that handler
+            # instead of being flattened into "Extraction failed".
+            raise
         except Exception as exc:  # noqa: BLE001
             flash(f"Extraction failed: {exc}", "error")
             return redirect(url_for("ingest"))
 
-        if not result.success:
-            detail = "; ".join(result.errors) or "unknown error"
-            flash(f"Extraction reported failure: {detail}", "error")
-            return redirect(url_for("ingest"))
-
-        # `result.output` is the extraction payload. The previous version passed
-        # `result.model_dump()`, i.e. the AgentResult envelope, so ingest found no
-        # `triples`/`elements` keys and every ingest produced an empty graph.
-        output = result.output if isinstance(result.output, dict) else {}
-        metadata = dict(result.metadata or {})
-        # Which document this run read. Reconciliation needs it to tell the two
-        # sides apart — a cross-graph predicate claims its referent is in the
-        # OTHER graph — and it is not recoverable after ingest, so it travels with
-        # the run rather than being re-derived from a filename.
-        metadata.setdefault("document_type", doc_type)
-
-        before = state()
-        incoming, run_record = graph_from_extraction(
-            output,
-            metadata=metadata,
-            document_ref=filename,
-            document_text=text,
-            initiative_id=initiative_id,
-            # Recorded on every assertion, so the vocabulary a fact was extracted
-            # under stays knowable after the Initiative is re-run under another.
-            domain_pack=active_pack_id,
-        )
-        merged = merge_graphs(before.graph, incoming)
-        delta = compute_graph_delta(before.graph, merged)
-
-        meta = dict(before.meta)
-        meta["initiative_id"] = initiative_id
-        meta["domain_pack"] = active_pack_id
-        meta["last_ingest"] = {
-            "document": filename,
-            "doc_type": doc_type,
-            "run_id": run_record.id,
-            "completeness": run_record.completeness,
-            "domain_pack": active_pack_id,
-            "nodes": len(merged.nodes) - len(before.graph.nodes),
-            "facts": len(delta.added_assertions),
-            "changed": len(delta.changed_assertions),
-        }
-        save(Snapshot(graph=merged, log=before.log, meta=meta))
-
-        revision_label = request.form.get("revision_label") or f"Ingest · {filename}"
-        current_store().commit(
-            merged,
-            before.log,
-            label=revision_label,
-            actor=actor,
-            note=request.form.get("note", ""),
-            initiative_id=initiative_id,
-        )
-
-        removed = len(delta.removed_assertions)
         flash(
-            f"{filename} ({doc_type}) → {run_record.completeness}: "
-            f"+{len(delta.added_assertions)} facts, {len(delta.changed_assertions)} changed"
-            + (f", −{removed} removed" if removed else ""),
+            f"{outcome.filename} ({outcome.doc_type}) → {outcome.completeness}: "
+            f"+{outcome.added} facts, {outcome.changed} changed"
+            + (f", −{outcome.removed} removed" if outcome.removed else ""),
             "success",
         )
-        if run_record.completeness != "COMPLETE":
+        if outcome.completeness != "COMPLETE":
             flash(
                 "Extraction was not COMPLETE — absence of a fact is NOT evidence "
                 "of its absence. Review before auditing.",
@@ -681,81 +1177,68 @@ def create_app(
             flash("Nothing to design against — ingest a requirements document first.", "error")
             return redirect(url_for("design"))
 
-        try:
-            agent = current_app.config["DESIGN_FACTORY"]()
-        except Exception as exc:                                     # noqa: BLE001
-            flash(f"Could not load the Design Assistant: {exc}", "error")
-            return redirect(url_for("design"))
-
         domain_pack = (
             request.form.get("domain_pack") or snapshot.meta.get("domain_pack") or ""
         ).strip()
-        try:
-            select_pack = getattr(agent, "use_domain_pack", None)
-            if domain_pack and callable(select_pack):
-                select_pack(domain_pack)
-        except Exception as exc:                                     # noqa: BLE001
-            flash(f"Could not load the domain pack: {exc}", "error")
-            return redirect(url_for("design"))
-
-        active_pack = ""
-        read_pack_id = getattr(agent, "active_domain_pack_id", None)
-        if callable(read_pack_id):
-            try:
-                active_pack = read_pack_id() or ""
-            except Exception:                                        # noqa: BLE001
-                active_pack = ""
-
         initiative_id = (
             snapshot.meta.get("initiative_id") or current_app.config["INITIATIVE_ID"]
         ).strip()
 
+        # As with ingest: with a job store the request records the work, and the
+        # worker runs it. The input is the graph (`input_kind=graph`), so nothing is
+        # written to the artifact store — there are no bytes to read.
+        job_store = current_job_store()
+        if job_store is not None:
+            try:
+                job = job_store.enqueue(Job(
+                    job_id=new_job_id(),
+                    run_id=new_run_id(),
+                    scope_id=current_scope_id(),
+                    kind="design",
+                    trigger=TRIGGER_UI,
+                    input_kind=GRAPH,
+                    input={"base_ref": inputs["base_ref"] or "working"},
+                    parameters={"initiative_id": initiative_id,
+                                "domain_pack": domain_pack},
+                    actor=reviewer(),
+                ))
+            except Exception as exc:  # noqa: BLE001 - fall back to running it here
+                flash(f"Could not queue the design run ({exc}); running it in this "
+                      f"request instead.", "warning")
+            else:
+                flash(f"Queued design run {job.job_id} — the worker will draft it.",
+                      "success")
+                return redirect(url_for("run_view", job_id=job.job_id))
+
         try:
-            result = agent.run({
-                "graph": snapshot.graph,
-                "baseline": inputs["baseline"],
-                "base_ref": inputs["base_ref"],
-                "initiative_id": initiative_id,
-                "domain_pack": active_pack,
-            })
+            outcome = run_design(
+                store=current_store(),
+                journal=current_journal(),
+                scope_id=current_scope_id(),
+                snapshot=snapshot,
+                design_factory=current_app.config["DESIGN_FACTORY"],
+                drafts=current_drafts(),
+                baseline=inputs["baseline"],
+                base_ref=inputs["base_ref"],
+                initiative_id=initiative_id,
+                domain_pack=domain_pack,
+            )
+        except (ExtractorLoadFailed, DomainPackFailed) as exc:
+            flash(str(exc), "error")
+            return redirect(url_for("design"))
+        except RunFailed as exc:
+            flash(f"Design run reported failure: {exc}", "error")
+            return redirect(url_for("design"))
         except Exception as exc:                                     # noqa: BLE001
             flash(f"Design run failed: {exc}", "error")
             return redirect(url_for("design"))
 
-        if not result.success:
-            detail = "; ".join(result.errors) or "unknown error"
-            flash(f"Design run reported failure: {detail}", "error")
-            return redirect(url_for("design"))
-
-        output = result.output if isinstance(result.output, dict) else {}
-        metadata = dict(result.metadata or {})
-        metadata.setdefault("document_type", "architecture")
-
-        proposal_graph, run = graph_from_extraction(
-            output,
-            metadata=metadata,
-            document_ref=f"design:{initiative_id}@{inputs['base_ref'] or 'working'}",
-            document_text=output.get("design_digest", ""),
-            initiative_id=initiative_id,
-            domain_pack=active_pack,
-            source_type=SOURCE_DESIGN_ASSISTANT,
+        output, run, draft, delta = (
+            outcome.output, outcome.run, outcome.draft, outcome.delta
         )
-        merged = merge_graphs(snapshot.graph, proposal_graph)
-        delta = compute_graph_delta(snapshot.graph, merged)
-
-        draft = current_drafts().save(
-            proposal_graph,
-            label=f"Design draft · {initiative_id}",
-            initiative_id=initiative_id,
-            base_ref=inputs["base_ref"] or "working",
-            run_id=run.id,
-            completeness=run.completeness,
-            domain_pack=active_pack,
-            caveats=metadata.get("design_caveats") or [],
-            findings=output.get("findings") or [],
-            pattern_resolutions=output.get("pattern_resolutions") or [],
-            digest=output.get("design_digest", ""),
-        )
+        # The preview shows what applying WOULD produce; `run_design` already
+        # computed the merge for the delta, so use that rather than merging twice.
+        merged = outcome.merged
         flash(
             f"Draft {draft.id} ({run.completeness}) — {len(delta.added_nodes)} new "
             f"concept(s), {len(delta.added_assertions)} fact(s). Nothing is applied yet.",
@@ -767,7 +1250,7 @@ def create_app(
             drafts=current_drafts().list(),
             proposal=_proposal_view(output, run, draft, delta, snapshot.graph, merged),
             domain_packs=discover_domain_packs(current_app.config["ONTOLOGY_DIR"]),
-            active_domain_pack=active_pack,
+            active_domain_pack=outcome.domain_pack,
         )
 
     @app.route("/design/apply", methods=["POST"])

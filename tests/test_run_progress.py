@@ -131,6 +131,11 @@ class FakeJournal:
     def read(self, run_id: str, since: str | None = None):
         return [e for e in self.events if e.run_id == run_id]
 
+    def wait(self, run_id, since=None, timeout_ms=500, count=100):
+        # A journal that retains events would block here; the fake has nothing new
+        # between calls, so it returns immediately like `NullJournal`.
+        return []
+
     def close(self, run_id: str, ttl_seconds: int | None = None) -> None:
         return None
 
@@ -258,9 +263,20 @@ EXPECTED_TERMINAL_KEYS = {
     RUN_FAILED: {"completeness", "error"},
 }
 
+# `RUN_STARTED` names what the run is reading and how much of it there is. These are
+# run-level identity — not extracted content — and they are listed here so the closed
+# set stays closed rather than growing a per-kind exception.
+EXPECTED_START_KEYS = {
+    RUN_STARTED: {"document_ref", "document_type", "domain_pack", "chunks", "pass_count"},
+}
+
 
 def test_the_payload_vocabulary_is_exactly_the_documented_transition_set():
-    documented = set().union(*EXPECTED_KEYS.values(), *EXPECTED_TERMINAL_KEYS.values())
+    documented = set().union(
+        *EXPECTED_KEYS.values(),
+        *EXPECTED_TERMINAL_KEYS.values(),
+        *EXPECTED_START_KEYS.values(),
+    )
     assert PROGRESS_PAYLOAD_KEYS == documented
 
 

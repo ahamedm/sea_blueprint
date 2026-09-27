@@ -93,7 +93,12 @@ def test_envelope_is_json_serialisable():
 
 def test_the_wire_form_is_flat_and_names_the_envelope_fields():
     wire = _event().to_dict()
-    assert set(wire) == {"event_version", "run_id", "scope_id", "seq", "at", "kind", "payload"}
+    assert set(wire) == {
+        "event_version", "run_id", "scope_id", "seq", "at", "kind", "payload",
+        # The journal's cursor for this event. Carried on the envelope rather than
+        # parsed by subscribers, so a reconnecting reader knows what to ask from.
+        "stream_id",
+    }
     assert wire["event_version"] == EVENT_VERSION
 
 

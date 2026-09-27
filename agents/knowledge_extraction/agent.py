@@ -17,7 +17,9 @@ from ..extraction import (
     merge_triples,
     summarise_chunks,
 )
+from ..extraction.passes import emit_progress, outcome_state
 from ..extraction.quality import enrich_entities
+from core.events import PASS_FINISHED, PASS_STARTED
 from core.knowledge.model import PassRecord
 
 # ============================================================================
@@ -412,6 +414,10 @@ class KnowledgeExtractionAgent(SEABaseAgent):
             # describes nothing, which is precisely what the old `domain` field was.
             domain_pack = self.active_domain_pack_id()
             force_text = bool(input_data.get("force_text_parsing", False))
+            # A sink the caller attached, if any. As in the architecture profile,
+            # the pipeline emits and knows nothing about who is listening; a dead
+            # sink cannot fail the run (`emit_progress` catches it deliberately).
+            progress = input_data.get("progress")
             
             if not document:
                 return AgentResult(
@@ -449,10 +455,33 @@ class KnowledgeExtractionAgent(SEABaseAgent):
 
             # ---- 2. extract each chunk ----
             for chunk in chunks:
+                # This profile does not run `PassSpec`s, but it does make one model
+                # call per chunk — so it reports the same started/finished pair a
+                # `run_passes` profile would, named after the one pass it performs.
+                # Without this a long REQ-G run is silent between run.started and
+                # the terminal event, which is exactly the blank wait this channel
+                # exists to remove.
+                chunk_label = chunk.label if len(chunks) > 1 else ""
+                emit_progress(progress, PASS_STARTED, {
+                    "pass_name": "requirements",
+                    "chunk_label": chunk_label,
+                }, self.log)
                 prompt = self._build_extraction_prompt(chunk.text, document_type, domain)
                 c_triples, c_entities, c_relationships, c_path, c_error, c_obj = (
                     self._extract_from_prompt(prompt, use_structured)
                 )
+                emit_progress(progress, PASS_FINISHED, {
+                    "pass_name": "requirements",
+                    "chunk_label": chunk_label,
+                    "outcome": outcome_state(
+                        c_error,
+                        not (c_triples or c_entities or c_relationships),
+                        c_triples,
+                    ),
+                    "path": c_path,
+                    "triples_produced": len(c_triples),
+                    "error": c_error or "",
+                }, self.log)
                 per_chunk.append((c_triples, c_entities, c_relationships))
                 if c_path == "structured_output":
                     path = "structured_output"

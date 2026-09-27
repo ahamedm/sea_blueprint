@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Run {{ job.job_id }} · SEA{% endblock %}
+
+{% block content %}
+{#
+  The page a submitter lands on instead of a blank wait. It has to answer three
+  questions the old synchronous POST could not: what is happening, is anything
+  actually working on it, and how did it end. The live part is the included
+  fragment, which polls itself.
+#}
+<div class="card">
+  <div class="card-head">
+    <h1>Run <code>{{ job.job_id }}</code></h1>
+    <span class="muted">{{ job.kind }} · {{ job.trigger }} · input {{ job.input_kind }}</span>
+  </div>
+
+{% if stream_url %}
+  {#
+    Push, when a journal retains events: the server sends the same rendered fragment
+    the polling route would return, and the client swaps it in. `EventSource`
+    reconnects by itself and resends `Last-Event-ID`, so a dropped connection resumes
+    from the cursor rather than replaying the run from the start.
+  #}
+  <div id="run-progress">{% include "partials/run_events.html" %}</div>
+  <script>
+    (function () {
+      var target = document.getElementById('run-progress');
+      if (!target || !window.EventSource) { return; }
+      var source = new EventSource({{ stream_url|tojson }});
+      source.onmessage = function (message) {
+        var payload = JSON.parse(message.data);
+        target.innerHTML = payload.html;
+        if (payload.terminal) { source.close(); }
+      };
+      window.addEventListener('beforeunload', function () { source.close(); });
+    })();
+  </script>
+{% else %}
+  {# No journal to push from (the default install) or the run is already over. #}
+  {% include "partials/run_events_poll.html" %}
+{% endif %}
+
+  <div class="meta">
+    <dl class="facts">
+      <dt>Run</dt><dd><code>{{ job.run_id }}</code></dd>
+      <dt>Scope</dt><dd><code>{{ job.scope_id }}</code></dd>
+      <dt>Requested by</dt><dd>{{ job.actor or '—' }}</dd>
+      <dt>Queued</dt><dd>{{ job.created_at }}</dd>
+      {% if job.parameters.get('document_type') %}
+        <dt>Document type</dt><dd>{{ job.parameters.get('document_type') }}</dd>
+      {% endif %}
+      {% if job.parameters.get('filename') %}
+        <dt>Document</dt><dd>{{ job.parameters.get('filename') }}</dd>
+      {% endif %}
+    </dl>
+  </div>
+
+  <p class="note">
+    The run executes in a separate worker process, so this page is a view of the
+    record — closing it does not cancel anything, and reopening it shows what
+    happened while you were away.
+  </p>
+</div>
+{% endblock %}

@@ -14,6 +14,8 @@ whole reason this is a Stream rather than pub/sub fire-and-forget.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from app import create_app
@@ -42,7 +44,14 @@ class FakeJournal:
             cursor = int(str(since).split("-")[0])
             rows = [(sid, e) for sid, e in rows
                     if int(sid.split("-")[0]) > cursor]
-        return [event for _sid, event in rows]
+        # A real journal stamps its own id on each event so the reader can resume
+        # from it; the fake must too, or the cursor contract is untested.
+        return [replace(event, stream_id=sid) for sid, event in rows]
+
+    def wait(self, run_id, since=None, timeout_ms=500, count=100):
+        # A journal that retains events would block here; the fake has nothing new
+        # between calls, so it returns immediately like `NullJournal`.
+        return []
 
     def close(self, run_id: str, ttl_seconds=None) -> None:
         return None
@@ -121,6 +130,55 @@ def test_a_run_still_in_flight_is_not_reported_as_finished(tmp_path):
     client = _client(tmp_path, FakeJournal(in_flight))
 
     assert client.get("/api/runs/run_1/events").get_json()["terminal"] is False
+
+
+# ============================================================================
+# The cursor: how a subscriber resumes
+# ============================================================================
+
+
+def test_each_event_carries_the_stream_id_a_subscriber_resumes_from(tmp_path):
+    """The reason the endpoint can be polled without missing or repeating events.
+
+    Without an id on each event, "replay" degrades to "start over" (duplicates) or
+    "ask from now on" (a gap) — neither of which is a Stream. `read()` used to drop
+    the id, so this was impossible even though `append` returned one.
+    """
+    client = _client(tmp_path, FakeJournal(_events()))
+
+    payload = client.get("/api/runs/run_1/events").get_json()
+    ids = [event["stream_id"] for event in payload["events"]]
+    assert ids == ["1-0", "2-0", "3-0", "4-0"]
+    # The response names the cursor to send back, so a client need not know that
+    # the last event's id is the one to use.
+    assert payload["cursor"] == "4-0"
+
+
+def test_a_poll_from_the_cursor_returns_only_what_was_missed(tmp_path):
+    journal = FakeJournal(_events())
+    client = _client(tmp_path, journal)
+
+    first = client.get("/api/runs/run_1/events").get_json()
+    assert len(first["events"]) == 4
+
+    # Same run, one more event appended after the first poll.
+    journal.append(RunEvent(run_id="run_1", scope_id="payments", seq=5, kind=RUN_FINISHED,
+                            payload={"completeness": "PARTIAL"}))
+
+    second = client.get(
+        f"/api/runs/run_1/events?since={first['cursor']}"
+    ).get_json()
+    # Exactly the events after the cursor: no duplicate of 1-0…4-0, no gap.
+    assert [event["seq"] for event in second["events"]] == [5]
+    assert second["cursor"] == "5-0"
+
+
+def test_a_journal_that_retains_nothing_reports_an_empty_cursor(tmp_path):
+    """`NullJournal` has no ids, so the cursor must stay absent rather than become a
+    plausible-looking value that a client would poll with forever."""
+    payload = _client(tmp_path).get("/api/runs/run_1/events").get_json()
+    assert payload["events"] == []
+    assert payload["cursor"] is None
 
 
 # ============================================================================

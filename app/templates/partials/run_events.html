@@ -1,0 +1,84 @@
+{#
+  The live view of one run — the INNER content only, with no wrapper element.
+
+  Deliberately wrapper-free so one template serves both transports without either
+  drifting from the other: the polling route wraps it in a div carrying the hx
+  attributes (`run_events_poll.html`), and the SSE route sends this rendered HTML as
+  the frame payload for the client to swap into the same div. A second
+  representation of this view is exactly the kind of duplicate the design refuses.
+#}
+<div class="run-state">
+  <span class="badge state-{{ job.state|lower }}">{{ job.state }}</span>
+  {% if job.state == 'QUEUED' %}
+    <span class="muted">
+      waiting{% if position %} · position {{ position }} of {{ queue_depth }}{% endif %}
+      {%- if queued_seconds is not none %} · queued {{ queued_seconds }}s ago{% endif %}
+    </span>
+    {% if queue_stalled %}
+      {# The new silent failure. Nothing starts a worker automatically, so a job
+         nobody has taken must say so rather than waiting politely forever. #}
+      <div class="flash flash-warning">
+        Nothing has taken this job in {{ queued_seconds }}s — no worker appears to
+        be running. Start one with <code>uv run sea-worker</code>.
+      </div>
+    {% endif %}
+  {% elif job.state == 'RUNNING' %}
+    <span class="muted">
+      {%- if stale_seconds is not none %}last worker heartbeat {{ stale_seconds }}s ago{% endif %}
+    </span>
+    {% if worker_stale %}
+      {# Surfaced, not resolved. Nothing here re-queues an abandoned job or holds a
+         result for it: the record says RUNNING, and whether that becomes a retry or
+         a failure is YB-037's recovery rule. #}
+      <div class="flash flash-warning">
+        No worker has been seen on this run for {{ stale_seconds }}s. The worker
+        process may have stopped — this job has <strong>not</strong> been re-queued
+        and nothing is retrying it automatically.
+      </div>
+    {% endif %}
+  {% endif %}
+
+  {% if terminal %}
+    {# End of stream is not completeness: the verdict is read from the run record
+       (or the terminal event, which is published from it), never assumed. #}
+    <span class="badge verdict-{{ (completeness or 'UNKNOWN')|lower }}">
+      {{ completeness or 'UNKNOWN' }}
+    </span>
+    {% if completeness and completeness != 'COMPLETE' %}
+      <span class="muted">
+        not COMPLETE — absence of a fact is not evidence of its absence
+      </span>
+    {% endif %}
+  {% endif %}
+</div>
+
+{% if job.error %}
+  <div class="flash flash-error">Job failed: {{ job.error }}</div>
+{% endif %}
+
+{% if journal_error %}
+  <div class="flash flash-warning">
+    Live progress is unavailable ({{ journal_error }}). Job state above is read from
+    the job store and is unaffected.
+  </div>
+{% elif not event_rows and not terminal %}
+  <p class="note">No events yet — the worker records each pass as it completes.</p>
+{% endif %}
+
+{% if event_rows %}
+  <table class="run-events">
+    <thead>
+      <tr><th>#</th><th>event</th><th>detail</th><th>at</th></tr>
+    </thead>
+    <tbody>
+      {% for row in event_rows %}
+        <tr class="{{ 'terminal' if row.terminal else '' }}">
+          <td>{{ row.seq }}</td>
+          <td><code>{{ row.kind }}</code></td>
+          <td>{{ row.detail }}</td>
+          <td class="muted">{{ row.at }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endif %}

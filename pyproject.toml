@@ -94,6 +94,8 @@ valkey = [
 sea-agent = "agents.cli:main"
 sea-eval = "evaluation.cli:main"
 sea-app = "run:main"
+# The background worker that runs queued jobs out of the request path (YB-026).
+sea-worker = "app.worker:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

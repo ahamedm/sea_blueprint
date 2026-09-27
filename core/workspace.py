@@ -173,6 +173,37 @@ class Workspace:
 # ============================================================================
 
 
+def scope_data_dir(workspace: "Workspace", scope: Optional["Scope"]) -> Path:
+    """A directory a scope may keep non-graph state in — artifacts, the job store.
+
+    The graph store's own backend decides where its data lives (`file` → a
+    directory, `sqlite` → a `.sqlite` file), and side-car state has to follow it
+    rather than guess. Resolving it here means the web process and the worker agree
+    on the path without either re-deriving the workspace layout.
+    """
+    if scope is None:
+        return workspace.root / SCOPES_DIRNAME / DEFAULT_SCOPE_ID
+    paths = workspace.paths(scope)
+    if "root" in paths:
+        return paths["root"]
+    db = paths["db"]
+    return db.parent / db.stem
+
+
+def scope_drafts_dir(workspace: "Workspace", scope: Optional["Scope"]) -> Path:
+    """Where a scope's design drafts live.
+
+    Mirrors the rule the app has always used, so moving it here does not relocate
+    anyone's existing drafts: a file-backed scope keeps them at its root (which is
+    the scope directory itself for the single-scope layout), and a SQL-backed one
+    gets a side directory beside the database.
+    """
+    if scope is not None and scope.backend == BACKEND_FILE:
+        return workspace.paths(scope)["root"]
+    scope_id = scope.scope_id if scope else DEFAULT_SCOPE_ID
+    return workspace.root / SCOPES_DIRNAME / scope_id
+
+
 def load_workspace(root: str | Path) -> Workspace:
     """Read a workspace, or infer a single-scope one from a bare store directory.
 

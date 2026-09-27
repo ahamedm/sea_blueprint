@@ -23,6 +23,7 @@ from .ingest import (
     completeness_note,
     graph_from_extraction,
     merge_graphs,
+    new_run_id,
 )
 from .model import (
     Assertion,
@@ -140,6 +141,7 @@ __all__ = [
     # ingest
     "graph_from_extraction",
     "merge_graphs",
+    "new_run_id",
     "completeness_note",
     "CROSS_GRAPH_PREDICATES",
     "REQUIREMENT_KINDS",

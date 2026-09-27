@@ -57,6 +57,18 @@ def _run_id(document_ref: str, document_text: str, model_id: str) -> str:
     return "run_" + hashlib.sha1(raw.encode()).hexdigest()[:12]
 
 
+def new_run_id() -> str:
+    """Mint a run id BEFORE the work starts.
+
+    A live progress journal and the `ExtractionRun` it eventually becomes must
+    share one identity, and `_run_id` mixes in the current time — so the id is
+    unpredictable and cannot be recovered afterwards. A caller that wants to
+    publish progress while extraction runs mints the id here, passes it as
+    `metadata["run_id"]`, and journals under the same value.
+    """
+    return _run_id("", "", "")
+
+
 def _document_hash(text: str) -> str:
     import hashlib
     return hashlib.sha1(text.encode("utf-8")).hexdigest()[:16]

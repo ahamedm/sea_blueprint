@@ -157,6 +157,22 @@ tr.is-current:hover { background: #dbeafe; }
 .badge-failed { background: var(--bad-bg); color: var(--bad); border-color: #fca5a5; }
 .badge-unknown { background: #f1f5f9; color: var(--text-dim); border-color: var(--border-strong); }
 
+/* Job state and run verdict (YB-026). Two different axes shown side by side: the
+   job is queued/running/succeeded, and the RUN is complete/partial/unknown. A
+   succeeded job with a PARTIAL run is the case the colours must not blur. */
+.state-queued    { background: #f1f5f9; color: var(--text-dim); border-color: var(--border-strong); }
+.state-running   { background: var(--info-bg); color: var(--info); border-color: #7dd3fc; }
+.state-succeeded { background: var(--ok-bg); color: var(--ok); border-color: #86efac; }
+.state-failed    { background: var(--bad-bg); color: var(--bad); border-color: #fca5a5; }
+.verdict-complete { background: var(--ok-bg); color: var(--ok); border-color: #86efac; }
+.verdict-partial  { background: var(--warn-bg); color: var(--warn); border-color: #fcd34d; }
+.verdict-unknown, .verdict-failed {
+  background: var(--bad-bg); color: var(--bad); border-color: #fca5a5;
+}
+.run-state { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+.run-events td { vertical-align: top; }
+.run-events tr.terminal td:first-child { border-left: 3px solid var(--ok); }
+
 .tag {
   display: inline-block; padding: 1px 6px; border-radius: 4px;
   font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px;

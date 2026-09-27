@@ -41,6 +41,7 @@ wire" checkable rather than merely intended.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, Optional
 
 from core.events import (
@@ -52,6 +53,8 @@ from core.events import (
 )
 
 __all__ = ["PROGRESS_PAYLOAD_KEYS", "JournalProgress"]
+
+_log = logging.getLogger(__name__)
 
 
 PROGRESS_PAYLOAD_KEYS = frozenset({
@@ -66,6 +69,15 @@ PROGRESS_PAYLOAD_KEYS = frozenset({
     # diagnostics and the terminal verdict
     "error",
     "completeness",
+    # run-level identity, carried once on `run.started`. Without these a viewer
+    # knows a run began but not what it is reading or how much of it there is —
+    # and per-key closure is what makes "no extracted content on the wire"
+    # checkable, so the run-level names belong here rather than in a free payload.
+    "document_ref",
+    "document_type",
+    "domain_pack",
+    "chunks",
+    "pass_count",
 })
 """Every key a progress payload may carry. Deliberately closed: a key outside
 this set is either a new transition field that belongs here, or extracted
@@ -137,9 +149,30 @@ class JournalProgress:
             {**payload, "completeness": completeness, "error": str(error)[:200]},
         )
 
+    # -- lifecycle ----------------------------------------------------------
+
+    def close(self, ttl_seconds: Optional[int] = None) -> None:
+        """Release the run's journal, retaining it for `ttl_seconds` at most.
+
+        Best-effort like every other write here: a run is finished whether or not
+        anyone is still holding the log.
+        """
+        try:
+            self.journal.close(self.run_id, ttl_seconds=ttl_seconds)
+        except Exception as exc:  # noqa: BLE001 - see `_append`
+            _log.warning("run journal close failed for %s: %s", self.run_id, exc)
+
     # -- internals ----------------------------------------------------------
 
     def _append(self, kind: str, payload: Dict[str, Any]) -> str:
+        """Restamp one transition and append it, never raising.
+
+        `run_passes` guards its own calls (`emit_progress`), but a caller that
+        drives this sink directly — the web routes do — must get the same
+        guarantee, because the sink's contract is that losing the journal degrades
+        *live progress only*. A failing append is logged and returns "", so a dead
+        or misconfigured journal can never 500 a page or fail a run.
+        """
         self._seq += 1
         event = RunEvent(
             run_id=self.run_id,
@@ -148,4 +181,10 @@ class JournalProgress:
             kind=kind,
             payload=dict(payload),
         )
-        return self.journal.append(event)
+        try:
+            return self.journal.append(event)
+        except Exception as exc:  # noqa: BLE001 - a dead journal degrades progress
+            _log.warning(
+                "run journal append failed for %s (%s): %s", self.run_id, kind, exc
+            )
+            return ""

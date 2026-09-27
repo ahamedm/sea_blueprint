@@ -46,6 +46,11 @@ class FakeJournal:
             rows = [e for e in rows if e.seq > cursor]
         return rows
 
+    def wait(self, run_id, since=None, timeout_ms=500, count=100):
+        # A journal that retains events would block here; the fake has nothing new
+        # between calls, so it returns immediately like `NullJournal`.
+        return []
+
     def close(self, run_id: str, ttl_seconds=None) -> None:
         return None
 

@@ -168,6 +168,13 @@ class RunEvent:
     payload: Dict[str, Any] = field(default_factory=dict)
     at: str = field(default_factory=_utc_now)
     event_version: int = EVENT_VERSION
+    # The journal's own id for this event, when a reader wants to resume from it.
+    # A Stream id is opaque to everything except `read(..., since=...)`, so it is
+    # carried on the envelope rather than parsed by subscribers: without it a
+    # reconnecting SSE frame or a polling client has no cursor to ask from, and
+    # replay silently becomes "start over" or "miss everything in between".
+    # Empty means "this journal does not retain ids" (`NullJournal`).
+    stream_id: str = ""
 
     @property
     def is_terminal(self) -> bool:
@@ -194,6 +201,7 @@ class RunEvent:
             "at": self.at,
             "kind": self.kind,
             "payload": dict(self.payload),
+            "stream_id": self.stream_id,
         }
 
     @classmethod
@@ -225,6 +233,7 @@ class RunEvent:
             payload=dict(payload),
             at=_as_str(data.get("at")),
             event_version=_as_int(data.get("event_version"), default=EVENT_VERSION),
+            stream_id=_as_str(data.get("stream_id")),
         )
 
 
@@ -275,6 +284,27 @@ class RunJournal(Protocol):
         `since` is an EXCLUSIVE stream id: the event with that id is not
         returned. `None` means from the beginning. This is what gives a
         reconnecting subscriber exactly the events it missed.
+
+        Each returned event carries the journal's id for it in
+        `RunEvent.stream_id`, which is the value a subscriber passes back as
+        `since` on its next read. A journal that does not retain events
+        (`NullJournal`) leaves it empty.
+        """
+        ...
+
+    def wait(
+        self,
+        run_id: str,
+        since: Optional[str] = None,
+        timeout_ms: int = 500,
+        count: int = 100,
+    ) -> List[RunEvent]:
+        """Block up to `timeout_ms` for events after `since`, then return them.
+
+        Returns an empty list on timeout — never blocks forever, so a caller can
+        emit a heartbeat and check its own deadline. A journal that retains
+        nothing returns `[]` immediately rather than sleeping, which is how a
+        subscriber learns there is nothing to wait for.
         """
         ...
 
@@ -288,12 +318,29 @@ class NullJournal:
 
     Producer code must not branch on whether anyone is listening; a NullJournal
     lets it emit unconditionally at no cost.
+
+    `retains = False` is how a *subscriber* learns the same thing: with no stream
+    there is nothing to replay and nothing to wait for, so a live-push transport
+    has nothing to push and must degrade to reading state instead.
     """
+
+    retains = False
 
     def append(self, event: RunEvent) -> str:
         return ""
 
     def read(self, run_id: str, since: Optional[str] = None) -> List[RunEvent]:
+        return []
+
+    def wait(
+        self,
+        run_id: str,
+        since: Optional[str] = None,
+        timeout_ms: int = 500,
+        count: int = 100,
+    ) -> List[RunEvent]:
+        # Deliberately not sleeping: a caller that waited here would hold a
+        # connection open for a stream that cannot ever produce an event.
         return []
 
     def close(self, run_id: str, ttl_seconds: Optional[int] = None) -> None:
@@ -348,6 +395,8 @@ class ValkeyJournal:
         journal = ValkeyJournal(host="localhost", port=6379)
     """
 
+    retains = True
+
     def __init__(
         self,
         host: str = "localhost",
@@ -385,6 +434,9 @@ class ValkeyJournal:
 
     def append(self, event: RunEvent) -> str:
         fields = event.to_dict()
+        # The stream id is the journal's to assign, not the caller's to claim: it is
+        # what `read` hands back so a subscriber can resume.
+        fields.pop("stream_id", None)
         # Stream fields are flat strings; the payload is the one structured field.
         fields["payload"] = json.dumps(fields.get("payload", {}), separators=(",", ":"))
         for key, value in list(fields.items()):
@@ -403,8 +455,43 @@ class ValkeyJournal:
         start = f"({_as_str(since)}" if since else "-"
         entries = self._client.xrange(self.stream_key(run_id), start, "+")
         events: List[RunEvent] = []
-        for _stream_id, fields in entries:
-            events.append(RunEvent.from_dict(_decode_fields(fields)))
+        for stream_id, fields in entries:
+            event = RunEvent.from_dict(_decode_fields(fields))
+            # The journal owns the cursor. Stamping it here is what lets a
+            # subscriber pass the last id it saw as `since` and receive exactly
+            # what it missed — the property that makes this a Stream.
+            event.stream_id = _as_str(stream_id)
+            events.append(event)
+        return events
+
+    def wait(
+        self,
+        run_id: str,
+        since: Optional[str] = None,
+        timeout_ms: int = 500,
+        count: int = 100,
+    ) -> List[RunEvent]:
+        """`XREAD BLOCK` for the next events, or `[]` on timeout.
+
+        This is what makes a server-sent stream push rather than poll: the process
+        sleeps in the server instead of a loop that wakes every 500 ms to ask. The
+        timeout is the caller's to choose so it can also emit a heartbeat and check
+        its own deadline.
+        """
+        # XREAD's start id is exclusive already ("greater than"), unlike XRANGE
+        # which needs the `(` prefix to exclude the boundary.
+        start = _as_str(since) or "0"
+        response = self._client.xread(
+            {self.stream_key(run_id): start}, count=count, block=int(timeout_ms)
+        )
+        if not response:
+            return []
+        events: List[RunEvent] = []
+        for _key, entries in response:
+            for stream_id, fields in entries:
+                event = RunEvent.from_dict(_decode_fields(fields))
+                event.stream_id = _as_str(stream_id)
+                events.append(event)
         return events
 
     def close(self, run_id: str, ttl_seconds: Optional[int] = None) -> None:
