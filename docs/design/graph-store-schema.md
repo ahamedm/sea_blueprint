@@ -329,7 +329,7 @@ compiles to, not a second copy of it.
   same artifact store. RDF is a projection; the tables are the record. Jena, when it
   arrives, reads the artifacts.
 - **Journals and progress events.** Those live in the Valkey Stream
-  ([YB-036](../todos/entries/YB-036-modular-run-streaming.md)), with the terminal
+  ([ADR-0026](../decisions/ADR-0026-run-journal-and-progress-transports.md)), with the terminal
   `run` row written here first.
 
 ## 6. Options weighed
@@ -351,7 +351,7 @@ the queries that justify normalising now rather than migrating twice.
 - [YB-043 — System of record](../todos/entries/YB-043-system-of-record.md).
 - [YB-042 — Workspace structure](workspace-structure.md) — `product_id` is the
   partition it promised.
-- [YB-036 — Run streaming](../todos/entries/YB-036-modular-run-streaming.md) — the
+- [ADR-0026 — Run streaming](../decisions/ADR-0026-run-journal-and-progress-transports.md) — the
   journal that is not in these tables.
 - [YB-010 — RDF knowledge layer](../todos/entries/YB-010-rdf-knowledge-layer.md) —
   the projection this schema feeds.

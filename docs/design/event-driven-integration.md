@@ -1,6 +1,6 @@
 # Event-driven integration — external triggers, background work, and the seams that have to move
 
-> **Design document** for `YB-033`, `YB-034`, `YB-035`, `YB-036` and `YB-037`.
+> **Design document** for `YB-033`, `YB-034`, `YB-035`, `ADR-0026` and `YB-037`.
 > Status is tracked in those entries; this is the long analysis they share.
 
 ---
@@ -29,7 +29,7 @@ about:
    bounded — because nobody is holding a browser open (YB-037).
 3. **The progress** of that work has to be observable to whoever *is* looking,
    which means the streaming mechanism currently bolted to a Flask response has to
-   become transport-agnostic (YB-036).
+   become transport-agnostic (ADR-0026).
 
 The agent that makes the second event worth firing is the Design Assistant
 (YB-035), which is a placeholder package today.
@@ -137,7 +137,7 @@ than prose. That makes it a new profile over the knowledge layer, not a new
 pipeline — but also means "the requirements are the document", and the same
 object-contract discipline has to apply.
 
-**YB-036 — the progress.** One run-progress mechanism serving two consumers: the
+**ADR-0026 — the progress.** One run-progress mechanism serving two consumers: the
 browser watching a UI-initiated run, and the operator/UI watching an event-driven
 one. This is the "modular streaming" the proposal asks for, and it is YB-026's
 mechanism with the Flask coupling removed.

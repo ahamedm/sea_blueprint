@@ -84,4 +84,6 @@ identifiers here were deliberately kept aligned with the v1 numbers — `YB-005`
 old item 5 — so those references still resolve. `id-map.md` bridges the rest,
 including the second `item 19`, which is now `YB-019b`.
 
-New work starts at `YB-027`; `ADR-0012` is the next record.
+New work takes the next free `YB-NNN`; the next free record is `ADR-0027`. Check with
+`grep '^id:' entries/*.md` rather than trusting a number written down here — this line
+was stale once already.

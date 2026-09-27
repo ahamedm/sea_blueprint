@@ -3,7 +3,7 @@
 > **Design document.** Evaluation of the proposed deployment shape against the
 > current code and the open decisions: [YB-010](../todos/entries/YB-010-rdf-knowledge-layer.md),
 > [YB-026](../todos/entries/YB-026-asynchronous-progress.md),
-> [YB-036](../todos/entries/YB-036-modular-run-streaming.md),
+> [ADR-0026](../decisions/ADR-0026-run-journal-and-progress-transports.md),
 > [YB-037](../todos/entries/YB-037-background-workflow-management.md),
 > [YB-042](../todos/entries/YB-042-workspace-structure.md),
 > [YB-043](../todos/entries/YB-043-system-of-record.md),
@@ -93,7 +93,7 @@ by the record — and the Web App is one *subscriber* that tails it and fans out
 browsers over SSE, catching up with `Last-Event-ID`. Any Flask replica can serve any
 session, an absent browser loses nothing, and an unattended run is the same
 mechanism with zero subscribers. That is precisely
-[YB-036](../todos/entries/YB-036-modular-run-streaming.md)'s "one progress mechanism
+[ADR-0026](../decisions/ADR-0026-run-journal-and-progress-transports.md)'s "one progress mechanism
 for the browser and for unattended runs"; adopt it rather than adding a second path.
 
 **Refinement (2026-09-26) — Valkey Streams as the journal.** Rather than a
@@ -108,7 +108,7 @@ Two constraints come with it:
 
 - **Streams, not Pub/Sub.** Pub/Sub has no replay, so a late subscriber, a restart
   and a dropped terminal event each fail
-  [YB-036](../todos/entries/YB-036-modular-run-streaming.md)'s acceptance criteria.
+  [ADR-0026](../decisions/ADR-0026-run-journal-and-progress-transports.md)'s acceptance criteria.
   A run that *looks* finished is exactly the false assurance that item exists to
   prevent.
 - **Persist the verdict before publishing it.** Asynchronous durability on
@@ -178,7 +178,7 @@ Bedrock models (or OpenAI-compatible, behind the existing provider seam)
   (ADR-0021/0022/0023).
 - **Ontology**: publish to S3, bake into the image, hash and record per run.
 - **Tools**: MCP for external systems only; the deterministic core stays a library.
-- **Progress**: a run journal plus SSE tailing (YB-036), not a point-to-point
+- **Progress**: a run journal plus SSE tailing (ADR-0026), not a point-to-point
   stream to one Flask process.
 - **Graph**: Postgres/SQLite as the record; RDF materialised per revision to S3;
   Jena later.
@@ -188,7 +188,7 @@ Bedrock models (or OpenAI-compatible, behind the existing provider seam)
 ## 6. What this touches in the backlog
 
 - [YB-026](../todos/entries/YB-026-asynchronous-progress.md) /
-  [YB-036](../todos/entries/YB-036-modular-run-streaming.md) — the progress
+  [ADR-0026](../decisions/ADR-0026-run-journal-and-progress-transports.md) — the progress
   mechanism this must reuse rather than duplicate.
 - [YB-037](../todos/entries/YB-037-background-workflow-management.md) — the run
   journal and unattended runs.

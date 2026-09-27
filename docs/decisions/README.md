@@ -30,3 +30,5 @@ Closed work from the TODO. Each record preserves its original write-up verbatim;
 | [ADR-0023](ADR-0023-token-and-cost-accounting.md) | Per-run token and cost accounting — read per invocation, priced from configuration | 2026-09-26 | — |
 | [ADR-0024](ADR-0024-requirements-profile-chunks.md) | The requirements profile chunks like the architecture profile — same chunker, same merge | 2026-09-26 | — |
 | [ADR-0025](ADR-0025-headless-reconciliation.md) | Headless reconciliation — a dry run by default, and the declines are reported | 2026-09-26 | — |
+| [ADR-0026](ADR-0026-run-journal-and-progress-transports.md) | Modular run streaming — one progress mechanism for the browser and for unattended runs | 2026-09-27 | — |
+| [ADR-0027](ADR-0027-async-run-progress.md) | Asynchronous run progress — the execution substrate, and one view over two transports | 2026-09-27 | — |

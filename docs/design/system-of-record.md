@@ -121,7 +121,7 @@ operational cost.
 
 **Where Valkey does earn its place** — beside the record, not as the record:
 progress streaming and pub/sub ([YB-026](../todos/entries/YB-026-asynchronous-progress.md),
-[YB-036](../todos/entries/YB-036-modular-run-streaming.md)), the thin job queue
+[ADR-0026](../decisions/ADR-0026-run-journal-and-progress-transports.md)), the thin job queue
 [YB-037](../todos/entries/YB-037-background-workflow-management.md) describes
 (Streams + consumer groups), a distributed lock or CAS for the working set, and a
 cached workspace read model.

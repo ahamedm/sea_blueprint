@@ -3,7 +3,7 @@
 
 Open work only. Each item is one file under `docs/todos/entries/` — that file is the source of truth and this index is generated from it.
 
-**26 active · 1 parked · 2 superseded · 25 closed records**
+**26 active · 1 parked · 2 superseded · 27 closed records**
 
 | Where | What |
 |---|---|
@@ -31,13 +31,12 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [YB-009](docs/todos/entries/YB-009-architecture-gaps.md) | Architecture gaps — canonical model, correction merge, incompleteness | open | `core/knowledge/`, `core/ontology.py`, `docs/architecture-review.md` |
 | [YB-011](docs/todos/entries/YB-011-domain-ontology-layer.md) | Domain ontology layer — the ontology of the SUBJECT MATTER, not the artifact | in-progress | `ontology/domains/`, `core.ontology` overlay loader, extraction grounding |
 | [YB-018](docs/todos/entries/YB-018-review-batches.md) | Review batches — scope the review gate to a run, without fragmenting the graph | open | `core/knowledge/store.py`, `app/projections.py`, `app/__init__.py`, `core/knowledge/review.py` |
-| [YB-026](docs/todos/entries/YB-026-asynchronous-progress.md) | Asynchronous progress — stream pass and tool-call completion to the view | open | `app/__init__.py` (ingest route), `app/templates/ingest.html`, `agents/extraction/passes.py`, `agents/knowledge_extraction/agent.py` |
 | [YB-027](docs/todos/entries/YB-027-semantic-reference-matching.md) | Semantic reference matching — bridge the paraphrase the deterministic scorer cannot | open | `core/knowledge/reconcile.py`, possibly `core/knowledge/realization.py`, `app/` |
-| [YB-036](docs/todos/entries/YB-036-modular-run-streaming.md) | Modular run streaming — one progress mechanism for the browser and for unattended runs | open | `agents/knowledge_extraction/agent.py`, `agents/extraction/passes.py`, `core/knowledge/store.py` (run journal), `app/__init__.py` |
-| [YB-037](docs/todos/entries/YB-037-background-workflow-management.md) | Background workflow management — durable execution for runs nobody is waiting for | open | new `core/workflow/` or `app/worker.py`, `core/knowledge/store.py`, `app/__init__.py`, `app/templates/` (jobs page) |
+| [YB-037](docs/todos/entries/YB-037-background-workflow-management.md) | Background workflow management — durable execution for runs nobody is waiting for | open | `core/jobs.py` (retry, cancellation and dedupe semantics), `app/worker.py` (recovery on start), `app/__init__.py` + `app/templates/` (jobs page), `core/knowledge/store.py` |
 | [YB-044](docs/todos/entries/YB-044-platform-instances.md) | Platform instances and deployment topology — one platform type, many instances, each with a sharing scope | open | `ontology/architecture_base.yaml` (DeploymentNode, sharing scope), `agents/architecture_extraction/passes.py`, `core/knowledge/ingest.py` |
 | [YB-045](docs/todos/entries/YB-045-ontology-version-provenance.md) | Ontology version is not recorded per run — a graph cannot be attributed to the vocabulary that produced it | open | `core/knowledge/model.py`, `core/knowledge/ingest.py`, `core/ontology.py`, `agents/base_agent.py` |
 | [YB-046](docs/todos/entries/YB-046-branching-and-promotion.md) | Branching and guarded promotion — two architects on one initiative, and the merge between them | open | `core/knowledge/store.py`, `core/knowledge/model.py`, `core/knowledge/review.py`, `core/knowledge/ingest.py` |
+| [YB-049](docs/todos/entries/YB-049-workspace-migration-to-sqlite.md) | Workspace migration — move a file-backed scope to SQLite so it can run in the background | open | new `scripts/migrate_scope.py`, `core/workspace.py`, `core/knowledge/store.py`, `core/knowledge/store_sql.py`, `core/knowledge/drafts.py` |
 
 ## Medium
 
@@ -53,6 +52,7 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [YB-040](docs/todos/entries/YB-040-technology-ring.md) | Technology Ring — the adoption axis is in the ontology, but nothing writes it | open | `ontology/architecture_base.yaml`, `agents/architecture_extraction/passes.py`, `core/knowledge/ingest.py` |
 | [YB-041](docs/todos/entries/YB-041-pattern-catalogue-reach.md) | The architecture pattern catalogue reaches the Design Assistant only — never ARC-G extraction, and no verifier | open | `core/patterns.py`, `agents/architecture_extraction/`, `config/agent_config.py`, `core/knowledge/ingest.py` |
 | [YB-048](docs/todos/entries/YB-048-traversal-index.md) | Traversal index — cache adjacency per scope load, and use networkx for algorithms, not speed | open | `core/knowledge/` (new traversal projection), `app/projections.py`, `core/knowledge/quality.py` |
+| [YB-050](docs/todos/entries/YB-050-artifact-retention-and-quota.md) | Artifact retention and quota — the document store grows without a bound nobody chose | open | `core/artifacts.py`, `app/worker.py` (sweep), `core/workspace.py` |
 
 ## Low
 
@@ -81,6 +81,7 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [YB-005](docs/todos/entries/YB-005-arcg-reqg-linkage.md) | ARC-G ⇄ REQ-G linkage — Initiative-scoped reconciliation | [ADR-0012-req-arc-reconciliation-inversion](docs/decisions/ADR-0012-req-arc-reconciliation-inversion.md) |
 | [YB-023](docs/todos/entries/YB-023-requirements-completeness-reporting.md) | Requirements extraction never reports completeness — so REQ-G can never be audited | [ADR-0013-requirements-completeness-reporting](docs/decisions/ADR-0013-requirements-completeness-reporting.md) |
 | [YB-024](docs/todos/entries/YB-024-requirements-graph-view.md) | Graph view — cover the requirements graph, not only C4 | [ADR-0014-map-replaces-c4-view](docs/decisions/ADR-0014-map-replaces-c4-view.md) |
+| [YB-026](docs/todos/entries/YB-026-asynchronous-progress.md) | Asynchronous progress — stream pass and tool-call completion to the view | [ADR-0027-async-run-progress](docs/decisions/ADR-0027-async-run-progress.md) |
 | [YB-028](docs/todos/entries/YB-028-remove-extracted-facts.md) | Remove a fact the extractor invented — and stop a dispute withholding the audit | [ADR-0015-retiring-extracted-facts](docs/decisions/ADR-0015-retiring-extracted-facts.md) |
 | [YB-029](docs/todos/entries/YB-029-quality-attribute-views.md) | Quality-attribute views for the map — the architect's primary focus has no view of its own | [ADR-0016-quality-attribute-views](docs/decisions/ADR-0016-quality-attribute-views.md) |
 | [YB-030](docs/todos/entries/YB-030-requirements-profile-cross-graph-claims.md) | The requirements profile claims architecture-side realization — the join reads as answered when no architecture exists | [ADR-0018-cross-graph-vocabulary](docs/decisions/ADR-0018-cross-graph-vocabulary.md) |
@@ -118,5 +119,7 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [ADR-0023](docs/decisions/ADR-0023-token-and-cost-accounting.md) | Per-run token and cost accounting — read per invocation, priced from configuration | 2026-09-26 | item — |
 | [ADR-0024](docs/decisions/ADR-0024-requirements-profile-chunks.md) | The requirements profile chunks like the architecture profile — same chunker, same merge | 2026-09-26 | item — |
 | [ADR-0025](docs/decisions/ADR-0025-headless-reconciliation.md) | Headless reconciliation — a dry run by default, and the declines are reported | 2026-09-26 | item — |
+| [ADR-0026](docs/decisions/ADR-0026-run-journal-and-progress-transports.md) | Modular run streaming — one progress mechanism for the browser and for unattended runs | 2026-09-27 | item — |
+| [ADR-0027](docs/decisions/ADR-0027-async-run-progress.md) | Asynchronous run progress — the execution substrate, and one view over two transports | 2026-09-27 | item — |
 
 The index is generated from the entries — do not edit `TODO.md` by hand.

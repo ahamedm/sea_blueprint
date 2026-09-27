@@ -3,7 +3,7 @@
 > Implementation plan for [YB-042](../todos/entries/YB-042-workspace-structure.md)
 > (workspace) and [YB-043](../todos/entries/YB-043-system-of-record.md) (system of
 > record), with the Valkey run-journal enabler for
-> [YB-036](../todos/entries/YB-036-modular-run-streaming.md).
+> [ADR-0026](../decisions/ADR-0026-run-journal-and-progress-transports.md).
 > Schema detail: [`graph-store-schema.md`](graph-store-schema.md).
 
 ---
@@ -17,7 +17,7 @@ backend can be replaced later without the callers noticing. Three of them:
 |---|---|---|---|---|
 | **Scoping** | `Workspace` + resolver | directory tree | same | YB-042 |
 | **System of record** | `Store` protocol | files (today's `RevisionStore`) | SQLite → PostgreSQL / MariaDB | YB-043 |
-| **Run journal** | `RunJournal` protocol | `NullJournal` | Valkey Streams | YB-036 |
+| **Run journal** | `RunJournal` protocol | `NullJournal` | Valkey Streams | ADR-0026 |
 
 The rule for each: **the interface is the deliverable; the backend is configuration.**
 A new backend is a new implementation plus a contract test, never a change to the
@@ -140,7 +140,7 @@ data/workspaces/<workspace_id>/
 `RunJournal` protocol — `append`, `read(run_id, since)`, `close(run_id, ttl)` — with
 `NullJournal` for tests and CLI, and `ValkeyJournal` over a Valkey **Stream** per run.
 Streams, not Pub/Sub: a late subscriber must receive the backlog, which is the whole
-reason [YB-036](../todos/entries/YB-036-modular-run-streaming.md) exists. Payloads
+reason [ADR-0026](../decisions/ADR-0026-run-journal-and-progress-transports.md) exists. Payloads
 carry state **transitions**, never extracted content, and the terminal event carries
 the completeness verdict. The client is imported lazily so the module imports without
 the dependency.
