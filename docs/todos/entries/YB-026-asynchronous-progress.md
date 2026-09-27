@@ -119,6 +119,35 @@ That does not make phase 3 (SSE) more likely — polling may be entirely adequat
 both consumers — but it does mean the question "who is this stream for?" gets asked
 before the transport is chosen rather than after.
 
+### Baseline before wiring — 2026-09-27
+
+`scripts/sanity_check.py` establishes what "working" means before the run is moved out of
+the request, because three faults in a row produced the SAME symptom — *"ingestion fails,
+no triples"* — from three different layers, and each was found by hand:
+
+| Stage | What it proves | Why it exists |
+|---|---|---|
+| `config` | which endpoint, which credential **source**, and whether the sampling flags match the endpoint class | a LAN IP counted as hosted, so the paid key went to a local server and returned 401 |
+| `endpoint` | auth, that the configured model is actually served, tools accepted, and **reasoning genuinely off** — one call, four answers | a DeepSeek `thinking` flag was silently ignored by a local server, so every call burned its output budget on chain-of-thought until the wall-clock cancel |
+| `extract` | the real profile over the real document: passes, triples, and how close the slowest pass came to the 180s budget | the budget is per call, cancellation is checked BETWEEN turns, and a cancelled pass falls back to text — which recovers only triples |
+| `route` | `POST /ingest` completes and the graph gained facts | the save happens last, so a request that dies loses everything |
+| `journal` | the run-event endpoint answers — **empty is expected today** | distinguishes "not wired yet" from "broken", which is the difference this item has to make |
+
+Two measured facts that shape the work:
+
+- **A live run is minutes, not seconds.** `payment_platform_arch.md` is 3 chunks × 4 passes
+  = **12 model calls**, and nothing is written until the last one. There is no run-level
+  cancel or budget anywhere, so *the absence of a "wall-clock budget — cancelled" line
+  means the client abandoned the request*, not the agent.
+- **Reasoning tokens were the hidden cost.** Disabling them on the local server halved
+  most passes (16.8→8.9s, 13.4→6.0s, 13.4→5.7s) and raised triples from 22 to 27 on the
+  same document.
+
+```sh
+.venv/bin/python scripts/sanity_check.py                  # config + endpoint, seconds
+.venv/bin/python scripts/sanity_check.py --stages all     # everything, minutes
+```
+
 ### Related
 
 - **YB-023** — same missing pass metadata, seen from the reporting side. Fix together:
