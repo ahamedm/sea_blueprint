@@ -126,6 +126,113 @@ progress streaming and pub/sub ([YB-026](../todos/entries/YB-026-asynchronous-pr
 (Streams + consumer groups), a distributed lock or CAS for the working set, and a
 cached workspace read model.
 
+### Why not a graph database (Neptune, Neo4j)?
+
+Worth answering properly, because "it's a knowledge *graph*, so use a graph *database*"
+is the most natural-sounding storage argument and the one most likely to be re-litigated.
+
+**Be precise about which flavour**, because the two are not equivalent for this data:
+
+- `Assertion` is a **first-class resource** carrying `confidence`, `source_text`,
+  `ontology_class`, provenance, `status`, `superseded_by`, `scope` and `initiative_id`.
+  The architecture review §2.3 documented how awkwardly RDF attaches properties to a
+  statement — reification costs four triples and RDF-star support varies. A **property
+  graph** (Neo4j; Neptune in property-graph mode) has native edge properties, so this
+  model maps cleanly. A graph database would therefore help *more* than RDF would, not
+  less — which is worth saying plainly, because the earlier RDF analysis does not settle
+  this question.
+- `StandardClause` is a numbered part of a standard, so modelling the ontology *in* the
+  graph is possible and gets you queries over the vocabulary itself.
+
+#### What would have been simple
+
+1. **Variable-depth traversal.** "Which products deploy on the shared OpenShift instance
+   and lack a control?" takes a hop per scope today. Impact analysis — *a policy changed,
+   what is affected?* — is a variable-depth traversal, hand-written now.
+2. **The governance chain as one query.** `Strategy → Principle → Policy → Clause →
+   Control → Requirement → Architecture` is six hops; Cypher or SPARQL states it as one
+   pattern.
+3. **Declarative audit patterns.** "A requirement with no implementing element that is
+   also in the CDE" becomes one statement instead of bespoke filtering.
+4. **Containment at any depth**, instead of recursion over `part_of`.
+5. **No schema migration** when the governance layer adds classes.
+
+#### What would have complicated
+
+1. **The analytical core would have to be rewritten, or bypassed.** ~4,200 lines across
+   `quality.py`, `realization.py`, `reconcile.py`, `review.py`, `model.py` and
+   `app/projections.py` operate on the in-memory `KnowledgeGraph`. A graph engine's
+   advantage only materialises if those become queries — which moves tested Python into a
+   query language and takes it out of the no-model test suite's reach. Bypass that by
+   loading the whole graph out and computing in Python, and the graph database is simply
+   a slower document store.
+2. **The concurrency defect would NOT have been fixed.** A graph database gives you
+   traversals; it does not give you "reject this write because the graph changed since you
+   read it". Per-scope optimistic concurrency is still required, exactly as `SqliteStore`
+   now implements it. The live lost-update bug was orthogonal to which engine holds the
+   data.
+3. **The review log becomes a second store.** `Decision` is event-sourced audit — actor,
+   `before`/`after`, promotion sets — not graph structure. Keeping it in the graph is
+   awkward; keeping it elsewhere means two stores whose writes ("the assertion changed"
+   and "a human decided it") must be atomic together.
+4. **Testability regresses.** 767 tests currently run with no model server and no
+   database. The repo's own rule is *"a test suite that needs a model server is a test
+   suite nobody runs"*, and it applies verbatim to a graph server. TestContainers helps,
+   at the cost of minutes per run and a new dependency on the critical path.
+5. **Portability regresses.** Neptune is AWS-only, which reintroduces exactly the coupling
+   the storage decision avoided by choosing PostgreSQL.
+6. **The scale is three to four orders of magnitude off.** Index-free adjacency pays for
+   itself on deep traversals over millions of nodes. The largest scope here is ~150 nodes
+   and ~635 assertions, and the traversals are two to three hops. The engine's advantage
+   is invisible; its operational cost is not.
+7. **Ontology validation moves or duplicates.** The ontology *is* the schema. Modelling it
+   in the graph adds a layer to every query; keeping it outside means validating on write
+   and duplicating what `core/ontology.py` already does.
+8. **Identity and rename problems persist.** A graph database does not fix label-derived
+   node identity or the rename cascade in
+   [`branching-and-promotion.md`](branching-and-promotion.md) §4.
+
+#### The cheap middle path is already paid for
+
+`networkx>=3.2` is **declared in `pyproject.toml` and used nowhere**. Multi-hop traversal
+and impact analysis are therefore available today for the cost of a `to_networkx()`
+projection over the loaded graph — no service, no container and no portability loss, with
+the analytical core staying in Python where its tests live.
+
+For genuinely declarative queries, `core/knowledge/rdf.py` already emits RDF and Turtle,
+so a SPARQL engine reads a **materialised revision** when a product needs one — the
+deferred `YB-010` position, unchanged.
+
+**Verdict: do not adopt a graph database as the system of record.** Build the `networkx`
+projection when in-app traversal is needed; materialise RDF per revision for declarative
+queries; and revisit a graph engine only when a required query needs traversal the
+materialised graph cannot answer in memory — which, at 200 products of ~1,000 assertions
+each, is a long way off.
+
+#### Two eventual destinations, and they are not the same
+
+The two candidates that keep coming up — a property graph and a triple store — answer
+**different** questions, and choosing one for the other's job is how you end up with a
+store that does neither well.
+
+| Need | Engine | Why it fits | Trigger |
+|---|---|---|---|
+| **Chain and traversal queries** over baselined graphs — the six-hop governance chain, cross-product impact analysis | `networkx` now; a property graph (Neo4j-like) as a **read model** later | edge properties are native, so `Assertion` maps without reification; as a read model it is derived, rebuildable and droppable | when a required query needs traversal the in-memory graph cannot answer |
+| **Entailment and inference** — subclass closure, transitive `part_of`, inverse properties, SHACL validation | RDF + Jena | this is what a reasoner gives you and a property graph does not; SHACL is closed-world, so absence is a finding | when the audit must **derive** facts rather than match patterns |
+
+**Jena's trigger is narrower than "eventually".** It earns its place on *reasoning*, not
+on graph queries: a property graph answers the chain queries just as well, with less
+ceremony. `YB-010`'s staging stands, with the condition now stated precisely — and the
+SHACL-versus-OWL trap from [`architecture-review.md`](../architecture-review.md) §2.6
+still governs: SHACL for the audit (absence is a violation), OWL for entailment (absence
+entails nothing, so a gap query finds nothing, ever, silently).
+
+And whichever lands, it lands as a **read model over baselined revisions**, never as the
+editing record. The system of record stays relational, because concurrency, the review
+gate and the audit log are what actually need transactions — and a graph engine fixes
+none of those (`YB-048` has the traversal measurement that shows the library is a
+capability win rather than the performance one it looks like).
+
 ## 6. Recommended path
 
 1. **Introduce a store interface** behind `RevisionStore` so the backend is

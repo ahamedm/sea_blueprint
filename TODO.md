@@ -3,7 +3,7 @@
 
 Open work only. Each item is one file under `docs/todos/entries/` — that file is the source of truth and this index is generated from it.
 
-**25 active · 1 parked · 2 superseded · 25 closed records**
+**26 active · 1 parked · 2 superseded · 25 closed records**
 
 | Where | What |
 |---|---|
@@ -52,6 +52,7 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [YB-034](docs/todos/entries/YB-034-initiative-delivery-phase.md) | Initiative delivery phase — the graph cannot represent "this Initiative is in Design" | open | `ontology/requirements_base.yaml` (Initiative, InitiativeStatus), `core/knowledge/ingest.py`, `app/projections.py` |
 | [YB-040](docs/todos/entries/YB-040-technology-ring.md) | Technology Ring — the adoption axis is in the ontology, but nothing writes it | open | `ontology/architecture_base.yaml`, `agents/architecture_extraction/passes.py`, `core/knowledge/ingest.py` |
 | [YB-041](docs/todos/entries/YB-041-pattern-catalogue-reach.md) | The architecture pattern catalogue reaches the Design Assistant only — never ARC-G extraction, and no verifier | open | `core/patterns.py`, `agents/architecture_extraction/`, `config/agent_config.py`, `core/knowledge/ingest.py` |
+| [YB-048](docs/todos/entries/YB-048-traversal-index.md) | Traversal index — cache adjacency per scope load, and use networkx for algorithms, not speed | open | `core/knowledge/` (new traversal projection), `app/projections.py`, `core/knowledge/quality.py` |
 
 ## Low
 

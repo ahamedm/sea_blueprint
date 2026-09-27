@@ -200,3 +200,103 @@ Slices 0–3 were this enabler's remit. Two things are deliberately NOT done yet
 - `RunJournal` replay returns exactly the events a late subscriber missed, in order.
 - `import core.knowledge` must not require SQLAlchemy, and `import core.events` must
   not require a Redis client — the extras are optional by construction.
+
+## 10. Traversal — measured, because the premise does not survive it
+
+"Add networkx" reads like a performance win, and `networkx>=3.2` is already a declared
+dependency used nowhere. So it was measured before it was planned
+(`scripts/bench_traversal.py`). It is **not** a performance win. The win is an index,
+and an index needs no library.
+
+Synthetic scope of 5,000 nodes / 9,995 assertions, indexes built once and cached:
+
+| Operation | Today's shape | Cached dict index | networkx |
+|---|---|---|---|
+| build the index, once per scope load | — | **2.0 ms** | 8.1 ms (4.0×) |
+| build the `part_of` index only | — | **0.3 ms** | 2.4 ms (7.4×) |
+| 500 neighbour lookups | 8.4 ms | **~0 ms (2795×)** | ~0 ms (1128×) |
+| 50 transitive containment walks | 31.4 ms | **14.9 ms (2.1×)** | 119.4 ms (**0.3× — slower**) |
+
+The same shape holds at 1,000 nodes and on the real store, so it is not a size artefact.
+
+**What this says.** Every repeated traversal wants an adjacency index built once per
+scope load — that is the 30× to 3,000× win, and a plain `dict[str, list]` beats
+`nx.DiGraph` on both build and query. `nx.descendants` is *slower* than a tight cached
+BFS because of its per-node machinery.
+
+**So networkx's value here is capability, not speed:** tested `ancestors`/`descendants`,
+`shortest_path`, `topological_sort`, `find_cycle`, `connected_components`. Those are the
+algorithms a hand-rolled walk gets subtly wrong. Use it for those, over an index that is
+already built — not as the index itself, and never on the whole-graph projection path,
+which is a single pass a library cannot improve.
+
+**And a correction worth keeping.** The first version of this benchmark reported
+networkx as 614× faster at transitive containment. It had built the `part_of` graph as
+`<child> -> <parent>` and then asked for `descendants(root)`, which explores an almost
+empty direction and returns nothing very quickly. A traversal benchmark that does not
+check the direction of its own edges measures nothing.
+
+## 11. Caching at scale — what in-process memory cannot do
+
+§2 and YB-048 both said "cache indexed state per scope, keyed by the version token".
+That was **underspecified**, and at the stated scale (50 architects, 200 products) it is
+wrong as written. The correction is not "use a different cache"; it is that different
+artifacts need different treatment, and the deciding property is **mutability**.
+
+### What one scope costs in memory
+
+Measured with `tracemalloc`, hydrating a serialised graph:
+
+| Scope | JSON | In memory | Assertions |
+|---|---|---|---|
+| real store (`data/sea-deepseek`) | 429 KB | **0.27 MB** | 635 |
+| synthetic | 1.8 MB | **1.9 MB** | 4,000 |
+| synthetic | 8.9 MB | **9.3 MB** | 20,000 |
+
+In-memory is roughly 1.1× the JSON at size. So caching **every** scope of 200 products
+at 20,000 assertions each is ~1.9 GB in one process — and ~15 GB across eight workers,
+each holding its own copy. That is the wall, and it is a function of scope *size*, not
+scope *count*: at today's 635 assertions it is 54 MB for all 200, which is nothing.
+
+### The reframing: cache by artifact class
+
+| Artifact | Mutability | Bound by | Where it belongs |
+|---|---|---|---|
+| **Working set** | mutable, one writer (guarded) | **concurrent editors** — tens, not hundreds | in-process LRU per scope, invalidated by the version token |
+| **Frozen revisions** | immutable | product count × size | shared store (Valkey) and/or object storage — **never invalidated** |
+| **Derived projections** of a frozen revision | immutable | the same | shared, keyed by revision id — a permanent entry |
+| **Aggregations, workspace listings** | derived | — | a read model in SQL, not a cache |
+
+Two consequences fall out of the table:
+
+1. **The working-set cache is bounded by concurrency, not by product count.** Only scopes
+   actually being edited are hot — tens of them. In-process is the right home, and fifty
+   architects × a few MB is comfortable.
+2. **Baselines are immutable, so they need no invalidation at all.** They can be cached
+   *outside* the process, shared by every worker, replicated, and never
+   coherence-checked. A cache with no invalidation problem is a very different thing from
+   the one YB-048 implied, and it is where the large, safe win lives.
+
+### And the CPU case is weaker than it looks
+
+At 20,000 assertions a full SQL load is ~28 ms raw, ~49 ms through Core. Fifty architects
+at one page per five seconds is ~10 requests/second, so **no cache at all** costs ~0.5
+CPU-seconds per second — half of one core. The cache is an optimisation, not a saviour,
+and the first fix for page cost is to **stop loading the whole graph to render a slice**
+(the normalised tables, slice 4) rather than holding every graph in RAM.
+
+### Three gaps this exposes
+
+1. **There is no cheap version probe.** `SqliteStore.load_working()` hydrates the entire
+   graph just to read `meta["version"]`. A cache needs a one-row `current_version(scope)`
+   on the `Store` protocol, or every cache hit pays a full load — which is not a cache.
+2. **No bound is specified and no hit rate is measured.** An LRU needs a size cap and a
+   hit-rate metric from the start. A cache with a low hit rate is not a cache problem, it
+   is an access-pattern problem, and it should be deleted rather than tuned.
+3. **Cross-instance coherence is unsolved.** An in-process cache is per worker; nothing
+   shares it. For mutable state that is acceptable — the version token is the correctness
+   mechanism, not the cache. For anything shared, the answer is a shared store or a read
+   model, not a bigger local dictionary.
+
+**A cache is never the correctness mechanism here.** The version token is. Any cache must
+be able to prove it is current by reading one indexed row, or it must not serve the read.

@@ -68,3 +68,4 @@
 | None | Ontology version is not recorded per run — a graph cannot be attributed to the vocabulary that produced it | [YB-045](entries/YB-045-ontology-version-provenance.md) | entry (open) |
 | None | Branching and guarded promotion — two architects on one initiative, and the merge between them | [YB-046](entries/YB-046-branching-and-promotion.md) | entry (open) |
 | None | Enterprise governance layer — Policy, Principle, Control, Risk, and Standard clauses | [YB-047](entries/YB-047-enterprise-governance-layer.md) | entry (in-progress) |
+| None | Traversal index — cache adjacency per scope load, and use networkx for algorithms, not speed | [YB-048](entries/YB-048-traversal-index.md) | entry (open) |
