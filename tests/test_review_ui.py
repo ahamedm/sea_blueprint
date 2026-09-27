@@ -53,12 +53,41 @@ def test_the_filter_and_the_selection_are_in_the_table_header(seeded_client):
     assert "Filter the review queue" in head
     assert 'id="select-all"' in head
     assert 'id="bulk-form"' in head
-    assert "Verify selected" in head
     # …and NOT in the site's top bar: the nav is not the place for a table's tools.
     assert 'id="bulk-form"' not in _page_head(body)
     # …and they are the only copy of the bulk form: a second one would submit a
     # second, disagreeing selection.
     assert body.count('id="bulk-form"') == 1
+
+
+def test_the_header_offers_all_four_actions_over_the_selection(seeded_client):
+    """Verify alone made the common case a bulk operation and left the rest single-row.
+    The reviewer's other three verbs belong beside it, on the same selection."""
+    head = _table_head(seeded_client.get("/review").get_data(as_text=True))
+
+    for action in ("verify", "dispute", "reset", "retire"):
+        assert f'name="action" value="{action}"' in head, action
+    # `correct` needs a replacement per assertion, so it is deliberately single-row.
+    assert 'value="correct"' not in head
+
+
+def test_only_remove_asks_before_acting_and_it_asks_in_our_own_panel(seeded_client):
+    """`window.confirm` cannot be styled and looks like a browser fault. The
+    destructive button points at the app's own <dialog> instead."""
+    body = seeded_client.get("/review").get_data(as_text=True)
+    head = _table_head(body)
+
+    destructive = re.search(r'<button[^>]*value="retire"[^>]*>', head).group(0)
+    assert "data-confirm=" in destructive
+    assert head.count("data-confirm=") == 1, "only the destructive action asks"
+
+    # The panel and its two answers are in the page, and the script routes both the
+    # bulk button and htmx's own confirm hook into it.
+    assert 'id="confirm-dialog"' in body
+    assert "data-confirm-message" in body
+    assert "data-confirm-title" in body
+    assert "htmx:confirm" in body
+    assert "showModal" in body
 
 
 def test_the_tools_are_the_first_sticky_row_of_the_header(seeded_client):

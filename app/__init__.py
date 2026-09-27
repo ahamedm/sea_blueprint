@@ -72,6 +72,8 @@ from app.projections import (
 )
 from app.viewpoints.merged import DEFAULT_LENS, merged_view
 from core.knowledge import (
+    ACTION_VERIFY,
+    BULK_ACTIONS,
     DEFAULT_MATCH_THRESHOLD,
     BaselineNotReady,
     DesignDraftStore,
@@ -81,6 +83,7 @@ from core.knowledge import (
     RevisionStore,
     Snapshot,
     apply_decisions,
+    bulk_apply,
     bulk_resolve,
     bulk_verify,
     merge_graphs,
@@ -1415,35 +1418,64 @@ def create_app(
     def review_bulk():
         snapshot = state()
         actor = reviewer()
-        scope = (request.form.get("bulk_scope") or "threshold").strip()
+        # The table header's buttons carry `action` and mean "the selection"; the
+        # threshold button carries `bulk_scope=threshold`. Inferring the scope this
+        # way keeps one parameter per button — a hidden `bulk_scope=selected` would
+        # also be submitted by the threshold button and win, because it comes first.
+        scope = (
+            request.form.get("bulk_scope")
+            or ("selected" if request.form.get("action") else "threshold")
+        ).strip()
+        action = (request.form.get("action") or ACTION_VERIFY).strip()
         note = (request.form.get("note") or "").strip()
+
+        # A label per action, so the flash says what happened rather than "3
+        # assertion(s)". A bulk decision that cannot be read back is a decision the
+        # reviewer has to go and verify, which defeats the point of doing it in bulk.
+        labels = {"verify": "Verified", "dispute": "Disputed",
+                  "reset": "Reopened", "retire": "Removed"}
 
         if scope == "selected":
             ids = request.form.getlist("ids")
             if not ids:
                 flash("No assertions selected.", "warning")
                 return redirect(url_for("review"))
-            decisions = bulk_verify(
+            if action not in BULK_ACTIONS:
+                flash(f"Unknown bulk action: {action}", "error")
+                return redirect(url_for("review"))
+            decisions = bulk_apply(
                 snapshot.graph,
                 snapshot.log,
-                assertion_ids=ids,
+                ids,
+                action,
                 actor=actor,
-                note=note or "bulk verify (selected)",
+                note=note or f"bulk {action} (selected)",
             )
-        else:
-            # Trust the threshold, not the checkbox list: a stale page must not be
-            # able to verify assertions the reviewer never saw.
-            try:
-                threshold = float(request.form.get("threshold") or LOW_CONFIDENCE)
-            except ValueError:
-                threshold = LOW_CONFIDENCE
-            decisions = bulk_verify(
-                snapshot.graph,
-                snapshot.log,
-                max_confidence=threshold,
-                actor=actor,
-                note=note or f"bulk verify (confidence ≤ {threshold})",
+            label = labels.get(action, action.title())
+            # Say when the selection and the action disagreed, rather than reporting
+            # a smaller number with no explanation.
+            skipped = len(ids) - len(decisions)
+            detail = f" ({skipped} already in that state)" if skipped else ""
+            save(snapshot)
+            flash(
+                f"{label} {len(decisions)} of {len(ids)} selected assertion(s){detail}.",
+                "success" if decisions else "warning",
             )
+            return redirect(request.referrer or url_for("review"))
+
+        # Threshold is verify-only: "remove everything below 0.6 confidence" is not a
+        # decision anyone should be able to make from a number.
+        try:
+            threshold = float(request.form.get("threshold") or LOW_CONFIDENCE)
+        except ValueError:
+            threshold = LOW_CONFIDENCE
+        decisions = bulk_verify(
+            snapshot.graph,
+            snapshot.log,
+            max_confidence=threshold,
+            actor=actor,
+            note=note or f"bulk verify (confidence ≤ {threshold})",
+        )
 
         save(snapshot)
         flash(f"Verified {len(decisions)} assertion(s).", "success" if decisions else "warning")

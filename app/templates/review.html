@@ -162,18 +162,14 @@
     </form>
   </div>
 
-  {# Bulk controls. The form itself is in the sticky bar — the buttons and inputs
-     here reach it by `form="bulk-form"`, so row buttons never nest inside it and
-     the selection actions stay reachable while the table scrolls. #}
+  {# Bulk controls. The selection actions live in the table header, where the rows
+     are; this card is only the *threshold* operation, which needs an input nobody
+     wants in a header row. Its controls reach the header's form by `form=`. #}
   <div class="card">
     <div class="row">
-      <strong class="small">Bulk review</strong>
+      <strong class="small">Verify by confidence</strong>
       <span class="muted small">·</span>
-      <span class="muted small">Select rows in the table header (or “All” there), then</span>
-      <button class="btn btn-sm btn-ok" form="bulk-form" name="bulk_scope" value="selected">
-        Verify selected
-      </button>
-      <span class="muted small">or verify everything at or below</span>
+      <span class="muted small">verify everything at or below</span>
       <input type="number" name="threshold" form="bulk-form" step="0.05" min="0" max="1"
              value="{{ low_confidence_threshold }}" style="width:80px;">
       <button class="btn btn-sm" form="bulk-form" name="bulk_scope" value="threshold">
@@ -185,8 +181,10 @@
       <span class="muted small">{{ total_rows }} row(s) shown</span>
     </div>
     <p class="hint" style="margin:8px 0 0;">
-      Bulk verification re-derives its selection from the graph, so a stale page
-      cannot verify assertions you never saw. Every action is written to the audit trail.
+      Choose rows in the table header and act on them there — Verify, Dispute, Reopen or
+      Remove. Either way the selection is re-derived from the graph, so a stale page
+      cannot act on assertions you never saw, and every action is written to the audit
+      trail.
     </p>
   </div>
 
@@ -221,9 +219,15 @@
                     <input type="checkbox" id="select-all"
                            aria-label="Select every filtered row"> All
                   </label>
-                  <button class="btn btn-sm btn-ok" name="bulk_scope" value="selected">
-                    Verify selected
-                  </button>
+                  {# One button per action, all over the same selection. `correct` is
+                     absent: it needs a replacement per assertion. Remove is the only
+                     destructive one, so it asks first — in the app's own panel, not
+                     the browser's. #}
+                  <button class="btn btn-sm btn-ok" name="action" value="verify">Verify</button>
+                  <button class="btn btn-sm btn-warn" name="action" value="dispute">Dispute</button>
+                  <button class="btn btn-sm" name="action" value="reset">Reopen</button>
+                  <button class="btn btn-sm btn-ghost danger" name="action" value="retire"
+                          data-confirm="Remove the selected facts from the graph? They stay in the audit trail and can be restored by reopening them.">Remove</button>
                   <span class="count" id="sel-count">{{ total_rows }} shown</span>
                 </form>
               </div>
@@ -252,6 +256,26 @@
        when nothing was open. #}
     <div class="drawer-backdrop" id="drawer-backdrop"></div>
     <aside class="drawer" id="drawer" aria-label="Assertion detail" aria-hidden="true"></aside>
+
+    {#
+      The app's own confirmation, in place of the browser's. `window.confirm` cannot
+      be styled, blocks the page, and reads like a developer's message — and removing
+      a fact is exactly the moment a reviewer should get a considered sentence rather
+      than a modal that looks like a browser warning. Used by both the bulk Remove
+      and every row's Remove.
+    #}
+    <dialog class="confirm" id="confirm-dialog">
+      <form method="dialog">
+        <div class="confirm-body">
+          <h2 data-confirm-title>Confirm</h2>
+          <p data-confirm-message></p>
+        </div>
+        <div class="confirm-actions">
+          <button class="btn btn-sm btn-ghost" value="cancel">Cancel</button>
+          <button class="btn btn-sm btn-danger" value="confirm" autofocus>Confirm</button>
+        </div>
+      </form>
+    </dialog>
   {% else %}
     <div class="card empty">
       <h2>No assertions match these filters</h2>
@@ -322,6 +346,57 @@
       }
     });
     refreshSelection();
+
+    // -- one confirmation panel for everything destructive -------------------
+    //
+    // Two paths ask before acting: a bulk button carries `data-confirm`, and a row's
+    // Remove goes through htmx's own confirm hook. Both end up in the same styled
+    // <dialog>, which is the point — `window.confirm` cannot be styled and looks
+    // like a browser fault rather than part of the gate.
+    var confirmDialog = document.getElementById('confirm-dialog');
+    if (!confirmDialog) { return; }
+
+    var pending = null;
+    function ask(title, message, onConfirm) {
+      if (confirmDialog.open) { return; }  // a double click must not throw
+      confirmDialog.querySelector('[data-confirm-title]').textContent = title;
+      confirmDialog.querySelector('[data-confirm-message]').textContent = message;
+      pending = onConfirm;
+      confirmDialog.returnValue = '';
+      confirmDialog.showModal();
+    }
+    confirmDialog.addEventListener('close', function () {
+      var run = pending;
+      pending = null;
+      if (confirmDialog.returnValue === 'confirm' && run) { run(); }
+    });
+
+    var bulkForm = document.getElementById('bulk-form');
+    var bypassBulkConfirm = false;
+    if (bulkForm) {
+      bulkForm.addEventListener('submit', function (event) {
+        if (bypassBulkConfirm) { bypassBulkConfirm = false; return; }
+        var button = event.submitter;
+        if (!button || !button.dataset.confirm) { return; }
+        event.preventDefault();
+        ask(button.textContent.trim(), button.dataset.confirm, function () {
+          // `requestSubmit` keeps the pressed button's name/value, which is how the
+          // route learns which action was chosen.
+          bypassBulkConfirm = true;
+          bulkForm.requestSubmit(button);
+        });
+      });
+    }
+
+    // htmx fires this for every `hx-confirm`. Not calling `issueRequest` immediately
+    // is what keeps the request waiting for our panel.
+    document.body.addEventListener('htmx:confirm', function (event) {
+      if (!event.detail.question) { return; }
+      event.preventDefault();
+      ask('Remove this fact?', event.detail.question, function () {
+        event.detail.issueRequest(true);
+      });
+    });
   })();
   </script>
 {% endif %}

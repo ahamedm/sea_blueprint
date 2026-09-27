@@ -262,6 +262,23 @@ thead tr.col-heads th { top: calc(var(--table-tools-h) - 1px); }
 }
 .table-tools .count { color: var(--text-dim); font-size: 11.5px; white-space: nowrap; }
 .table-tools .btn-ok { background: var(--ok); border-color: var(--ok); color: #fff; }
+.table-tools .btn-warn { background: var(--warn); border-color: var(--warn); color: #fff; }
+
+/* -- the confirmation panel ----------------------------------------------
+   A styled <dialog> rather than `window.confirm`: keyboard and focus handling come
+   from the element, and the look is the app's. `::backdrop` is the native scrim. */
+.confirm {
+  border: 1px solid var(--border-strong); border-radius: var(--radius);
+  padding: 0; width: min(460px, 92vw); color: var(--text);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, .28);
+}
+.confirm::backdrop { background: rgba(15, 23, 42, .45); }
+.confirm .confirm-body { padding: 18px 20px 6px; }
+.confirm h2 { margin: 0 0 8px; font-size: 15px; }
+.confirm p { margin: 0; color: var(--text-dim); font-size: 13px; line-height: 1.5; }
+.confirm .confirm-actions {
+  display: flex; justify-content: flex-end; gap: 8px; padding: 14px 20px 18px;
+}
 
 /* -- buttons -------------------------------------------------------------- */
 

@@ -44,6 +44,7 @@ from .model import (
     STATUS_SUPERSEDED,
     STATUS_UNVERIFIED,
     STATUS_VERIFIED,
+    Assertion,
     KnowledgeGraph,
     Provenance,
     utc_now,
@@ -610,6 +611,70 @@ def bulk_verify(
         if a.status != STATUS_UNVERIFIED:
             continue
         decisions.append(log.record(verify(graph, a.id, actor, note)))
+    return decisions
+
+
+BULK_ACTIONS = (ACTION_VERIFY, ACTION_DISPUTE, ACTION_RETIRE, ACTION_RESET)
+"""The actions a reviewer may apply to a whole selection.
+
+`correct` is deliberately absent: it needs a replacement target per assertion, so
+"correct these five" has no single meaning.
+"""
+
+
+def _bulk_eligible(assertion: "Assertion", action: str) -> bool:
+    """Whether this action would change anything about this assertion.
+
+    Skipped rather than applied blindly, so the count a page reports is the number of
+    decisions actually recorded. "Verify selected" over a mixed selection should say
+    three, not five, or the reviewer learns to distrust the number.
+    """
+    if action == ACTION_VERIFY:
+        return assertion.status == STATUS_UNVERIFIED
+    if action == ACTION_DISPUTE:
+        # A dispute on a removed or superseded fact is meaningless: there is nothing
+        # left in play to disagree with.
+        return assertion.is_active and assertion.status != STATUS_DISPUTED
+    if action == ACTION_RESET:
+        # Reopening is the RESTORE path, so a retired assertion is eligible even
+        # though its status may already read UNVERIFIED — `is_active` is what says
+        # whether there is anything to undo.
+        return not (assertion.status == STATUS_UNVERIFIED and assertion.is_active)
+    if action == ACTION_RETIRE:
+        return assertion.is_active
+    return False
+
+
+def bulk_apply(
+    graph: KnowledgeGraph,
+    log: ReviewLog,
+    assertion_ids: Iterable[str],
+    action: str,
+    actor: str = "",
+    note: str = "",
+) -> List[Decision]:
+    """Apply one action to many selected assertions.
+
+    Selection is re-derived from the graph exactly as `bulk_verify` does it: a stale
+    checkbox list cannot act on an assertion the reviewer never saw, and an id that
+    has since disappeared is skipped rather than raising — the page in front of them
+    is older than the graph, which is normal rather than exceptional.
+
+    Every action goes through `apply_decisions`, so a bulk decision and a single one
+    cannot diverge in what they record.
+    """
+    if action not in BULK_ACTIONS:
+        raise ReviewError(
+            f"unknown bulk action: {action!r} (one of {', '.join(BULK_ACTIONS)})"
+        )
+    decisions: List[Decision] = []
+    for assertion_id in assertion_ids or ():
+        assertion = graph.assertions.get(assertion_id)
+        if assertion is None or not _bulk_eligible(assertion, action):
+            continue
+        decisions.append(
+            apply_decisions(graph, log, assertion_id, action, actor=actor, note=note)
+        )
     return decisions
 
 
