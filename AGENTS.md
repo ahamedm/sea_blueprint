@@ -10,8 +10,11 @@ This is a platform shrinked to a tool/app to prove the core idea of leveraging O
 - Shared domain code under core/ folder (knowledge model, ontology reader) —
   read by both the agents and the app; core/ must not import agents/ or app/
 - Foundational Ontologies under ontology/ folder
-- Use Memory to store Architecture Overview and Critical Decisions
 - MVP UI is under app/ folder
+
+# Efficiency Tips
+- Leverage codegraph MCP for traversal
+- Use Memory to store Architecture Overview and Critical Decisions
 
 # References
 - [PRD](docs/yeah_blueprint_PRD_v0_1.md)
