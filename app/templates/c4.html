@@ -67,7 +67,10 @@
     <div class="stat">
       <div class="value" style="color:{{ 'var(--warn)' if not model.counts.relationships else 'inherit' }}">{{ model.counts.relationships }}</div>
       <div class="label">Relationships</div>
-      <div class="foot">between C4 elements — the arrows</div>
+      <div class="foot">
+        {{ model.counts.calls }} call(s) ·
+        {{ model.counts.data_accesses }} data access(es), dotted
+      </div>
     </div>
     <div class="stat">
       <div class="value" style="color:{{ 'var(--warn)' if model.counts.checks_failed else 'var(--ok)' }}">{{ model.counts.checks_failed }}</div>

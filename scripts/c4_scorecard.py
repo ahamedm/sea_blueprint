@@ -82,9 +82,12 @@ def _element_report(model: dict) -> dict:
 
 def _relationship_report(model: dict) -> dict:
     by_via = Counter(r["via"] for r in model["relationships"])
+    by_kind = Counter(r.get("kind", "call") for r in model["relationships"])
     protocols = Counter(r["protocol"] for r in model["relationships"] if r["protocol"])
     return {
         "total": len(model["relationships"]),
+        "calls": by_kind.get("call", 0),
+        "data_accesses": by_kind.get("data", 0),
         "by_source": dict(by_via),
         "protocols": dict(protocols.most_common()),
         "labelled": sum(1 for r in model["relationships"]
@@ -201,6 +204,11 @@ def render(report: dict) -> str:
     relationships = report["relationships"]
     add(f"\nRELATIONSHIPS  {relationships['total']}   (the C4 arrows)")
     if relationships["total"]:
+        # The split matters more than the total: a container that touches two stores
+        # showed the same number of arrows as one that calls two services, which is how
+        # "most connected" came to read as "the entry point".
+        add(f"  calls: {relationships['calls']}"
+            f"   data accesses (dotted): {relationships['data_accesses']}")
         add(f"  from Connection nodes: {relationships['by_source'].get('connection', 0)}"
             f"   from bare edges: {relationships['by_source'].get('edge', 0)}")
         add(f"  labelled: {relationships['labelled']}   protocols: "

@@ -329,6 +329,7 @@ def c4_model(graph: Any) -> Dict[str, Any]:
             "protocol": node_facts.get("protocol", ""),
             "style": node_facts.get("style", ""),
             "via": "connection",
+            "kind": _relationship_kind(elements.get(target_id), node_facts.get("style", "")),
         }
 
     for assertion in graph.active():
@@ -348,6 +349,7 @@ def c4_model(graph: Any) -> Dict[str, Any]:
             "protocol": "",
             "style": "",
             "via": "edge",
+            "kind": _relationship_kind(elements.get(assertion.object), ""),
         })
 
     if inferred:
@@ -431,6 +433,8 @@ def c4_model(graph: Any) -> Dict[str, Any]:
         "counts": {
             "elements": len(elements),
             "relationships": len(pairs),
+            "calls": sum(1 for r in relationships if r["kind"] == "call"),
+            "data_accesses": sum(1 for r in relationships if r["kind"] == "data"),
             "excluded_non_c4_relationships": non_c4,
             "excluded_kinds": dict(sorted(excluded.items())),
             "excluded_count": sum(excluded.values()),
@@ -521,6 +525,32 @@ def roll_up(
                      key=lambda e: (LEVELS.index(e["level"]), e["label"]))
     return (ordered, [relationships[key] for key in sorted(relationships)], rolled,
             undrawable)
+
+
+#: Integration styles that describe moving data rather than calling behaviour.
+_DATA_STYLES = frozenset({"SHARED_DATABASE", "BATCH_TRANSFER"})
+
+
+def _relationship_kind(target: Optional[Dict[str, Any]], style: str) -> str:
+    """Whether a relationship is a CALL or a DATA ACCESS.
+
+    This distinction was missing and it changed what the diagram appeared to say. A
+    container that touches two stores showed six outbound arrows, exactly like a
+    container that calls six services, so "most connected" rendered as "the entry
+    point" — measured on the payment architecture, where `Settlement Job Orchestrator`
+    has four calls and two store touches, and the store touches were what made it look
+    like the hub everything else hangs off.
+
+    C4 does draw container-to-database arrows, so the edge belongs. Drawing it as the
+    same arrow as a synchronous call is what overstates it. Deterministic, so it needs
+    no re-extraction: an edge into a DataStore is a data access, and so is an edge
+    whose integration style says the store is shared.
+    """
+    if style in _DATA_STYLES:
+        return "data"
+    if target is not None and target.get("kind") == "DataStore":
+        return "data"
+    return "call"
 
 
 def _label_of(elements: Dict[str, Dict[str, Any]], node_id: str) -> str:
@@ -774,7 +804,11 @@ def to_mermaid(model: Dict[str, Any], level: str = "container") -> str:
         src, dst = ids.get(relationship["source"]), ids.get(relationship["target"])
         if not src or not dst:
             continue
-        lines.append(f'    {src} -->|"{_mermaid_label(relationship["label"])}"| {dst}')
+        # A data access is dotted. It is a real C4 relationship, but it is not a call,
+        # and drawing it identically is how a container that touches two stores came to
+        # look like the entry point everything else hangs off.
+        arrow = "-.->" if relationship.get("kind") == "data" else "-->"
+        lines.append(f'    {src} {arrow}|"{_mermaid_label(relationship["label"])}"| {dst}')
     return "\n".join(lines) + "\n"
 
 

@@ -468,7 +468,8 @@ def test_mermaid_notes_how_many_relationships_were_rolled_up(layered_output):
     text = c4.to_mermaid(model, "container")
 
     assert "%% 1 relationship(s) rolled up from a lower level" in text
-    assert 'orchestrator -->|"reads"| ledger' in text
+    # Dotted: the ledger is a DataStore, so this is a data access, not a call.
+    assert 'orchestrator -.->|"reads"| ledger' in text
 
 
 def test_an_unknown_level_is_not_silently_substituted(arch_graph):
@@ -602,3 +603,26 @@ def test_an_incomplete_run_is_reported(arch_graph):
     gaps = [g for g in model["gaps"] if g["kind"] == "run-completeness"]
     assert len(gaps) == 1
     assert "1 of 1" in gaps[0]["label"]
+
+
+def test_a_store_touch_is_not_drawn_as_a_call(layered_output):
+    """THE DEFECT. `Settlement Job Orchestrator` appeared to be the entry point
+    everything hung off, and two of its six outbound arrows were store touches
+    (`→ PostgreSQL`, `→ Valkey`) drawn identically to its four real calls. C4 does draw
+    container-to-database arrows, so the edge belongs; drawing it as a synchronous call
+    is what overstated it. Deterministic, so no re-extraction is needed: an edge into a
+    DataStore is a data access.
+    """
+    model = c4.c4_model(_graph(layered_output))
+
+    kinds = {(model["identities"][r["source"]], model["identities"][r["target"]]): r["kind"]
+             for r in model["relationships"]}
+    # Both of the fixture's relationships end at the Ledger DataStore, so both are data
+    # accesses: the rule is about what is on the other end, not about who is calling.
+    assert set(kinds.values()) == {"data"}
+    assert model["counts"]["data_accesses"] == 2
+    assert model["counts"]["calls"] == 0
+
+    text = c4.to_mermaid(model, "container")
+    assert "-.->" in text, "a data access must not use the same arrow as a call"
+    assert "-->" not in text
