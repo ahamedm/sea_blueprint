@@ -208,3 +208,6 @@ sentence is the kind of thing a reviewer should be shown rather than have to not
 - [YB-004](../entries/YB-004-model-output-not-structurally-stable.md) — the same document
   extracted twice produced 27 then 30 elements and 19 then 13 connections, which is the
   variance this item's prompt change has to be judged against rather than a single run.
+- [Extraction and reconciliation reliability — a brainstorm of levers](../../design/extraction-reliability-levers.md)
+  — the wider list this item's defects contributed evidence to. A holding pen, not a plan:
+  entries get minted when something is chosen from it.
