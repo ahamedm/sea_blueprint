@@ -91,8 +91,34 @@ softwaresystem:payment_gateway_platform   kind=SoftwareSystem  label="Payment Ga
 ```
 
 One comes from REQ-G (the requirements profile names the system a `Platform`) and one
-from ARC-G (the architecture profile names it a `SoftwareSystem`). `_resolve` matches by
-label *within* a kind, so the two profiles each mint their own node for one real thing.
+from ARC-G (the architecture profile names it a `SoftwareSystem`).
+
+**The precise mechanism, corrected after checking it** (the first write-up said `_resolve`
+matches "by label within a kind", which is not what the code does):
+
+- `make_node_id(kind, label)` → `f"{slugify(kind)}:{slugify(label)}"`. Identity is the
+  **pair**, and deliberately so: the docstring says "the same kind and label in a
+  different run produce the same id, so re-extraction converges rather than duplicating",
+  and that part works — re-ingesting one document leaves a single node per label.
+- `_resolve` matches by **label only**, but it consults `by_label`, which
+  `_collect_declared_nodes` builds **fresh, empty, from the current document alone** and
+  never seeds from the existing graph.
+- So cross-document identity rests entirely on the two profiles agreeing on the KIND. They
+  do not, and `make_node_id` therefore mints two ids for one real system.
+
+Why they cannot agree as things stand: ARC-G's `element_type` is a closed `Literal` —
+`SoftwareSystem, ExternalSystem, Person, Container, DataStore, Component, CodeElement,
+DeploymentNode` — which contains no `System`, `Platform` or `Application`. REQ-G's
+`ExtractedEntity.entity_type` is a free `str` whose description is
+`"e.g. Stakeholder, System, BusinessProcess, DomainConcept"`, i.e. unconstrained. One side
+picks from a closed C4 vocabulary, the other from the open enterprise vocabulary, and the
+two share no token for "the system". In the live run REQ-G chose `Platform`, which is a
+*sibling* of `System` under `EnterpriseConstruct` ("Concrete subtypes: Product, SubProduct,
+System, Application, Platform") and is the commercial sense of the word.
+
+They cannot agree, and §"Why the ontology lets them disagree" below is the reason: two
+disjoint abstract hierarchies, whose mapping exists only as a sentence in
+`SoftwareSystem`'s description.
 
 Consequences, all visible in the emitted DSL:
 
@@ -108,13 +134,62 @@ Consequences, all visible in the emitted DSL:
   container expects. This is the failure mode that makes it worth fixing rather than
   tolerating: a check that passes while the diagram is wrong.
 
-**Shape.** Identity, not presentation. Either `_resolve` matches an existing node by
-label across *compatible* kinds for a known set of element-like kinds, or the ingest
-records the second node as an alias of the first. The first is smaller and matches how
-`_resolve` already works; the risk is an over-eager merge (a `Container` and a
-`Component` that share a name in different documents are not one thing), which is why the
-compatible set has to be explicit and small. Whatever is chosen, the review gate should
-be able to see the merge, because merging two nodes is not reversible from the UI.
+**Shape.** Identity, not presentation, and the ontology is where the missing piece is.
+`SoftwareSystem` already *claims* the mapping in prose — "Maps to the enterprise `System`
+construct — that linkage is what keeps ARC-G and REQ-G talking about the same thing" — but
+carries `is_a: ArchitectureElement`, not `is_a: System`, and there is no `maps_to` or alias
+anywhere. The intent is documented and unenforceable.
+
+So, smallest first:
+
+3. **Constrain REQ-G's class.** `ExtractedEntity.entity_type` is a free `str` whose
+   description is `"e.g. Stakeholder, System, BusinessProcess, DomainConcept"`, so the
+   requirements agent picks from the whole enterprise vocabulary while ARC-G picks from a
+   closed `Literal`. It chose `Platform` — a *sibling* of `System` under
+   `EnterpriseConstruct` — for the system under design.
+4. **Or catch it without merging**: a validator for "the same label declared under two
+   kinds that the ontology says are the same construct", reported in `/gaps`. Cheaper and
+   reversible, and it is the `style_as_element` precedent.
+
+Whatever is chosen, the review gate should see the merge, because merging two nodes is not
+reversible from the UI.
+
+### Why the ontology lets them disagree
+
+`System` and `SoftwareSystem` are not two classes in one hierarchy — they are two disjoint
+abstract roots, one per layer:
+
+| | `System` | `SoftwareSystem` |
+|---|---|---|
+| File | `ontology/enterprise_structure.yaml` | `ontology/architecture_base.yaml` |
+| Parent | `EnterpriseConstruct` (`abstract: true`) | `ArchitectureElement` (`abstract: true`) |
+| Sense | organisational: "a coordinated set of components… may serve one or many Products… may exist independently OR be part of a Platform" | architectural: "C4 Level 1. The system being architected, seen as a single box" |
+| Attributes | `architectural_pattern`, `is_part_of_platform` → `Platform`, `serves_products` → `Product`, `comprises_applications` → `Application` | `system_class` (`ENTERPRISE_TECHNOLOGY_PLATFORM` / `BUSINESS_TECHNOLOGY_PLATFORM` / `BUSINESS_APPLICATION` …), `origin` |
+| Mapped to the other? | no | no — `is_a: ArchitectureElement` |
+
+Both are visible to ARC-G (the import chain is `enterprise_structure → requirements_base →
+architecture_base`, one-way), and `EnterpriseConstruct`'s own description lists the concrete
+subtypes: "Product, SubProduct, System, Application, Platform". So `Platform` and
+`Application` sit *beside* `System`, not under `SoftwareSystem`, and the requirements agent
+has three plausible-looking siblings to choose from for one real thing.
+
+The linkage between the two roots exists in exactly one place: the sentence in
+`SoftwareSystem`'s description. Nothing parses it, so nothing can act on it.
+
+**The ontology's author already solved this pattern once and stopped short of the second
+case.** `Platform` carries an explicit naming note — this is the *commercial* sense
+(Shopify, Stripe), and it is "NOT the same as an 'Enterprise Technology Platform'
+(OpenShift, Splunk, Grafana)… That concept lives in `architecture_base.SoftwareSystem.
+system_class`, deliberately under a different name so the two do not blur." So the
+collision was recognised and fixed by naming for `Platform`, while `System`/`SoftwareSystem`
+got a prose note and no mechanism. That asymmetry is the defect, not naivety.
+
+**Also mine, and worth naming:** the C4 view papered over this by listing `System`,
+`Platform` and `Application` in `_LEVEL_FROM_KIND`, flattening four unrelated classes to
+"context". It reports them as `inferred-level` rather than stated, so it does say the level
+was guessed — but the flatness is the view's, and `Application.implements_system` (an
+attribute, not a level relation) means the diagram cannot express that an application is
+not a peer of the system it implements.
 
 ### Defect 3 — the document states ONE container's relationships, so that container is the hub
 
