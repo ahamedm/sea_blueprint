@@ -3,7 +3,9 @@ Configuration management for SEA agents.
 """
 
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Tuple
+from ipaddress import ip_address
+from urllib.parse import urlparse
 import json
 import yaml
 from pydantic import BaseModel, Field
@@ -45,10 +47,30 @@ class AgentConfigManager:
         return self.configs
 
 
+#: Hostnames that always mean "this machine or the one next to it". Anything else is
+#: decided by the address itself — see `endpoint_is_local`.
+_LOCAL_HOSTNAMES = frozenset({"localhost", "host.docker.internal", ""})
+
+
 class EnvironmentConfig(BaseModel):
     """Environment configuration loaded from .env file."""
     
     # API Keys
+    #
+    # WHICH KEY GOES WHERE, because a file that groups keys by name rather than by
+    # consumer is how the wrong one gets sent. `choose_api_key` is the single place
+    # that decides, and it logs its choice:
+    #
+    #   local endpoint (loopback, RFC1918, *.internal/*.local) -> LOCAL_API_KEY
+    #   hosted endpoint whose host names DeepSeek              -> DEEPSEEK_API_KEY
+    #   any other hosted endpoint                              -> OPENAI_API_KEY
+    #   nothing configured                                     -> LOCAL_API_KEY
+    #
+    # `OPENAI_API_KEY` has a second, external consumer: DeepEval reads it straight
+    # from the environment for its own metrics. So it is set in `.env` even when no
+    # agent uses it — and until this was made explicit it was loaded here and never
+    # read, which is why a hosted non-DeepSeek endpoint silently sent the LOCAL dummy
+    # and returned 401 with a perfectly correct key.
     anthropic_api_key: str = Field(default="", alias="ANTHROPIC_API_KEY")
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
     
@@ -201,6 +223,100 @@ def load_environment() -> EnvironmentConfig:
     return EnvironmentConfig(**config_data)
 
 
+def endpoint_is_local(base_url: str) -> bool:
+    """Whether this endpoint is a server on the local network rather than a hosted service.
+
+    WHY NOT A SUBSTRING. This was `"localhost" not in base_url and "127.0.0.1" not in
+    base_url`, so EVERY other address counted as hosted — including a private LAN
+    address such as `http://192.168.3.176:8080/v1`, which is a local inference server.
+    The consequence is not cosmetic, because the key differs: a local server was sent
+    the paid `DEEPSEEK_API_KEY` and `LOCAL_API_KEY` was never used at all. That is a 401
+    from a server whose key is perfectly correct, and it is why the credential source is
+    now logged rather than inferred silently.
+    """
+    host = (urlparse(base_url).hostname or "").strip().lower()
+    if host in _LOCAL_HOSTNAMES:
+        return True
+    try:
+        address = ip_address(host)
+    except ValueError:
+        # A DNS name. Honour the private naming conventions rather than guessing.
+        return host.endswith(".local") or host.endswith(".internal")
+    return address.is_loopback or address.is_private or address.is_link_local
+
+
+def choose_api_key(base_url: str, env_config: "EnvironmentConfig") -> Tuple[str, str]:
+    """`(key, source)` — the credential this endpoint needs, and where it came from.
+
+    Explicit precedence, so rearranging `.env` cannot silently change which key is
+    sent:
+
+    1. a **local** endpoint uses `LOCAL_API_KEY`, full stop;
+    2. a hosted endpoint naming DeepSeek uses `DEEPSEEK_API_KEY`;
+    3. any other hosted endpoint uses `OPENAI_API_KEY` when set;
+    4. otherwise `LOCAL_API_KEY`, which is the honest last resort rather than a
+       silent empty string.
+
+    The source is returned so the caller can log it: "which key was sent" is the first
+    question a 401 raises, and inferring it from the code is not an answer.
+    """
+    if endpoint_is_local(base_url):
+        return env_config.local_api_key, "LOCAL_API_KEY"
+
+    host = (urlparse(base_url).hostname or "").lower()
+    if "deepseek" in host:
+        # A provider-named endpoint gets its OWN provider's key or the generic
+        # fallback — never another provider's. Substituting a credential is the same
+        # class of mistake as sending the paid key to a local server: the endpoint
+        # returns 401 either way, and only the logged source can say why.
+        if env_config.deepseek_api_key:
+            return env_config.deepseek_api_key, "DEEPSEEK_API_KEY"
+        return env_config.local_api_key, "LOCAL_API_KEY"
+    if env_config.openai_api_key:
+        return env_config.openai_api_key, "OPENAI_API_KEY"
+    if env_config.local_api_key:
+        return env_config.local_api_key, "LOCAL_API_KEY"
+    return "", "(none configured)"
+
+
+def extra_params_mismatch(base_url: str, extra_params: Dict[str, Any]) -> str:
+    """A sentence naming a provider-specific flag this endpoint ignores, or "".
+
+    Reasoning models spend their output budget on chain-of-thought before answering, and
+    every server spells "don't" differently: DeepSeek takes `{"thinking": {"type":
+    "disabled"}}`; vLLM-style servers take `{"chat_template_kwargs": {"enable_thinking":
+    false}}` or `{"reasoning_effort": "none"}`. A flag from the wrong provider is silently
+    ignored, so every call burns its budget on reasoning, slows down, and can hit the
+    wall-clock cancel — which surfaces as *"cancelled. Falling back to text parsing"* and,
+    on the architecture profile, as no triples at all.
+
+    WARNED, not rewritten. The value is explicit configuration, and injecting a field a
+    server may reject would turn a slow run into a broken one. (Passing it outside
+    `extra_body` does exactly that: the OpenAI SDK rejects an unknown keyword instantly.)
+    """
+    if not isinstance(extra_params, dict) or not extra_params:
+        return ""
+    inner = extra_params.get("extra_body")
+    keys = set(inner) if isinstance(inner, dict) else set()
+
+    if endpoint_is_local(base_url) and "thinking" in keys:
+        return (
+            "MODEL_EXTRA_PARAMS carries DeepSeek's `thinking` flag, but this endpoint is "
+            "local and ignores it — every call will spend its output budget on reasoning "
+            "and may hit the wall-clock cancel. For a local reasoning model use "
+            '{"extra_body": {"chat_template_kwargs": {"enable_thinking": false}}} '
+            'or {"extra_body": {"reasoning_effort": "none"}}.'
+        )
+    local_flags = keys & {"chat_template_kwargs", "reasoning_effort"}
+    if not endpoint_is_local(base_url) and local_flags:
+        return (
+            f"MODEL_EXTRA_PARAMS carries a local-server flag ({', '.join(sorted(local_flags))}), "
+            "but this endpoint is hosted and will reject or ignore it. DeepSeek spells this "
+            '{"extra_body": {"thinking": {"type": "disabled"}}}.'
+        )
+    return ""
+
+
 def get_default_agent_config(agent_name: str) -> Dict[str, Any]:
     """Get default configuration for an agent."""
     
@@ -228,13 +344,19 @@ def get_default_agent_config(agent_name: str) -> Dict[str, Any]:
         # sending a paid key to a local server is a secret on the wire for nothing.
         model_provider = "openai_compatible"
         model_id = env_config.local_model_id or "local-model"
-        hosted = "localhost" not in base_url and "127.0.0.1" not in base_url
-        if hosted and env_config.deepseek_api_key:
-            api_key = env_config.deepseek_api_key
-        else:
-            api_key = env_config.local_api_key
-        label = "hosted endpoint" if hosted else "local inference server"
+        local = endpoint_is_local(base_url)
+        api_key, key_source = choose_api_key(base_url, env_config)
+        label = "local inference server" if local else "hosted endpoint"
         console.log(f"[green]✓ Using {label}:[/green] {base_url}")
+        # Name the credential's SOURCE, never the credential. A 401 is answered by
+        # knowing which key was sent, and the previous silent inference is how a LAN
+        # endpoint ended up carrying the paid key.
+        console.log(f"[dim]  credential: {key_source}[/dim]")
+        if not api_key:
+            console.log("[yellow]⚠ no credential configured for this endpoint[/yellow]")
+        mismatch = extra_params_mismatch(base_url, env_config.model_extra_params)
+        if mismatch:
+            console.log(f"[yellow]⚠ {mismatch}[/yellow]")
     else:
         # Use default provider
         model_provider = env_config.default_model_provider
@@ -447,8 +569,7 @@ architecture the document does not describe.""",
         # Sampling parameters the per-agent blocks do not name, passed through to
         # the server verbatim. Uniform, because a repetition loop is not specific
         # to one profile: the Designer found it, every agent is exposed to it.
-        "extra_params": dict(env_config.model_extra_params),
-        # The ontology root, so `imports:` resolve and packs are found regardless of
+        "extra_params": dict(env_config.model_extra_params),        # The ontology root, so `imports:` resolve and packs are found regardless of
         # the entry schema an agent names.
         "ontology_dir": env_config.ontology_dir,
     }
