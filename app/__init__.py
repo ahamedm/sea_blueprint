@@ -1314,11 +1314,41 @@ def create_app(
         snapshot = state()
         filters = ReviewFilters.from_args(request.args)
         rows = project_review_rows(snapshot.graph, snapshot.log, filters)
+        summary = project_review_summary(snapshot.graph, snapshot.log)
+
+        # The one-click filters, built here rather than in the template so the chips
+        # and the header's Filter select cannot disagree about what a preset means.
+        progress = summary["progress"]
+        presets = [
+            {"label": "All active", "query": filters.to_query(status="", only=""),
+             "count": progress["total"]},
+            {"label": "Needs review", "query": filters.to_query(status="", only="pending"),
+             "count": progress["outstanding"]},
+            {"label": "Low confidence",
+             "query": filters.to_query(status="", only="low_confidence"),
+             "count": summary["low_confidence"]},
+            {"label": "Disputed", "query": filters.to_query(only="", status="DISPUTED"),
+             "count": summary["by_status"].get("DISPUTED", 0)},
+            {"label": "Unresolved refs", "query": filters.to_query(status="", only="unresolved"),
+             "count": summary["unresolved"]},
+            {"label": "Human-edited", "query": filters.to_query(status="", only="human"),
+             "count": progress["human"]},
+            {"label": "Superseded", "query": filters.to_query(status="", only="superseded"),
+             "count": progress["superseded"]},
+            {"label": "Removed", "query": filters.to_query(status="", only="retired"),
+             "count": progress["retired"]},
+        ]
+        current_query = filters.to_query()
+        for preset in presets:
+            preset["active"] = preset["query"] == current_query
+
         return render_template(
             "review.html",
             rows=rows,
             filters=filters,
-            summary=project_review_summary(snapshot.graph, snapshot.log),
+            summary=summary,
+            presets=presets,
+            current_query=current_query,
             total_rows=len(rows),
             empty=not snapshot.graph.nodes and not snapshot.graph.assertions,
         )

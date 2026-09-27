@@ -1,7 +1,13 @@
 <div class="card detail">
   <div class="card-head">
     <h2>Assertion</h2>
-    <span class="badge badge-{{ a.status_slug }}">{{ a.status }}</span>
+    <div class="row">
+      <span class="badge badge-{{ a.status_slug }}">{{ a.status }}</span>
+      {# The pane floats over the queue, so it needs its own way out — Escape and the
+         backdrop close it too. #}
+      <button class="btn btn-sm btn-ghost drawer-close" type="button"
+              data-close-drawer aria-label="Close the assertion pane">Close ✕</button>
+    </div>
   </div>
   <p class="hint mono" style="word-break:break-all;">{{ a.id }}</p>
 

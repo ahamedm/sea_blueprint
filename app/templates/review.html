@@ -1,6 +1,41 @@
 {% extends "base.html" %}
 {% block title %}Review gate · SEA{% endblock %}
 
+{#
+  The queue is long and its work is "filter, glance, select, verify". All three of
+  those live in the sticky bar, so none of them scrolls away above the rows: the
+  filter presets that used to be chips, a select-all, and the bulk verify they feed.
+  The row checkboxes reach this form by `form="bulk-form"`, which is why the form
+  itself can sit up here while the rows are far below it.
+#}
+{% block header_extra %}
+  {% if not empty %}
+    <div class="header-tools">
+      <label class="field-inline">
+        <span>Filter</span>
+        <select aria-label="Filter the review queue"
+                onchange="if (this.value) { location.href = this.value; }">
+          {% for preset in presets %}
+            <option value="{{ url_for('review') }}?{{ preset.query }}"
+                    {{ 'selected' if preset.active else '' }}>{{ preset.label }} ({{ preset.count }})</option>
+          {% endfor %}
+        </select>
+      </label>
+      <form id="bulk-form" method="post" action="{{ url_for('review_bulk') }}"
+            class="header-tools">
+        <input type="hidden" name="actor" value="{{ reviewer }}">
+        <label class="check-inline">
+          <input type="checkbox" id="select-all" aria-label="Select every filtered row"> All
+        </label>
+        <button class="btn btn-sm btn-ok" name="bulk_scope" value="selected">
+          Verify selected
+        </button>
+        <span class="count" id="sel-count">{{ total_rows }} shown</span>
+      </form>
+    </div>
+  {% endif %}
+{% endblock %}
+
 {% block content %}
 <div class="page-head">
   <div>
@@ -53,19 +88,9 @@
   </div>
 
   <div class="chips">
-    {% set chips = [
-      ('All active',        filters.to_query(status='', only=''),                    p.total),
-      ('Needs review',      filters.to_query(status='', only='pending'),              p.outstanding),
-      ('Low confidence',    filters.to_query(status='', only='low_confidence'),       summary.low_confidence),
-      ('Disputed',          filters.to_query(only='', status='DISPUTED'),             summary.by_status.get('DISPUTED', 0)),
-      ('Unresolved refs',   filters.to_query(status='', only='unresolved'),           summary.unresolved),
-      ('Human-edited',      filters.to_query(status='', only='human'),                p.human),
-      ('Superseded',        filters.to_query(status='', only='superseded'),           p.superseded),
-      ('Removed',           filters.to_query(status='', only='retired'),              p.retired)
-    ] %}
-    {% for label, query, count in chips %}
-      <a class="chip {{ 'active' if query == filters.to_query() else '' }}"
-         href="{{ url_for('review') }}?{{ query }}">{{ label }}<span class="n">{{ count }}</span></a>
+    {% for preset in presets %}
+      <a class="chip {{ 'active' if preset.active else '' }}"
+         href="{{ url_for('review') }}?{{ preset.query }}">{{ preset.label }}<span class="n">{{ preset.count }}</span></a>
     {% endfor %}
   </div>
 
@@ -172,14 +197,15 @@
     </form>
   </div>
 
-  {# Bulk controls live in their own form so row buttons never nest inside it. #}
+  {# Bulk controls. The form itself is in the sticky bar — the buttons and inputs
+     here reach it by `form="bulk-form"`, so row buttons never nest inside it and
+     the selection actions stay reachable while the table scrolls. #}
   <div class="card">
-    <form id="bulk-form" method="post" action="{{ url_for('review_bulk') }}"></form>
-    <input type="hidden" name="actor" value="{{ reviewer }}" form="bulk-form">
     <div class="row">
       <strong class="small">Bulk review</strong>
       <span class="muted small">·</span>
-      <button class="btn btn-sm" form="bulk-form" name="bulk_scope" value="selected">
+      <span class="muted small">Select rows above (or “All” in the top bar), then</span>
+      <button class="btn btn-sm btn-ok" form="bulk-form" name="bulk_scope" value="selected">
         Verify selected
       </button>
       <span class="muted small">or verify everything at or below</span>
@@ -200,34 +226,103 @@
   </div>
 
   {% if rows %}
-    <div class="layout-split">
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th class="col-check"></th>
-              <th>Subject</th>
-              <th>Predicate</th>
-              <th>Target</th>
-              <th class="col-confidence">Conf.</th>
-              <th class="col-status">Status</th>
-              <th class="col-actions">Decision</th>
-            </tr>
-          </thead>
-          <tbody id="review-rows">
-            {% for row in rows %}
-              {% include "partials/review_row.html" %}
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-      <aside class="drawer" id="drawer"></aside>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th class="col-check"></th>
+            <th>Subject</th>
+            <th>Predicate</th>
+            <th>Target</th>
+            <th class="col-confidence">Conf.</th>
+            <th class="col-status">Status</th>
+            <th class="col-actions">Decision</th>
+          </tr>
+        </thead>
+        <tbody id="review-rows">
+          {% for row in rows %}
+            {% include "partials/review_row.html" %}
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
+
+    {# The detail pane floats over the table instead of living in a column beside it:
+       the table has seven columns, and a reserved 380 px column made it scroll even
+       when nothing was open. #}
+    <div class="drawer-backdrop" id="drawer-backdrop"></div>
+    <aside class="drawer" id="drawer" aria-label="Assertion detail" aria-hidden="true"></aside>
   {% else %}
     <div class="card empty">
       <h2>No assertions match these filters</h2>
       <p><a href="{{ url_for('review') }}">Clear the filters</a> to see the whole queue.</p>
     </div>
   {% endif %}
+
+  <script>
+  // Two small behaviours over server-rendered markup: the floating pane opens when
+  // HTMX has put something in it, and the top bar's select-all drives the row
+  // checkboxes that live far below it in the table.
+  (function () {
+    var drawer = document.getElementById('drawer');
+    var backdrop = document.getElementById('drawer-backdrop');
+    if (!drawer) { return; }
+
+    function closeDrawer() {
+      drawer.classList.remove('open');
+      drawer.setAttribute('aria-hidden', 'true');
+      drawer.innerHTML = '';
+      if (backdrop) { backdrop.classList.remove('show'); }
+    }
+    function openDrawer() {
+      drawer.classList.add('open');
+      drawer.setAttribute('aria-hidden', 'false');
+      if (backdrop) { backdrop.classList.add('show'); }
+    }
+
+    document.body.addEventListener('htmx:afterSwap', function (event) {
+      if (event.target === drawer) { openDrawer(); return; }
+      refreshSelection();
+    });
+    document.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape' && drawer.classList.contains('open')) { closeDrawer(); }
+    });
+    if (backdrop) { backdrop.addEventListener('click', closeDrawer); }
+    drawer.addEventListener('click', function (event) {
+      if (event.target.closest('[data-close-drawer]')) { closeDrawer(); }
+    });
+
+    var selectAll = document.getElementById('select-all');
+    var counter = document.getElementById('sel-count');
+    function boxes() {
+      return Array.prototype.slice.call(document.querySelectorAll('.row-check'));
+    }
+    function refreshSelection() {
+      var all = boxes();
+      var checked = all.filter(function (box) { return box.checked; });
+      if (counter) {
+        counter.textContent = checked.length
+          ? checked.length + ' selected · ' + all.length + ' shown'
+          : all.length + ' shown';
+      }
+      if (selectAll) {
+        selectAll.checked = all.length > 0 && checked.length === all.length;
+        selectAll.indeterminate = checked.length > 0 && checked.length < all.length;
+      }
+    }
+    if (selectAll) {
+      selectAll.addEventListener('change', function () {
+        boxes().forEach(function (box) { box.checked = selectAll.checked; });
+        refreshSelection();
+      });
+    }
+    document.addEventListener('change', function (event) {
+      if (event.target && event.target.classList.contains('row-check')) {
+        refreshSelection();
+      }
+    });
+    refreshSelection();
+  })();
+  </script>
 {% endif %}
 {% endblock %}
