@@ -167,35 +167,62 @@ class ArchitectureExtractionAgent(KnowledgeExtractionAgent):
                      level="success" if summary.failed == 0 else "warning")
 
             # ---- 3. merge across chunks and passes ----
-            # NOTE: `collect` returns one group per chunk. For triples we want a
-            # flat list of those groups (from every pass), NOT a list of lists of
-            # groups — the extra nesting would hand `merge_triples` a list where
-            # it expects a triple.
-            triple_groups: List[List[Any]] = []
-            for spec in ARCHITECTURE_PASSES:
-                triple_groups.extend(collect(outcomes, spec.name, "triples"))
-            triples = merge_triples(triple_groups)
-            elements = merge_records(
-                collect(outcomes, "structure", "elements"), element_key, completeness)
-            connections = merge_records(
-                collect(outcomes, "connections", "connections"), connection_key, completeness)
-            technology = merge_records(
-                collect(outcomes, "technology", "technology_stacks"), named_key, completeness)
-            styles = merge_records(
-                collect(outcomes, "technology", "architecture_styles"), named_key, completeness)
-            techniques = merge_records(
-                collect(outcomes, "technology", "design_techniques"), named_key, completeness)
-            conventions = merge_records(
-                collect(outcomes, "technology", "engineering_conventions"), named_key, completeness)
-            references = merge_records(
-                collect(outcomes, "traceability", "references"), _reference_key, completeness)
+            #
+            # Every stage from here on runs UNDER A GUARD. The model calls are the
+            # expensive part and they have already succeeded, so an error in
+            # merging, repair or validation must not discard the run: a
+            # representation mismatch across one seam threw away 12/12 successful
+            # passes, 182 triples and 19 connections in a single session (YB-051
+            # defect 1). Whatever merged is returned; the error becomes a finding
+            # AND a failed pass record, so `compute_completeness` reports PARTIAL
+            # instead of a job failure with nothing stored.
+            triples: List[Any] = []
+            elements: List[Any] = []
+            connections: List[Any] = []
+            technology: List[Any] = []
+            styles: List[Any] = []
+            techniques: List[Any] = []
+            conventions: List[Any] = []
+            references: List[Any] = []
+            stage_flags: List[Any] = []
+            post_errors: List[str] = []
 
-            self.log(
-                f"Merged: {len(triples)} triples, {len(elements)} elements, "
-                f"{len(connections)} connections, {len(technology)} technologies, "
-                f"{len(styles)} styles, {len(techniques)} techniques, "
-                f"{len(conventions)} conventions, {len(references)} references"
-            )
+            try:
+                # NOTE: `collect` returns one group per chunk. For triples we want a
+                # flat list of those groups (from every pass), NOT a list of lists of
+                # groups — the extra nesting would hand `merge_triples` a list where
+                # it expects a triple.
+                triple_groups: List[List[Any]] = []
+                for spec in ARCHITECTURE_PASSES:
+                    triple_groups.extend(collect(outcomes, spec.name, "triples"))
+                triples = merge_triples(triple_groups)
+                elements = merge_records(
+                    collect(outcomes, "structure", "elements"), element_key, completeness)
+                connections = merge_records(
+                    collect(outcomes, "connections", "connections"), connection_key, completeness)
+                technology = merge_records(
+                    collect(outcomes, "technology", "technology_stacks"), named_key, completeness)
+                styles = merge_records(
+                    collect(outcomes, "technology", "architecture_styles"), named_key, completeness)
+                techniques = merge_records(
+                    collect(outcomes, "technology", "design_techniques"), named_key, completeness)
+                conventions = merge_records(
+                    collect(outcomes, "technology", "engineering_conventions"), named_key, completeness)
+                references = merge_records(
+                    collect(outcomes, "traceability", "references"), _reference_key, completeness)
+
+                self.log(
+                    f"Merged: {len(triples)} triples, {len(elements)} elements, "
+                    f"{len(connections)} connections, {len(technology)} technologies, "
+                    f"{len(styles)} styles, {len(techniques)} techniques, "
+                    f"{len(conventions)} conventions, {len(references)} references"
+                )
+            except Exception as exc:                                 # noqa: BLE001
+                post_errors.append(f"merge: {exc}")
+                self.log(
+                    f"Post-extraction merge failed: {exc} — keeping what merged "
+                    f"({len(triples)} triples, {len(elements)} elements, "
+                    f"{len(connections)} connections)", level="error")
 
             # ---- 3b. repair structure across chunk boundaries ----
             # A pass sees one chunk, so a container named in another chunk cannot be
@@ -205,30 +232,68 @@ class ArchitectureExtractionAgent(KnowledgeExtractionAgent):
             # The style merge runs first: an element that should not exist at all is
             # folded into the system before the containment repair decides what is
             # unplaced, so its edges are re-pointed once.
-            elements, styles, triples, style_flags = merge_style_elements(
-                elements, styles, triples)
-            if style_flags:
-                self.log(f"  {len(style_flags)} architectural style(s) merged into "
-                         f"the system under design", level="warning")
-            elements, triples, repair_flags = repair_containment(elements, triples)
-            if repair_flags:
-                self.log(f"  {len(repair_flags)} unplaced element(s) attached to the "
-                         f"system under design", level="warning")
+            try:
+                elements, styles, triples, style_flags = merge_style_elements(
+                    elements, styles, triples)
+                if style_flags:
+                    self.log(f"  {len(style_flags)} architectural style(s) merged into "
+                             f"the system under design", level="warning")
+                elements, triples, repair_flags = repair_containment(elements, triples)
+                if repair_flags:
+                    self.log(f"  {len(repair_flags)} unplaced element(s) attached to the "
+                             f"system under design", level="warning")
+                stage_flags += list(style_flags) + list(repair_flags)
+            except Exception as exc:                                 # noqa: BLE001
+                post_errors.append(f"repair: {exc}")
+                self.log(f"Structure repair failed: {exc} — the merged facts are "
+                         f"kept un-repaired rather than dropped", level="error")
 
             # ---- 4. validate (Option B) ----
-            flags = list(style_flags) + list(repair_flags)
-            flags += check_object_contract(triples)
-            flags += check_containment(elements, triples)
-            flags += check_element_types(elements)
-            flags += check_deployment_levels(elements)
-            flags += check_enum_membership(elements)
-            flags += style_as_element(elements)
-            flag_dicts = [f.to_dict() for f in flags]
+            try:
+                flags = list(stage_flags)
+                flags += check_object_contract(triples)
+                flags += check_containment(elements, triples)
+                flags += check_element_types(elements)
+                flags += check_deployment_levels(elements)
+                flags += check_enum_membership(elements)
+                flags += style_as_element(elements)
+                flag_dicts = [f.to_dict() for f in flags]
+            except Exception as exc:                                 # noqa: BLE001
+                post_errors.append(f"validation: {exc}")
+                flag_dicts = [f.to_dict() for f in stage_flags]
+                self.log(f"Validation failed: {exc} — the facts are kept "
+                         f"unvalidated rather than dropped", level="error")
+
+            if post_errors:
+                # A finding, not only a log line: this is what makes the run page
+                # show that part of the pipeline did not run.
+                flag_dicts.append({
+                    "kind": "post_extraction_error",
+                    "subject": "",
+                    "messages": post_errors,
+                })
             if flag_dicts:
                 self.log(f"  {len(flag_dicts)} findings flagged for review",
                          level="warning")
 
             # ---- 5. output ----
+            if post_errors:
+                # A failed pass record, so the run's OWN completeness verdict says
+                # PARTIAL. The merge and repair stages are not passes, but they are
+                # part of what the run claims to have done — and a run that lost
+                # its repair stage while reporting COMPLETE is the false assurance
+                # ADR-0013 exists to prevent. Imported locally for the same reason
+                # `outcome_records` does it: this layer stays off core's import path.
+                from core.knowledge.model import PassRecord
+
+                pass_records.append(PassRecord(
+                    pass_name="(post-extraction)",
+                    chunk_label="",
+                    outcome="failed",
+                    path="none",
+                    error="; ".join(post_errors)[:200],
+                ))
+
             node_dicts = [self._as_output_dict(e) for e in elements]
             output = {
                 "triples": triples,
@@ -254,6 +319,7 @@ class ArchitectureExtractionAgent(KnowledgeExtractionAgent):
                     "passes": len(ARCHITECTURE_PASSES),
                     "model_calls": summary.total_calls,
                     "text_fallbacks": summary.text_fallbacks,
+                    "post_extraction_errors": len(post_errors),
                 },
             }
 

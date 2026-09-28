@@ -729,6 +729,14 @@ def resolve_reference(
         scope=a.scope,
         initiative_id=a.initiative_id,
     )
+    if resolved is None:
+        # Binding the reference to this node would state an irreflexive fact
+        # (the reference resolves to its own subject). Refused at the write
+        # boundary; the assertion stays unresolved rather than being marked
+        # superseded by a replacement the graph does not hold.
+        raise ReconcileError(
+            f"cannot bind {a.id} to {node.id}: a reflexive fact is refused"
+        )
 
     # The literal reference is kept for lineage: it records what the document
     # actually said before a human bound it to a node.

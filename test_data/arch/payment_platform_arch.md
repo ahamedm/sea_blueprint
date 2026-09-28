@@ -22,6 +22,11 @@ The Payment Gateway Platform (PGP) is designed as a **Stateless Modular Microser
     *   Tenancy Mapping and State Tracking
     *   Initialization of Settlement Requests
 
+**Relationships:**
+
+*   Calls the **Payment Routing Decision Engine** to have the optimal PGSP/PSP selected for each initiated payment, rather than choosing a route itself
+*   Receives the routing decision and the submission outcome back from the **Payment Routing Decision Engine**
+
 #### 2.2. **Payment Routing Decision Engine**
 
 *   Implements the **Rule-Based Routing** logic to determine the optimal PGSP/PSP for a given transaction, considering:
@@ -29,10 +34,20 @@ The Payment Gateway Platform (PGP) is designed as a **Stateless Modular Microser
     *   Transaction Currency
     *   Preferred Payment Method
 
+**Relationships:**
+
+*   Is called by the **Payment Orchestrator** to return a routing decision for an initiated payment
+*   Calls the **PGSP Gateway with Request/Response Adapter** to execute the selected route; it performs no external PGSP/PSP communication itself
+
 #### 2.3. **PGSP Gateway with Request/Response Adapter**
 
 *   Provides a **standardized API** for integration with external PGSPs/PSPs (e.g., Mastercard, Elavon, CCnet)
 *   Handles **Request/Response Adapters** for communication with external services
+
+**Relationships:**
+
+*   Calls the external PGSPs/PSPs (e.g., Mastercard, Elavon, CCnet) through the **Request/Response Adapters**, using the **standardized API** over **TLS 1.2+**
+*   Is called by the **Payment Routing Decision Engine** with the routed payment request, and returns the submission response to the **Payment Orchestrator**; no other container communicates with an external PGSP/PSP directly
 
 #### 2.4. **PAN-Card Encryption Service**
 

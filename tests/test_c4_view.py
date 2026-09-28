@@ -260,14 +260,30 @@ def test_correct_nesting_passes(layered_output):
 
 
 def test_a_reflexive_part_of_is_reported_as_its_own_failure(arch_graph):
-    """`X part_of X` is never true. Three of them survived review on a live graph."""
+    """`X part_of X` is never true. Three of them survived review on a live graph.
+
+    The write boundary now REFUSES a reflexive assertion (YB-052), so the only way
+    a graph holds one is that it was written before that guard — a loaded revision.
+    Injected directly here for exactly that reason: the check still has to report
+    what an older store contains, and silently holding a fact the guard would
+    refuse is the shape the guard exists to prevent.
+    """
+    from core.knowledge.model import Assertion, Provenance, make_assertion_id
+
     output = {
         "elements": [
-            _element("Payments", "SoftwareSystem", "Payments"),
+            _element("Payments", "SoftwareSystem"),
             _element("Orchestrator", "Container", "Payments"),
         ],
     }
-    model = c4.c4_model(_graph(output))
+    graph = _graph(output)
+    payments = next(n.id for n in graph.nodes.values() if n.label == "Payments")
+    aid = make_assertion_id(payments, "part_of", payments, None)
+    graph.assertions[aid] = Assertion(
+        id=aid, subject=payments, predicate="part_of", object=payments,
+        confidence=1.0, provenance=Provenance(),
+    )
+    model = c4.c4_model(graph)
 
     reflexive = _check(model, "reflexive")
     assert not reflexive["holds"]

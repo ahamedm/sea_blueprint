@@ -152,6 +152,47 @@ CROSS_GRAPH_PREDICATES = frozenset({
 })
 
 
+# Predicates where `X <predicate> X` cannot be true of anything, whatever the
+# domain. Not a closed vocabulary — the graph mints free-form predicates — but
+# the set the write boundary refuses to store.
+#
+# WHY REFUSE AT ALL: a local model emitted `X part_of X` for the document's own
+# system, four times across two independent runs, and bulk review then made all
+# four VERIFIED (YB-052). A reflexive containment is not a borderline judgement:
+# in C4 it makes the element its own containment root, and the emitted Structurizr
+# DSL declares a system inside itself and is rejected by the parser. Nothing can
+# be part of itself, so refusing it overrides no reviewer's judgement.
+#
+# Node ids are `slugify(kind):slugify(label)`, so a predicate whose subject and
+# object must be different KINDS can never match here. That is why the set holds
+# element-to-element structural, dependency and runtime edges only.
+IRREFLEXIVE_PREDICATES = frozenset({
+    # containment — the synonyms `CONTAINMENT_PREDICATES` in ingest.py routes
+    "part_of", "belongs_to", "composed_of", "contains",
+    # hosting and dependency
+    "hosts", "hosted_on", "depends_on", "depends_on_components",
+    "depends_on_systems", "depends_on_applications",
+    # runtime coupling
+    "connects_to", "calls", "invokes",
+    # one element realizing another
+    "implements",
+})
+
+
+def reflexive_violation(subject: str, predicate: str, obj: Optional[str]) -> str:
+    """The reason `subject <predicate> subject` is impossible, or "" when it is not.
+
+    Returns a sentence rather than a bool because a refusal has to be *reported*,
+    and a caller that only learns "no" cannot say which rule it hit.
+    """
+    if not subject or not obj or subject != obj:
+        return ""
+    if predicate not in IRREFLEXIVE_PREDICATES:
+        return ""
+    return (f"{predicate!r} is irreflexive — an element cannot be its own target; "
+            f"refused at {subject!r}")
+
+
 # Node kinds that ARE requirements. One definition, because three places need to
 # agree on it: reconciliation scopes `implements_*` targets to these kinds,
 # ingest only classifies a record's `requirement_type` when its kind is here, and
@@ -309,6 +350,27 @@ class Assertion:
         return d
 
 
+@dataclass
+class RefusedAssertion:
+    """A fact the graph declined to store, and why — a refusal is data, not a log line.
+
+    Silently dropping is how four reflexive containments went unnoticed until the
+    C4 view reported them, and then bulk review made them VERIFIED. Keeping the
+    refusal on the run is what makes "the extractor asserted something impossible"
+    a fact the run reports, rather than one a reader has to infer from an absence.
+    """
+
+    subject: str
+    predicate: str
+    object: str = ""
+    value: str = ""
+    reason: str = ""
+    source_text: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {k: v for k, v in asdict(self).items() if v not in ("", None)}
+
+
 # ============================================================================
 # Extraction run — where incompleteness lives
 # ============================================================================
@@ -377,6 +439,28 @@ class ExtractionRun:
     # same as zero, so it is not defaulted to a number.
     usage: Dict[str, Any] = field(default_factory=dict)
     completeness: str = RUN_COMPLETE
+    # ---- what the pipeline did with the output that produced this run ----
+    #
+    # `output_counts` is per output key: the records the profile EMITTED and
+    # whether a consumer read them. `unconsumed_keys` names every record
+    # collection nothing reads — including the ones the pipeline deliberately does
+    # not read for a stated reason, because the field is a measurement and not a
+    # filtered alarm; the caller decides which of them to warn about.
+    # `stored_facts` is what actually reached the graph. All three exist because a
+    # whole pass produced `connections` records that ingest never read, for the
+    # life of the pass, and the per-pass `triples_produced` counter could not show
+    # it — that pass emitted triples too, so its count was non-zero while its
+    # connections were discarded (YB-051). A counter that cannot see the loss is
+    # not a guard.
+    output_counts: Dict[str, Dict[str, int]] = field(default_factory=dict)
+    unconsumed_keys: List[str] = field(default_factory=list)
+    # The facts this run actually stored. `emitted` summed over `output_counts` is
+    # what the profile produced; this is what survived the boundary, so the pair
+    # is the "emitted N, stored M" report rather than a claim that nothing was lost.
+    stored_facts: int = 0
+    # Facts the graph declined. Same reason they are on the run and not only in
+    # the log: a refusal has to be part of what the run reports about itself.
+    refusals: List[Dict[str, Any]] = field(default_factory=list)
 
     def compute_completeness(self) -> str:
         if not self.passes:
@@ -685,6 +769,13 @@ class KnowledgeGraph:
     # endpoint, which is honest: we know they were mentioned, not what declared
     # them.
     declared_by: Dict[str, str] = field(default_factory=dict)
+    # Facts this write boundary refused, in the order it refused them. Diagnostics
+    # rather than knowledge, which is why they are NOT serialised with the graph:
+    # ingest copies them onto the `ExtractionRun` that produced them, where they
+    # sit next to the passes and the completeness verdict. Kept on the graph at
+    # all so every caller of `add_assertion` gets the same rule and so a test can
+    # see what was refused without reaching into a log.
+    refusals: List["RefusedAssertion"] = field(default_factory=list)
     
     # Versioning fields for the "Living System"
     version_id: str = ""                # Unique ID for this graph state (e.g., hash or UUID)
@@ -743,15 +834,30 @@ class KnowledgeGraph:
         status: str = STATUS_UNVERIFIED,
         scope: str = SCOPE_INITIATIVE,
         initiative_id: Optional[str] = None,
-    ) -> Assertion:
-        """Add or fold an assertion.
+    ) -> Optional[Assertion]:
+        """Add or fold an assertion, or REFUSE it and return None.
 
         Folding rules matter: re-observing the same fact must raise confidence
         and keep the fuller source text, never create a parallel duplicate. And a
         human assertion must not be silently overwritten by a later agent run —
         that is the correction-merge requirement (`YB-009` §9b) handled at the
         point of write rather than as an afterthought.
+
+        The one refusal is a reflexive fact on an irreflexive predicate
+        (`part_of`, `hosts`, `depends_on`, …). Every extracted fact crosses here,
+        so this is the boundary that makes "nothing can be part of itself"
+        structural rather than a prompt rule the model may ignore. The refusal is
+        appended to `self.refusals` — never dropped silently, because a silent
+        drop is indistinguishable from "the model never said it".
         """
+        reason = reflexive_violation(subject, predicate, obj)
+        if reason:
+            self.refusals.append(RefusedAssertion(
+                subject=subject, predicate=predicate, object=obj or "",
+                value=value or "", reason=reason, source_text=source_text,
+            ))
+            return None
+
         aid = make_assertion_id(subject, predicate, obj, value)
         prov = provenance or Provenance()
         new = Assertion(id=aid, subject=subject, predicate=predicate, object=obj,

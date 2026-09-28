@@ -50,6 +50,7 @@
 | — | Modular run streaming — one progress mechanism for the browser and for unattended runs | [ADR-0026](../decisions/ADR-0026-run-journal-and-progress-transports.md) | record |
 | — | Asynchronous run progress — the execution substrate, and one view over two transports | [ADR-0027](../decisions/ADR-0027-async-run-progress.md) | record |
 | — | No workspace migration — MVP validation starts on a fresh scope | [ADR-0028](../decisions/ADR-0028-no-workspace-migration.md) | record |
+| — | Refusals and accounting at the ingest boundary — and a harness that can be wrong out loud | [ADR-0030](../decisions/ADR-0030-boundary-refusals-and-output-accounting.md) | record |
 | None | Semantic reference matching — bridge the paraphrase the deterministic scorer cannot | [YB-027](entries/YB-027-semantic-reference-matching.md) | entry (open) |
 | None | Remove a fact the extractor invented — and stop a dispute withholding the audit | [YB-028](entries/YB-028-remove-extracted-facts.md) | entry (done) |
 | None | Quality-attribute views for the map — the architect's primary focus has no view of its own | [YB-029](entries/YB-029-quality-attribute-views.md) | entry (done) |
@@ -73,5 +74,6 @@
 | None | Traversal index — cache adjacency per scope load, and use networkx for algorithms, not speed | [YB-048](entries/YB-048-traversal-index.md) | entry (open) |
 | None | Artifact retention and quota — the document store grows without a bound nobody chose | [YB-050](entries/YB-050-artifact-retention-and-quota.md) | entry (open) |
 | None | Connections are extracted and then discarded — the graph has no C4 arrows | [YB-051](entries/YB-051-connections-dropped-at-ingest.md) | entry (in-progress) |
-| None | Reflexive `part_of` and concepts extracted twice — the two defects the C4 view found | [YB-052](entries/YB-052-reflexive-and-duplicate-extraction.md) | entry (open) |
+| None | Reflexive `part_of` and concepts extracted twice — the two defects the C4 view found | [YB-052](entries/YB-052-reflexive-and-duplicate-extraction.md) | entry (done) |
 | None | Category elements, one system named twice, and a hub that is really a document gap | [YB-053](entries/YB-053-category-elements-and-duplicate-system.md) | entry (open) |
+| None | The requirements profile computes contract violations and low-confidence items that no consumer reads | [YB-054](entries/YB-054-unrouted-requirements-output-keys.md) | entry (open) |

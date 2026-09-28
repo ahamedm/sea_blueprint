@@ -2,20 +2,34 @@
 id: YB-052
 legacy: null
 title: "Reflexive `part_of` and concepts extracted twice — the two defects the C4 view found"
-status: open
+status: done
 priority: high
 area: "`agents/architecture_extraction/` (triples/connections passes), `core/knowledge/ingest.py` (reflexive guard), `core/knowledge/review.py` (bulk-verify guard), tests"
 created: 2026-09-27
-updated: 2026-09-27
+updated: 2026-09-28
 design: docs/design/c4-specification-view.md
-record: null
+record: docs/decisions/ADR-0030-boundary-refusals-and-output-accounting.md
 superseded_by: []
-related: ["ADR-0029", "YB-051", "YB-004", "YB-020", "YB-007"]
+related: ["ADR-0029", "ADR-0030", "YB-051", "YB-053", "YB-054", "YB-004", "YB-020", "YB-007"]
 blocks: []
 blocked_by: []
 ---
 
 # YB-052 — Reflexive `part_of` and concepts extracted twice
+
+> **Closed on defect 1; defect 2 (the code-level concepts) stays open under
+> [YB-053](YB-053-category-elements-and-duplicate-system.md)** — it is the same
+> "concept emitted as an element" family and is measured there. What landed is the
+> two guards below, recorded in
+> [ADR-0030](../../decisions/ADR-0030-boundary-refusals-and-output-accounting.md).
+>
+> Defect 1's acceptance is met: no irreflexive assertion can enter the graph from an
+> extraction (`KnowledgeGraph.add_assertion` refuses it and records the refusal on
+> the run), a single or bulk verify cannot launder an older one and says which it
+> skipped, and the `/c4` `reflexive` and `acyclic` checks pass on the live store
+> (`c4_scorecard.py`: `reflexive 0`, `acyclic 0`). The guards are pinned by
+> `tests/test_irreflexive_guard.py`, including the end-to-end page test that asserts
+> the refusal reaches the reviewer's flash message.
 
 > **Open.** Both found by the C4 specification view on its first live run
 > ([ADR-0029](../../decisions/ADR-0029-c4-specification-view.md), [ADR-0029](../../decisions/ADR-0029-c4-specification-view.md)).
@@ -137,15 +151,36 @@ prompt fix is neither:
 
 ### Acceptance
 
-- No irreflexive assertion can enter the graph from an extraction, and the refusal is
-  reported rather than silent.
-- A bulk review action cannot verify one, and says which it skipped.
-- The `reflexive` and `acyclic` checks in `/c4` pass against a re-extracted
-  `payment_platform_arch.md`.
-- The count of elements at the code level that are concepts drops — measured before and
-  after, with both numbers recorded in the closing record.
-- The `_ancestors` cycle guard stays: it is correct defensive code and should exist for
-  a reason that is no longer load-bearing.
+- ✅ No irreflexive assertion can enter the graph from an extraction, and the refusal is
+  reported rather than silent — refused in `KnowledgeGraph.add_assertion`, recorded on
+  `ExtractionRun.refusals`, logged, tested end to end through ingest.
+- ✅ A bulk review action cannot verify one, and says which it skipped — `_skip_reason`
+  refuses it for `verify`, `BulkResult.skipped` carries the reason, and the page's flash
+  names it (`tests/test_app.py::test_bulk_verify_refuses_an_impossible_fact_and_says_which`).
+- ✅ The `reflexive` and `acyclic` checks in `/c4` pass on the live store
+  (`c4_scorecard.py --scope acme_pillar_01`: both 0, folded into the harness as gates).
+- ⏳ The count of elements at the code level that are concepts drops — moved to
+  [YB-053](YB-053-category-elements-and-duplicate-system.md), which owns the same
+  "concept emitted as an element" measurement and its before/after.
+- ✅ The `_ancestors` cycle guard stays.
+
+### What landed, and what did not
+
+**Landed.** `IRREFLEXIVE_PREDICATES` and `reflexive_violation` in
+`core/knowledge/model.py`; the refusal at the write boundary with `RefusedAssertion`
+on the graph and on the run; `verify` refusing a stored one; `BulkResult`/`BulkSkip`
+carrying reasons through `bulk_apply`/`bulk_verify` to the flash message;
+`review.correct` and `reconcile.resolve_reference` raising rather than recording a
+replacement the graph refused; `tests/test_irreflexive_guard.py`.
+
+**Not landed.** Defect 2 in full: `structure` still classifies quality attributes,
+techniques, conventions and one protocol as `CodeElement` at `c4_level: CODE`. The
+live re-extraction of the edited fixture (2026-09-28) produced 36 elements; the
+`/c4`-side count of code-level concepts was not re-measured as part of this record, so
+the before/after that acceptance asks for is still owed — and YB-053 is where it
+belongs, because its defect 1 is the same class from the naming side
+(`Database`, `External Services`, and a technology leak the harness gate now flags:
+`Quartz` in the saved architecture output).
 
 ### Related
 

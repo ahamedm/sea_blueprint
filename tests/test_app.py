@@ -563,6 +563,42 @@ def test_bulk_verify_with_no_selection_warns(seeded_client):
     assert b"No assertions selected" in response.data
 
 
+def test_bulk_verify_refuses_an_impossible_fact_and_says_which(seeded_client, app,
+                                                              load_working):
+    """The acceptance for YB-052, through the door a reviewer actually uses.
+
+    A graph can still hold a reflexive fact from a revision written before the write
+    boundary refused them, so this injects one directly — the state a live store was
+    measured in, where four `X part_of X` facts were bulk-verified.
+    """
+    from core.knowledge import RevisionStore
+    from core.knowledge.model import Assertion, Provenance, make_assertion_id
+
+    store = RevisionStore(app.config["STORE_ROOT"]).ensure()
+    snapshot = store.load_working()
+    node_id = next(iter(snapshot.graph.nodes))
+    aid = make_assertion_id(node_id, "part_of", node_id, None)
+    snapshot.graph.assertions[aid] = Assertion(
+        id=aid, subject=node_id, predicate="part_of", object=node_id,
+        confidence=1.0, provenance=Provenance(),
+    )
+    store.save_working(snapshot.graph, snapshot.log, snapshot.meta)
+
+    from werkzeug.datastructures import MultiDict
+
+    response = seeded_client.post(
+        "/review/bulk",
+        data=MultiDict([("bulk_scope", "selected"), ("ids", aid), ("action", "verify")]),
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    # 1. The reviewer is told WHY, not merely that the count was smaller.
+    assert b"irreflexive" in response.data
+    # 2. And the fact did not acquire human authority.
+    assert load_working().assertions[aid].status == "UNVERIFIED"
+
+
 # ============================================================================
 # Change management
 # ============================================================================

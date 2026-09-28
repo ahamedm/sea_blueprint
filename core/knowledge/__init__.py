@@ -20,6 +20,9 @@ store knows serialise + review. Nothing here imports the web layer.
 
 from .ingest import (
     CROSS_GRAPH_PREDICATES,
+    INGESTED_OUTPUT_KEYS,
+    ROUTED_OUTPUT_KEYS,
+    UNROUTED_OUTPUT_KEYS,
     completeness_note,
     graph_from_extraction,
     merge_graphs,
@@ -29,10 +32,12 @@ from .model import (
     Assertion,
     ExtractionRun,
     GraphDelta,
+    IRREFLEXIVE_PREDICATES,
     KnowledgeGraph,
     Node,
     PassRecord,
     Provenance,
+    RefusedAssertion,
     REQUIREMENT_KINDS,
     SOURCE_DESIGN_ASSISTANT,
     apply_delta,
@@ -40,6 +45,7 @@ from .model import (
     make_assertion_id,
     make_node_id,
     ontology_class_for_predicate,
+    reflexive_violation,
     slugify,
 )
 from .rdf import QUERIES, run_query, to_jsonld, to_rdf, to_turtle
@@ -96,6 +102,8 @@ from .review import (
     ACTION_RESOLVE,
     ACTION_VERIFY,
     Decision,
+    BulkResult,
+    BulkSkip,
     PromotionResult,
     ReviewError,
     ReviewLog,
@@ -138,6 +146,9 @@ __all__ = [
     "make_node_id",
     "make_assertion_id",
     "slugify",
+    "IRREFLEXIVE_PREDICATES",
+    "reflexive_violation",
+    "RefusedAssertion",
     "compute_graph_delta",
     "apply_delta",
     # ingest
@@ -146,6 +157,9 @@ __all__ = [
     "new_run_id",
     "completeness_note",
     "CROSS_GRAPH_PREDICATES",
+    "INGESTED_OUTPUT_KEYS",
+    "ROUTED_OUTPUT_KEYS",
+    "UNROUTED_OUTPUT_KEYS",
     "REQUIREMENT_KINDS",
     "ontology_class_for_predicate",
     "SOURCE_DESIGN_ASSISTANT",
@@ -154,6 +168,8 @@ __all__ = [
     "graph_from_dict",
     # review
     "Decision",
+    "BulkResult",
+    "BulkSkip",
     "ReviewLog",
     "ReviewProgress",
     "ReviewError",

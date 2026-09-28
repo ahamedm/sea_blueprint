@@ -203,14 +203,20 @@ def test_bulk_verify_ignores_ids_that_are_already_settled(req_extraction):
     apply_decisions(req_extraction, log, target.id, "dispute", actor="tester")
     before = len(log.entries)
 
-    decisions = bulk_verify(req_extraction, log, assertion_ids=[target.id], actor="tester")
-    assert decisions == []
+    result = bulk_verify(req_extraction, log, assertion_ids=[target.id], actor="tester")
+    assert result.decisions == []
+    # Reported, not dropped: the page has to be able to say WHY a selected id was
+    # not acted on. A count alone cannot (YB-052).
+    assert [s.reason for s in result.skipped] == ["already in that state"]
     assert len(log.entries) == before
 
 
 def test_bulk_verify_ignores_unknown_ids(req_extraction):
-    decisions = bulk_verify(req_extraction, ReviewLog(), assertion_ids=["a_nope"], actor="tester")
-    assert decisions == []
+    result = bulk_verify(req_extraction, ReviewLog(), assertion_ids=["a_nope"],
+                         actor="tester")
+    assert result.decisions == []
+    # A stale id is reported rather than absorbed into a smaller count.
+    assert [(s.assertion_id, s.reason) for s in result.skipped] == [("a_nope", "not found")]
 
 
 def test_progress_reports_an_auditability_gate(req_extraction):

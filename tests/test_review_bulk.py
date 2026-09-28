@@ -179,7 +179,9 @@ def test_bulk_apply_does_not_decide_the_same_thing_twice(req_extraction):
 
     assert len(bulk_apply(req_extraction, log, ids, "verify", actor="t")) == len(ids)
     # Already verified: a second pass records nothing rather than two more entries.
-    assert bulk_apply(req_extraction, log, ids, "verify", actor="t") == []
+    again = bulk_apply(req_extraction, log, ids, "verify", actor="t")
+    assert again.decisions == []
+    assert [s.reason for s in again.skipped] == ["already in that state"] * len(ids)
 
 
 def test_bulk_actions_are_the_reviewers_verbs():

@@ -6,11 +6,11 @@ status: open
 priority: high
 area: "`agents/architecture_extraction/passes.py` (structure rules), `agents/extraction/validators.py` (a name validator), `core/knowledge/ingest.py` (`_resolve` identity)"
 created: 2026-09-27
-updated: 2026-09-27
+updated: 2026-09-28
 design: docs/design/c4-specification-view.md
 record: null
 superseded_by: []
-related: ["ADR-0029", "YB-051", "YB-052", "YB-020", "YB-004"]
+related: ["ADR-0029", "ADR-0030", "YB-051", "YB-052", "YB-054", "YB-020", "YB-004"]
 blocks: []
 blocked_by: []
 ---
@@ -25,6 +25,16 @@ blocked_by: []
 > Defects 1 and 2 are in the pipeline and the graph. Defects 3 and 4 are in the source
 > **document**, and 3 is the reason the diagram's shape is misleading: the one container
 > whose relationships the prose lists becomes the hub everything hangs off.
+>
+> **Progress 2026-09-28.** Lever 1 of defect 3 landed: `test_data/arch/payment_platform_arch.md`
+> §2.1/§2.2/§2.3 now carry `**Relationships:**` lists in §2.7's style, and a live
+> re-extraction found the path as explicit arrows — `Payment Orchestrator -> Payment
+> Routing Decision Engine -> PGSP Gateway with Request/Response Adapter` — among 15
+> connections (4 chunks, 16 calls, 15 ok / 1 empty / 0 failed, 188 s). One sample, not
+> yet the "every run" the acceptance asks for; the harness and its baseline are what
+> turn it into a distribution. Defects 1, 2 and 4 remain open, and the harness now
+> gates the technology-leak half of defect 1: `inv_no_tech_leak` FAILs on `Quartz`
+> in the saved architecture output (`data/output/test_arch.json`).
 
 ### Where the model stands
 
@@ -241,7 +251,10 @@ document says the platform may do this, and the graph asserts that it does, with
 about durability ("Valkey is **not** used as the job store").
 
 **Shape.** `is_synchronous` is currently unset on every connection even though `style`
-determines it (YB-051 decision 2). Worth deciding together with a modality: the ontology
+determines it (YB-051 decision 2). Re-measured on the 2026-09-28 live run: 15
+connections, `style` set on all of them, `is_synchronous` on none — so the derivation
+is still owed, and it is deterministic rather than a model question. Worth deciding
+together with a modality: the ontology
 has room for a MAY/optional distinction, and an asserted edge drawn from a permissive
 sentence is the kind of thing a reviewer should be shown rather than have to notice.
 
@@ -260,17 +273,20 @@ sentence is the kind of thing a reviewer should be shown rather than have to not
 
 ### Acceptance
 
-- `test_data/arch/payment_platform_arch.md` states the request path (a "Relationships"
-  list under §2.1/2.2/2.3, mirroring §2.7), and a re-run's container diagram shows
-  Payment Orchestrator → Routing Decision Engine → PGSP Gateway **in every run**, not in
-  one run out of two.
+- **Partly met (2026-09-28).** `test_data/arch/payment_platform_arch.md` states the
+  request path (a "Relationships" list under §2.1/2.2/2.3, mirroring §2.7), and one
+  live re-run's container diagram showed Payment Orchestrator → Routing Decision
+  Engine → PGSP Gateway with Request/Response Adapter. Remaining: show it **in every
+  run**, not in one run out of two — that is what the harness baseline is for.
 - No element in a re-extracted `payment_platform_arch.md` is named after a bare category:
   the `c4_scorecard.py` count of `Database`/`External Services`-style names is zero.
 - No connection is asserted from a permissive sentence ("is permitted", "may").
 - `Payment Gateway Platform` is one node, and the C4 model draws one system box.
 - A container whose `part_of` names a system is drawn inside that system's boundary.
-- The scorecard's `READY` verdict is reachable on this test case, or every remaining
-  failed rule is one this entry argues is not a defect.
+- **Met.** The scorecard's `READY` verdict is reachable on this test case, or every
+  remaining failed rule is one this entry argues is not a defect — the two share rules
+  (`levels_stated`, `runs_complete`) are classified as budgets in the harness for
+  exactly the reason recorded above, and the four defect rules are gates.
 
 ### Related
 

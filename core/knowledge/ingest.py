@@ -23,6 +23,8 @@ values, and `unresolved_references()` finds them.
 
 from typing import Any, Dict, List, Optional, Tuple
 
+import logging
+
 from ..ontology import canonical_predicate
 from .model import (
     CROSS_GRAPH_PREDICATES,
@@ -49,6 +51,39 @@ from .model import (
 
 # Predicates where the object names the containing element (structural).
 CONTAINMENT_PREDICATES = frozenset({"part_of", "belongs_to", "composed_of"})
+
+_logger = logging.getLogger(__name__)
+
+
+# The extraction-output keys this function reads. Data rather than a comment
+# because the defect it guards is a key a profile EMITS and ingest never reads:
+# the architecture profile produced `connections` records on every run and they
+# were discarded for the life of the pass (YB-051), so the C4 diagram had boxes
+# and no arrows. The per-pass `triples_produced` counter could not show it —
+# that pass emitted triples as well — which is why the guard is per KEY.
+INGESTED_OUTPUT_KEYS = frozenset({
+    "elements", "connections", "triples",
+    "technology_stacks", "architecture_styles", "design_techniques",
+    "engineering_conventions", "quality_scenarios", "architecture_patterns",
+    "references", "entities", "initiatives",
+})
+
+# Keys a consumer downstream of ingest reads. `findings` is rendered by the run
+# pipeline and the run page; listing it keeps the accounting from reporting a
+# loss where there is a reader.
+DOWNSTREAM_OUTPUT_KEYS = frozenset({"findings"})
+
+# Keys a profile may emit that NO consumer routes, each with the reason that is
+# safe. `ExtractedRelationship` is a predicate vocabulary with no endpoints — the
+# triples carry the same claim — so reading it here would state one fact twice
+# (YB-051 checked this and found no loss). Kept as data so the accounting can
+# distinguish "explained" from "unaccounted" rather than warning on every
+# requirements run or hiding every unrouted key alike.
+UNROUTED_OUTPUT_KEYS = {
+    "relationships": "a predicate vocabulary with no endpoints; the triples carry it",
+}
+
+ROUTED_OUTPUT_KEYS = INGESTED_OUTPUT_KEYS | DOWNSTREAM_OUTPUT_KEYS
 
 
 def _run_id(document_ref: str, document_text: str, model_id: str) -> str:
@@ -833,6 +868,48 @@ def graph_from_extraction(
                                 confidence=confidence, source_text=source_text,
                                 provenance=p, initiative_id=initiative_id)
 
+    # ---- what this run did with the output that produced it (YB-051) ----
+    #
+    # `emitted` is what the profile put under each collection key; `consumed` says
+    # whether any consumer in the pipeline reads it. An emitted, unconsumed key is
+    # the exact shape of the connections defect, and it is reported here rather
+    # than asserted, because a profile is allowed to carry its own extra data — it
+    # is not allowed to carry it invisibly.
+    collected = {
+        key: value for key, value in (output or {}).items()
+        if isinstance(value, list) and value
+        and all(isinstance(item, dict) for item in value)
+    }
+    run.output_counts = {
+        key: {"emitted": len(records),
+              "consumed": 1 if key in ROUTED_OUTPUT_KEYS else 0}
+        for key, records in collected.items()
+    }
+    run.unconsumed_keys = sorted(
+        key for key, counts in run.output_counts.items() if not counts["consumed"]
+    )
+    run.stored_facts = len(graph.assertions)
+
+    unaccounted = [k for k in run.unconsumed_keys if k not in UNROUTED_OUTPUT_KEYS]
+    if unaccounted:
+        _logger.warning(
+            "ingest read none of the %d record(s) emitted under %s — "
+            "an output key with no consumer is how the C4 connections were lost",
+            sum(run.output_counts[k]["emitted"] for k in unaccounted),
+            ", ".join(repr(k) for k in unaccounted),
+        )
+
+    # Facts the graph declined, copied onto the run that produced them. The graph
+    # itself does not persist them (they are diagnostics), so this is the only
+    # place a refusal survives a save.
+    run.refusals = [refusal.to_dict() for refusal in graph.refusals]
+    if run.refusals:
+        _logger.warning(
+            "refused %d impossible fact(s) from %s: %s",
+            len(run.refusals), document_ref or "the document",
+            "; ".join(r.get("reason", "") for r in run.refusals[:3]),
+        )
+
     return graph, run
 
 
@@ -1074,7 +1151,10 @@ def merge_graphs(base: KnowledgeGraph, incoming: KnowledgeGraph) -> KnowledgeGra
         )
         # Lineage fields are not part of the fold rule; carry them explicitly so
         # a snapshot that is itself the product of a merge round-trips faithfully.
-        if a.superseded_by and not folded.superseded_by:
+        # `None` is a refusal (a reflexive fact on an irreflexive predicate) —
+        # nothing to fold lineage onto, and the source graph's own refusal is
+        # already recorded, so the fact is not silently resurrected here.
+        if folded is not None and a.superseded_by and not folded.superseded_by:
             folded.superseded_by = a.superseded_by
 
     return merged

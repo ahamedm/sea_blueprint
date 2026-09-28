@@ -6,11 +6,11 @@ status: in-progress
 priority: high
 area: "`core/knowledge/ingest.py` (does not read `connections`), `app/viewpoints/merged.py` (kind registry), tests"
 created: 2026-09-27
-updated: 2026-09-27
+updated: 2026-09-28
 design: docs/design/async-run-progress.md
 record: null
 superseded_by: []
-related: ["ADR-0029", "YB-012", "YB-006", "YB-024", "YB-007"]
+related: ["ADR-0029", "ADR-0030", "YB-012", "YB-006", "YB-024", "YB-007", "YB-054"]
 blocks: []
 blocked_by: []
 ---
@@ -254,6 +254,32 @@ is being spent in full and returning nothing.
 **3. Chunk 1's `structure` pass also came back `empty` after 264.8 s, and the run merged
 anyway.** A missing structure pass is a missing set of boxes, not just missing arrows, and
 `PARTIAL` is the only thing that said so.
+
+### Progress 2026-09-28 — the guard landed, the closing condition is half met
+
+Two of this entry's own consequences were built out and recorded in
+[ADR-0030](../../decisions/ADR-0030-boundary-refusals-and-output-accounting.md):
+
+- **A second occurrence is now visible.** Every emitted output key is accounted for, and
+  `run.unconsumed_keys` / `run.output_counts` report "this many records, no reader" —
+  the static half (a seam test over every `PassSpec.output_keys`) plus the runtime half.
+  It caught [YB-054](../entries/YB-054-unrouted-requirements-output-keys.md) on its first
+  real output.
+- **The run can no longer be discarded after the model calls.** Merge, repair and
+  validation each run under a guard: a failure keeps the facts and appends a failed
+  `(post-extraction)` record, so the verdict is PARTIAL rather than a job failure with
+  nothing stored. §1's defect 1 — 12/12 passes and 146 s thrown away — cannot recur in
+  that shape.
+
+**The closing condition, re-tested.** "Re-extract `payment_platform_arch.md` and confirm
+a non-zero relationship count." A live `deepseek-v4-pro` run on 2026-09-28 (4 chunks, 16
+calls, 15 ok / 1 empty / 0 failed, 188 s) produced **15 connections**, including the
+request path the edited fixture now states. The *extraction* half passes; `/api/c4`'s
+`relationships` count was not re-measured, because that run was not ingested into a
+workspace store. What remains genuinely open is the entry's own decision — the edge
+exists twice (`connects_to` triples and a `Connection` node) — plus the deterministic
+`is_synchronous` derivation (decision 2), re-measured on the same run as `style` set on
+15/15 and `is_synchronous` on none.
 
 ### Related
 

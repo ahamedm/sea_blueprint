@@ -1,0 +1,21 @@
+{
+  "cases": {
+    "arch": {
+      "inv_responsibilities_populated": 70.0,
+      "inv_technology_captured": 18.0
+    },
+    "req_prd": {
+      "inv_confidence_varies": 5.0,
+      "inv_contract_ratio": 1.6949,
+      "inv_ontology_class_coverage": 100.0
+    },
+    "req_sample": {
+      "inv_confidence_varies": 3.0,
+      "inv_contract_ratio": 2.0833,
+      "inv_ontology_class_coverage": 100.0
+    }
+  },
+  "generated_by": "scripts/run_extraction_tests.py --update-baseline (validate-only; no model call)",
+  "note": "Quality counts measured from saved output JSON. Each budget compares against these values \u00b1 its tolerance; regenerate deliberately and review the diff, because accepting a moved baseline also accepts the change.",
+  "schema_version": 1
+}

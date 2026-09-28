@@ -34,3 +34,4 @@ Closed work from the TODO. Each record preserves its original write-up verbatim;
 | [ADR-0027](ADR-0027-async-run-progress.md) | Asynchronous run progress — the execution substrate, and one view over two transports | 2026-09-27 | — |
 | [ADR-0028](ADR-0028-no-workspace-migration.md) | No workspace migration — MVP validation starts on a fresh scope | 2026-09-27 | — |
 | [ADR-0029](ADR-0029-c4-specification-view.md) | A C4 specification view: text notation first, a rendering second, well-formedness as the point | 2026-09-27 | 25 |
+| [ADR-0030](ADR-0030-boundary-refusals-and-output-accounting.md) | Refusals and accounting at the ingest boundary — and a harness that can be wrong out loud | 2026-09-28 | — |

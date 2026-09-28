@@ -47,6 +47,7 @@ from .model import (
     Assertion,
     KnowledgeGraph,
     Provenance,
+    reflexive_violation,
     utc_now,
 )
 
@@ -340,8 +341,19 @@ def _resolve_target(graph: KnowledgeGraph, predicate: str, target: str) -> Optio
 
 
 def verify(graph: KnowledgeGraph, assertion_id: str, actor: str = "", note: str = "") -> Decision:
-    """A human vouches for an agent's assertion. Provenance flips to human."""
+    """A human vouches for an agent's assertion. Provenance flips to human.
+
+    A reflexive fact on an irreflexive predicate cannot be verified, and the
+    refusal is raised rather than returned: verifying is the act that turns a
+    wrong extraction into human authority, and four `X part_of X` facts acquired
+    exactly that status through a bulk verify (YB-052). The repository may still
+    hold such facts from an older revision, so the refusal has to be here, not
+    only at the point where they are written.
+    """
     a = _require(graph, assertion_id)
+    reason = reflexive_violation(a.subject, a.predicate, a.object)
+    if reason:
+        raise ReviewError(f"cannot verify a reflexive assertion: {reason}")
     before = _snapshot(a)
     a.status = STATUS_VERIFIED
     a.provenance = _human_provenance(a, actor, note)
@@ -515,6 +527,14 @@ def correct(
     # Nothing actually moved: `add_assertion` folded the human provenance onto
     # the original assertion in place. Superseding it would point the record at
     # itself and erase the fact from the active set.
+    if replacement is None:
+        # The correction would state something impossible (`X part_of X`). Refused
+        # at the write boundary like any other reflexive fact, and reported rather
+        # than recording a replacement that the graph does not hold.
+        raise ReviewError(
+            f"cannot correct {assertion_id} to a reflexive fact: "
+            + reflexive_violation(a.subject, predicate, obj)
+        )
     if replacement.id == a.id:
         return Decision(
             action=ACTION_CORRECT,
@@ -586,15 +606,30 @@ def bulk_verify(
     subject: Optional[str] = None,
     actor: str = "",
     note: str = "",
-) -> List[Decision]:
+) -> "BulkResult":
     """Verify many assertions at once.
 
     Selection is re-derived from the graph rather than trusted from the form, so
     a stale checkbox list cannot act on assertions the reviewer never saw.
+
+    Returns what it decided AND what it declined, because "3 of 5" without a
+    reason reads as a bug to the reviewer who selected five. A reflexive fact is
+    refused with its reason (YB-052); a settled one is reported as settled.
     """
+    result = BulkResult()
     if assertion_ids is not None:
-        targets = [graph.assertions.get(aid) for aid in assertion_ids]
-        targets = [a for a in targets if a is not None and a.is_active]
+        targets = []
+        for aid in assertion_ids:
+            a = graph.assertions.get(aid)
+            if a is None:
+                # The page in front of the reviewer is older than the graph. That
+                # is normal, and it is reported rather than silently absorbed into
+                # a smaller count — YB-052 asked for the reasons, not a number.
+                result.skipped.append(BulkSkip(str(aid), "not found"))
+            elif not a.is_active:
+                result.skipped.append(BulkSkip(a.id, _ALREADY_SETTLED))
+            else:
+                targets.append(a)
     else:
         targets = []
         for a in graph.active():
@@ -606,12 +641,13 @@ def bulk_verify(
                 continue
             targets.append(a)
 
-    decisions = []
     for a in targets:
-        if a.status != STATUS_UNVERIFIED:
+        reason = _skip_reason(a, ACTION_VERIFY)
+        if reason:
+            result.skipped.append(BulkSkip(a.id, reason))
             continue
-        decisions.append(log.record(verify(graph, a.id, actor, note)))
-    return decisions
+        result.decisions.append(log.record(verify(graph, a.id, actor, note)))
+    return result
 
 
 BULK_ACTIONS = (ACTION_VERIFY, ACTION_DISPUTE, ACTION_RETIRE, ACTION_RESET)
@@ -622,27 +658,83 @@ BULK_ACTIONS = (ACTION_VERIFY, ACTION_DISPUTE, ACTION_RETIRE, ACTION_RESET)
 """
 
 
-def _bulk_eligible(assertion: "Assertion", action: str) -> bool:
-    """Whether this action would change anything about this assertion.
+@dataclass
+class BulkSkip:
+    """One selected assertion a bulk action did not act on, and why."""
+
+    assertion_id: str
+    reason: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"id": self.assertion_id, "reason": self.reason}
+
+
+_ALREADY_SETTLED = "already in that state"
+"""The no-op skip reason. Distinct from a refusal so a page can say which is which."""
+
+
+@dataclass
+class BulkResult:
+    """What a bulk action did, and what it declined to do.
+
+    A bare count cannot tell "already in that state" from "refused because the
+    fact is impossible", and the second is exactly what the reviewer has to be
+    told: four `X part_of X` facts became VERIFIED through a bulk verify that
+    reported only a number (YB-052). The type is list-compatible on purpose —
+    `len()` and truthiness read the decisions — so a caller that only counts
+    keeps working while the page can show the reasons.
+    """
+
+    decisions: List[Decision] = field(default_factory=list)
+    skipped: List[BulkSkip] = field(default_factory=list)
+
+    def __len__(self) -> int:
+        return len(self.decisions)
+
+    def __bool__(self) -> bool:
+        return bool(self.decisions)
+
+    def __iter__(self):
+        return iter(self.decisions)
+
+    @property
+    def refused(self) -> List[BulkSkip]:
+        """Skips that are refusals rather than no-ops — what the reviewer must see."""
+        return [s for s in self.skipped if s.reason != _ALREADY_SETTLED]
+
+
+def _skip_reason(assertion: "Assertion", action: str) -> str:
+    """Why this action would not apply — "" when it would.
 
     Skipped rather than applied blindly, so the count a page reports is the number of
     decisions actually recorded. "Verify selected" over a mixed selection should say
     three, not five, or the reviewer learns to distrust the number.
+
+    Refusal is a different outcome from a no-op and carries its own reason: an
+    irreflexive fact cannot be verified by anyone, so verifying it is not a state
+    the graph declines to enter twice — it is a claim no reviewer can intend.
     """
     if action == ACTION_VERIFY:
-        return assertion.status == STATUS_UNVERIFIED
+        if assertion.status != STATUS_UNVERIFIED:
+            return _ALREADY_SETTLED
+        return reflexive_violation(assertion.subject, assertion.predicate,
+                                   assertion.object)
     if action == ACTION_DISPUTE:
         # A dispute on a removed or superseded fact is meaningless: there is nothing
         # left in play to disagree with.
-        return assertion.is_active and assertion.status != STATUS_DISPUTED
+        if not assertion.is_active or assertion.status == STATUS_DISPUTED:
+            return _ALREADY_SETTLED
+        return ""
     if action == ACTION_RESET:
         # Reopening is the RESTORE path, so a retired assertion is eligible even
         # though its status may already read UNVERIFIED — `is_active` is what says
         # whether there is anything to undo.
-        return not (assertion.status == STATUS_UNVERIFIED and assertion.is_active)
+        if assertion.status == STATUS_UNVERIFIED and assertion.is_active:
+            return _ALREADY_SETTLED
+        return ""
     if action == ACTION_RETIRE:
-        return assertion.is_active
-    return False
+        return "" if assertion.is_active else _ALREADY_SETTLED
+    return f"unknown action: {action!r}"
 
 
 def bulk_apply(
@@ -652,7 +744,7 @@ def bulk_apply(
     action: str,
     actor: str = "",
     note: str = "",
-) -> List[Decision]:
+) -> BulkResult:
     """Apply one action to many selected assertions.
 
     Selection is re-derived from the graph exactly as `bulk_verify` does it: a stale
@@ -667,15 +759,20 @@ def bulk_apply(
         raise ReviewError(
             f"unknown bulk action: {action!r} (one of {', '.join(BULK_ACTIONS)})"
         )
-    decisions: List[Decision] = []
+    result = BulkResult()
     for assertion_id in assertion_ids or ():
         assertion = graph.assertions.get(assertion_id)
-        if assertion is None or not _bulk_eligible(assertion, action):
+        if assertion is None:
+            result.skipped.append(BulkSkip(str(assertion_id), "not found"))
             continue
-        decisions.append(
+        reason = _skip_reason(assertion, action)
+        if reason:
+            result.skipped.append(BulkSkip(assertion.id, reason))
+            continue
+        result.decisions.append(
             apply_decisions(graph, log, assertion_id, action, actor=actor, note=note)
         )
-    return decisions
+    return result
 
 
 def promote_to_baseline(

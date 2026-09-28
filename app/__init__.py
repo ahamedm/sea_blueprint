@@ -228,6 +228,25 @@ def _age_seconds(stamp: str) -> Optional[int]:
 MAP_CONCEPT_ROWS = 2000
 
 
+def _bulk_skip_note(result) -> str:
+    """The parenthetical after a bulk action's count, naming every disagreement.
+
+    A no-op ("already in that state") and a refusal ("cannot verify a fact that
+    contains itself") are different facts about the selection, and a single
+    generic note is what let four reflexive assertions be verified in bulk
+    without the reviewer being told (YB-052). Reasons are grouped so a long
+    selection does not produce a wall of text.
+    """
+    if not result.skipped:
+        return ""
+    counted: Dict[str, int] = {}
+    for skip in result.skipped:
+        counted[skip.reason] = counted.get(skip.reason, 0) + 1
+    return " (" + "; ".join(
+        f"{count} {reason}" for reason, count in sorted(counted.items())
+    ) + ")"
+
+
 # ============================================================================
 # Extraction strategy — injectable so the app is testable without an LLM
 # ============================================================================
@@ -1444,7 +1463,7 @@ def create_app(
             if action not in BULK_ACTIONS:
                 flash(f"Unknown bulk action: {action}", "error")
                 return redirect(url_for("review"))
-            decisions = bulk_apply(
+            result = bulk_apply(
                 snapshot.graph,
                 snapshot.log,
                 ids,
@@ -1454,13 +1473,15 @@ def create_app(
             )
             label = labels.get(action, action.title())
             # Say when the selection and the action disagreed, rather than reporting
-            # a smaller number with no explanation.
-            skipped = len(ids) - len(decisions)
-            detail = f" ({skipped} already in that state)" if skipped else ""
+            # a smaller number with no explanation — and say WHICH disagreement.
+            # A refusal ("cannot verify a fact that contains itself") is not a no-op,
+            # and reporting both as "already in that state" is how four reflexive
+            # facts acquired human authority without a reviewer noticing (YB-052).
+            detail = _bulk_skip_note(result)
             save(snapshot)
             flash(
-                f"{label} {len(decisions)} of {len(ids)} selected assertion(s){detail}.",
-                "success" if decisions else "warning",
+                f"{label} {len(result)} of {len(ids)} selected assertion(s){detail}.",
+                "success" if result else "warning",
             )
             return redirect(request.referrer or url_for("review"))
 
@@ -1470,7 +1491,7 @@ def create_app(
             threshold = float(request.form.get("threshold") or LOW_CONFIDENCE)
         except ValueError:
             threshold = LOW_CONFIDENCE
-        decisions = bulk_verify(
+        result = bulk_verify(
             snapshot.graph,
             snapshot.log,
             max_confidence=threshold,
@@ -1479,7 +1500,10 @@ def create_app(
         )
 
         save(snapshot)
-        flash(f"Verified {len(decisions)} assertion(s).", "success" if decisions else "warning")
+        flash(
+            f"Verified {len(result)} assertion(s){_bulk_skip_note(result)}.",
+            "success" if result else "warning",
+        )
         return redirect(request.referrer or url_for("review"))
 
     # -- graph projection ------------------------------------------------

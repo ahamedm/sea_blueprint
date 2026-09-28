@@ -1,28 +1,102 @@
 #!/usr/bin/env python3
-"""
-Extraction test harness  [DRAFT]
+"""Extraction test harness.
 
-Runs each extraction agent against a known input, writes a named output file,
-and asserts a battery of invariants against the result.
+Runs each extraction agent against a known input, saves the raw output JSON per
+case, and checks a battery of `inv_*` invariants against the result. Every
+invariant is classified — in exactly one place, below — as a GATE or a BUDGET.
 
-Why this exists (YB-007): every prompt change this session silently broke
-a previously-working invariant — tightening the object contract killed
-traceability predicates, adding containment resurrected technologies as
-elements. Catching those depended on manually diffing runs. This makes it a
-command instead of a discipline.
+GATES — what the harness guarantees
+-----------------------------------
+A gate is a structural or contract property that cannot legitimately vary with
+sampling: the run succeeded, triples/elements are present, element types are
+valid, containers have parents, a declared parent has a matching `part_of` edge,
+technologies and architectural styles did not leak in as elements, declared
+expectations are present, the schema and the ontology did not drift, identifier
+joins survive, and the Design Assistant's promised collections and links arrived.
+**Any failed gate means the run is broken**: it prints FAIL and the process exits
+non-zero. The classification is self-checked at startup — an `inv_*` that is in
+neither GATES nor BUDGETS (or is in both) aborts the harness instead of silently
+passing.
+
+BUDGETS — what it measures but deliberately does not gate
+---------------------------------------------------------
+A budget is a quality count or ratio that legitimately moves between runs
+(contract-violation ratio, ontology-class coverage, confidence spread,
+responsibilities carried, technologies captured, C4 defect counts). Each budget
+declares an allowed band. With a committed baseline
+(`scripts/extraction_test_baseline.json`) the current value must stay inside
+`baseline ± max(abs_slack, rel_slack * |baseline|)`; outside it the budget prints
+WARN with the previous value, the current value and the band. Without a baseline
+it falls back to an absolute floor/ceiling, so it still says something on a first
+run. A budget never changes the exit code — deliberately: §3.13 of
+`docs/design/extraction-reliability-levers.md` records 27-vs-30-element variance
+on identical input, so a within-band move is not evidence of anything, and a
+budget that could fail the build would be noise wearing a gate's authority.
+
+C4 SCORECARD — a deliberate, external, optional dependency
+----------------------------------------------------------
+`scripts/c4_scorecard.py` is run as a SUBPROCESS and never imported: this module
+must not import `app.viewpoints.c4` or `core.workspace`, so a machine with no
+workspace store degrades to a SKIPPED check with the reason instead of an
+ImportError or, worse, a silent pass. Its four DEFECT rules (reflexive, nesting,
+acyclic, arrows) are folded in as gates; its two SHARE rules (levels stated, runs
+complete — see `C4_RULE_BUDGETS`) and its defect counts (duplicated concepts,
+non-C4 concepts excluded by design, capability gaps) as budgets. A store is used
+when `--scorecard-root` is given, otherwise when a case declares
+`"scorecard": {"root", "scope"}`, otherwise when a case names a `store_root`. A
+missing store, a scorecard error, a non-JSON result, or a report with no graph is
+reported SKIPPED with the reason.
+
+WHAT IT DOES *NOT* GUARANTEE
+----------------------------
+* **That a passing run is correct.** Gates read structure, categories and named
+  expectations. They cannot see a well-formed but wrong fact, an element the
+  source never stated, or a relationship drawn to the wrong endpoint.
+* **That a passing budget is an improvement.** Budgets are measurements against a
+  baseline; they separate signal from noise only as far as the band is honest.
+* **Anything about the model call itself** — cost, latency, prompt quality,
+  determinism. Only `--validate-only` is deterministic. In `--validate-only` the
+  `inv_success` gate is additionally vacuous: it re-checks saved JSON, where
+  success is assumed rather than re-derived.
+* **The pipeline between extraction and the store**, beyond the seams named by
+  the invariants and whatever the scorecard can see of a named store.
+* **That the committed baseline is current.** It is a reviewed snapshot.
+  `--update-baseline` rewrites it and the diff is the review.
+
+EXIT CODES
+----------
+    0  every gate passed (budgets may still WARN)
+    1  at least one gate FAILED — the run is broken
+    2  harness misconfigured, unknown case, or NOTHING CHECKED (every selected
+       case had no saved output): a skipped-only run is not a pass
+
+Why this exists (YB-007): every prompt change this session silently broke a
+previously-working invariant — tightening the object contract killed traceability
+predicates, adding containment resurrected technologies as elements. Catching
+those depended on manually diffing runs. This makes it a command instead of a
+discipline.
 
 Usage:
-    .venv/bin/python scripts/run_extraction_tests.py
+    .venv/bin/python scripts/run_extraction_tests.py                    # costs money
     .venv/bin/python scripts/run_extraction_tests.py --only arch
+    .venv/bin/python scripts/run_extraction_tests.py --validate-only    # no model call
+    .venv/bin/python scripts/run_extraction_tests.py --validate-only \
+        --scorecard-root data/sea --scorecard-scope default
+    .venv/bin/python scripts/run_extraction_tests.py --update-baseline   # no model call
+
+`--update-baseline` implies `--validate-only`: it re-checks saved output JSON and
+never triggers extraction (extraction takes minutes and real money).
 """
 
 import argparse
 import json
 import os
+import subprocess
 import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, NamedTuple, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -30,11 +104,22 @@ from agents.knowledge_extraction import create_knowledge_extraction_agent
 from agents.architecture_extraction import create_architecture_extraction_agent
 
 
+BASELINE_PATH = Path(__file__).resolve().with_name("extraction_test_baseline.json")
+SCORECARD_PATH = Path(__file__).resolve().with_name("c4_scorecard.py")
+BASELINE_SCHEMA = 1
+SCORECARD_TIMEOUT = 300
+
+
 # ----------------------------------------------------------------------------
 # Invariants
 # ----------------------------------------------------------------------------
 # Each returns (passed, detail). Detail is shown whether it passes or fails —
 # a test that only reports failures hides how close a passing case was.
+#
+# An invariant's own (passed, detail) is the ABSOLUTE observation. For gates that
+# result is the verdict. For budgets the verdict comes from the tolerance layer
+# below (baseline band, or the absolute rule when no baseline exists) and the
+# invariant's detail is carried along as context.
 
 def _ok(cond: bool, detail: str) -> Tuple[bool, str]:
     return bool(cond), detail
@@ -286,6 +371,10 @@ def inv_techniques_populated(res, out):
 
     The technique list itself is *expected* to contain these names; only their
     appearance as ELEMENTS is the defect.
+
+    A GATE, not a budget: its failure modes are a leak-as-element or an empty
+    collection, both structural. How MANY techniques a run captures is a count
+    that legitimately moves, but that number is not what this returns.
     """
     techniques = out.get("design_techniques", [])
     if not techniques:
@@ -302,7 +391,12 @@ def inv_techniques_populated(res, out):
 
 
 def inv_conventions_populated(res, out):
-    """A convention with no checkable `pattern` is prose, not a convention."""
+    """A convention with no checkable `pattern` is prose, not a convention.
+
+    A GATE for the same reason as `inv_techniques_populated`: an empty list, a
+    NAMING convention without a pattern, or a convention leaked as an element are
+    all structural defects, not sampling noise.
+    """
     conventions = out.get("engineering_conventions", [])
     if not conventions:
         return _ok(False, "no engineering_conventions captured (the fixture names several)")
@@ -382,6 +476,378 @@ def inv_design_elements_grounded_or_reported(res, out):
 
 
 # ----------------------------------------------------------------------------
+# Gate / budget classification
+# ----------------------------------------------------------------------------
+# This is the single place an invariant is classified. `_classification_problems`
+# refuses to run when an `inv_*` is in neither set or in both, so adding an
+# invariant without deciding its class is a hard error rather than a default.
+#
+# GATE      — structural / contract; failure means the run is broken (exit != 0).
+# BUDGET    — a count or ratio that varies with sampling; compared to a band and
+#             reported WARN, never FAIL.
+
+GATES = frozenset({
+    # run-level contract
+    "inv_success",
+    "inv_triples_present",
+    "inv_elements_present",
+    # typed structure and the containment tree
+    "inv_valid_element_types",
+    "inv_containment_present",
+    "inv_part_of_edges",
+    "inv_datastores_typed",
+    "inv_deployment_nodes_unlevelled",
+    "inv_software_systems_classified",
+    # ontology / schema contract
+    "inv_schema_ontology_consistency",
+    # category discipline: USED things must not become elements
+    "inv_no_tech_leak",
+    "inv_no_style_as_element",
+    "inv_techniques_populated",
+    "inv_conventions_populated",
+    # completeness / joins
+    "inv_expected_present",
+    "inv_requirement_ids",
+    "inv_traceability_predicates",
+    # design-side contract
+    "inv_design_collections",
+    "inv_design_patterns_resolved",
+    "inv_design_scenarios_measurable",
+    "inv_design_techniques_linked",
+    "inv_design_elements_grounded_or_reported",
+})
+
+
+@dataclass(frozen=True)
+class Budget:
+    """A quality count whose exact value is expected to move between runs.
+
+    `measure` pulls the number out of a saved output (or a scorecard report).
+    The allowed band is `baseline ± max(abs_slack, rel_slack * |baseline|)`;
+    without a baseline the `fallback` absolute rule applies instead —
+    `("min", x)` means "at least x", `("max", x)` means "at most x".
+    """
+
+    measure: Callable[[Dict[str, Any]], Optional[float]]
+    rel_slack: float
+    abs_slack: float
+    fallback: Tuple[str, float]
+    unit: str = ""
+    note: str = ""
+
+
+def _m_contract_pct(out: Dict[str, Any]) -> Optional[float]:
+    n = len(out.get("triples") or [])
+    if n == 0:
+        return None
+    return 100.0 * len(out.get("contract_violations") or []) / n
+
+
+def _m_ontology_coverage_pct(out: Dict[str, Any]) -> Optional[float]:
+    triples = out.get("triples") or []
+    if not triples:
+        return None
+    return 100.0 * sum(1 for t in triples if t.get("ontology_class")) / len(triples)
+
+
+def _m_confidence_distinct(out: Dict[str, Any]) -> Optional[float]:
+    triples = out.get("triples") or []
+    if not triples:
+        return None
+    return float(len({round(t.get("confidence", 0), 2) for t in triples}))
+
+
+def _m_responsibilities_pct(out: Dict[str, Any]) -> Optional[float]:
+    elements = [e for e in out.get("elements") or [] if isinstance(e, dict)]
+    if not elements:
+        return None
+    return 100.0 * sum(1 for e in elements if e.get("responsibilities")) / len(elements)
+
+
+def _m_technology_stacks(out: Dict[str, Any]) -> float:
+    return float(len(out.get("technology_stacks") or []))
+
+
+BUDGETS: Dict[str, Budget] = {
+    "inv_contract_ratio": Budget(
+        _m_contract_pct, rel_slack=1.0, abs_slack=2.0,
+        fallback=("max", 20.0), unit="%",
+        note="clause-shaped nodes must stay a minority"),
+    "inv_ontology_class_coverage": Budget(
+        _m_ontology_coverage_pct, rel_slack=0.10, abs_slack=5.0,
+        fallback=("min", 80.0), unit="%",
+        note="share of triples carrying an ontology_class"),
+    "inv_confidence_varies": Budget(
+        _m_confidence_distinct, rel_slack=0.5, abs_slack=1.0,
+        fallback=("min", 2.0), unit="",
+        note="distinct confidence values; a flat 1.0 defeats review triage"),
+    "inv_responsibilities_populated": Budget(
+        _m_responsibilities_pct, rel_slack=0.25, abs_slack=10.0,
+        fallback=("min", 1.0), unit="%",
+        note="share of elements carrying responsibilities"),
+    "inv_responsibility_present": Budget(
+        _m_responsibilities_pct, rel_slack=0.25, abs_slack=10.0,
+        fallback=("min", 1.0), unit="%",
+        note="same measure as inv_responsibilities_populated"),
+    "inv_technology_captured": Budget(
+        _m_technology_stacks, rel_slack=0.25, abs_slack=3.0,
+        fallback=("min", 1.0), unit="",
+        note="technology_stacks captured"),
+    "inv_tech_construct_populated": Budget(
+        _m_technology_stacks, rel_slack=0.25, abs_slack=3.0,
+        fallback=("min", 1.0), unit="",
+        note="same measure as inv_technology_captured"),
+}
+
+
+# Scorecard defect counts, folded in under the synthetic case name `c4`. A broken
+# containment tree is not noise, so the four DEFECT rules are gates; the two SHARE
+# rules and the defect COUNTS vary with graph size and extraction, so they are
+# budgets.
+C4_RULE_BUDGETS: Dict[str, Budget] = {
+    "c4.levels_stated": Budget(
+        lambda _report: None, rel_slack=0.02, abs_slack=0.05,
+        fallback=("min", 0.90), unit="",
+        note="share of structural elements stating their C4 level"),
+    "c4.runs_complete": Budget(
+        lambda _report: None, rel_slack=0.25, abs_slack=0.25,
+        fallback=("min", 0.50), unit="",
+        note="share of runs behind the graph that are COMPLETE"),
+}
+"""The two readiness rules that are measurements, not verdicts.
+
+WHY NOT GATES. YB-053 records this exact test case at 25/26 levels stated (one
+element's level is inferred and said to be inferred — "not a defect") and a PARTIAL
+architecture run (one `empty` connections answer, which ADR-0013 deliberately counts
+against completeness so a miss cannot hide). Gating either one means the harness
+reports RUN BROKEN on a run this project has already argued is honest — and a gate
+that fires on a legitimate state is how a harness teaches its reader to ignore
+gates. The floors below are smoke alarms, not acceptance criteria.
+"""
+
+
+def _m_c4_duplicates(report: Dict[str, Any]) -> float:
+    return float((report.get("defects") or {}).get("duplicates", 0))
+
+
+def _m_c4_excluded(report: Dict[str, Any]) -> float:
+    return float((report.get("defects") or {}).get("excluded_non_c4", 0))
+
+
+def _m_c4_gaps(report: Dict[str, Any]) -> float:
+    return float(sum(((report.get("defects") or {}).get("gaps_by_kind") or {}).values()))
+
+
+C4_BUDGETS: Dict[str, Budget] = {
+    "c4.duplicates": Budget(
+        _m_c4_duplicates, rel_slack=0.5, abs_slack=1.0,
+        fallback=("max", 5.0), unit="",
+        note="concepts extracted twice (element + concept)"),
+    "c4.excluded_non_c4": Budget(
+        _m_c4_excluded, rel_slack=0.5, abs_slack=5.0,
+        fallback=("max", 200.0), unit="",
+        note="non-C4 concepts excluded by design"),
+    "c4.gaps": Budget(
+        _m_c4_gaps, rel_slack=0.5, abs_slack=3.0,
+        fallback=("max", 30.0), unit="",
+        note="total readiness gaps of any kind"),
+}
+
+
+def _defined_invariants() -> set:
+    return {name for name, obj in globals().items()
+            if name.startswith("inv_") and callable(obj)}
+
+
+def _classification_problems(cases: List[Dict[str, Any]]) -> List[str]:
+    """Return the reasons the classification is incomplete (empty == good)."""
+    defined = _defined_invariants()
+    both = sorted(set(GATES) & set(BUDGETS))
+    unclassified = sorted(defined - set(GATES) - set(BUDGETS))
+    unknown_gate = sorted(set(GATES) - defined)
+    unknown_budget = sorted(set(BUDGETS) - defined)
+    problems = []
+    if both:
+        problems.append(f"classified as BOTH gate and budget: {both}")
+    if unclassified:
+        problems.append(f"defined but unclassified: {unclassified}")
+    if unknown_gate:
+        problems.append(f"gate name is not a defined invariant: {unknown_gate}")
+    if unknown_budget:
+        problems.append(f"budget name is not a defined invariant: {unknown_budget}")
+    problems.extend(_missing_from_cases(cases))
+    return problems
+
+
+def _missing_from_cases(cases: List[Dict[str, Any]]) -> List[str]:
+    defined = _defined_invariants()
+    referenced = {inv.__name__ for case in cases for inv in case["invariants"]}
+    unknown = sorted(referenced - defined)
+    return [f"case references an unknown invariant: {unknown}"] if unknown else []
+
+
+# ----------------------------------------------------------------------------
+# Checks, tolerances and the baseline
+# ----------------------------------------------------------------------------
+
+
+class Check(NamedTuple):
+    """One reported check. `status` is PASS, FAIL (gates) or WARN (budgets)."""
+
+    name: str
+    kind: str                      # "gate" | "budget"
+    status: str                    # "PASS" | "FAIL" | "WARN"
+    detail: str
+    value: Optional[float] = None
+    baseline: Optional[float] = None
+
+
+def _fmt(value: Optional[float], unit: str) -> str:
+    if value is None:
+        return "n/a"
+    text = f"{value:.2f}".rstrip("0").rstrip(".")
+    return f"{text or '0'}{unit}"
+
+
+def _baseline_value(baseline: Dict[str, Any], case_name: str, check_name: str) -> Optional[float]:
+    cases = (baseline or {}).get("cases") or {}
+    value = (cases.get(case_name) or {}).get(check_name)
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def _band_check(name: str, spec: Budget, value: Optional[float],
+                previous: Optional[float], context: str = "") -> Check:
+    """Compare one budget value to its baseline band, or its absolute fallback."""
+    tail = f" — {context}" if context else ""
+    if value is None:
+        return Check(name, "budget", "WARN", f"not measurable from this output{tail}")
+
+    if previous is not None:
+        slack = max(spec.abs_slack, spec.rel_slack * abs(previous))
+        low, high = previous - slack, previous + slack
+        within = low <= value <= high
+        detail = (
+            f"{_fmt(value, spec.unit)} "
+            f"{'within' if within else 'OUTSIDE'} band "
+            f"{_fmt(low, spec.unit)}–{_fmt(high, spec.unit)} "
+            f"(previous {_fmt(previous, spec.unit)}, tolerance ±{_fmt(slack, spec.unit)})"
+        )
+        return Check(name, "budget", "PASS" if within else "WARN",
+                     detail + tail, value, previous)
+
+    direction, threshold = spec.fallback
+    within = value <= threshold if direction == "max" else value >= threshold
+    symbol = "<=" if direction == "max" else ">="
+    detail = (f"{_fmt(value, spec.unit)} {symbol} {_fmt(threshold, spec.unit)} "
+              f"(no baseline: absolute rule)")
+    return Check(name, "budget", "PASS" if within else "WARN", detail + tail, value, None)
+
+
+def _budget_check(case_name: str, inv: Callable, res, out: Dict[str, Any],
+                  baseline: Dict[str, Any]) -> Check:
+    """Tolerance-governed check for a budget invariant.
+
+    The invariant still runs — its absolute detail is carried as context and an
+    exception is surfaced rather than swallowed — but its pass/fail is NOT the
+    verdict: the band (or the absolute fallback) is.
+    """
+    name = inv.__name__
+    spec = BUDGETS[name]
+    try:
+        _passed, context = inv(res, out)
+    except Exception as exc:                                   # noqa: BLE001
+        context = f"invariant raised {type(exc).__name__}: {exc}"
+    try:
+        value = spec.measure(out)
+    except Exception as exc:                                   # noqa: BLE001
+        value = None
+        context = f"{context}; measure raised {type(exc).__name__}: {exc}"
+    return _band_check(name, spec, value,
+                       _baseline_value(baseline, case_name, name), context)
+
+
+def _checks(case: Dict[str, Any], result, out: Dict[str, Any],
+            baseline: Dict[str, Any]) -> List[Check]:
+    """Run a case's invariants and classify each result as gate or budget.
+
+    `AgentResult` is a pydantic model, so a lightweight proxy carries the
+    case-level expectations the completeness invariants need rather than trying to
+    bolt an attribute onto it.
+    """
+
+    class _Res:
+        def __init__(self, real, expected):
+            self._real = real
+            self.expected = expected
+
+        def __getattr__(self, item):
+            return getattr(self._real, item)
+
+    result_view = _Res(result, case.get("expected", []))
+    checks: List[Check] = []
+    for inv in case["invariants"]:
+        name = inv.__name__
+        if name in GATES:
+            try:
+                passed, detail = inv(result_view, out)
+            except Exception as exc:                           # noqa: BLE001
+                passed, detail = False, f"raised {type(exc).__name__}: {exc}"
+            checks.append(Check(name, "gate", "PASS" if passed else "FAIL", detail))
+        else:
+            checks.append(_budget_check(case["name"], inv, result_view, out, baseline))
+    return checks
+
+
+def load_baseline(path: Path) -> Dict[str, Any]:
+    """Read the committed baseline. A missing/corrupt file degrades to absolute rules."""
+    if not path.exists():
+        return {"schema_version": BASELINE_SCHEMA, "cases": {}}
+    try:
+        blob = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"  baseline unreadable ({exc}) — budgets use their absolute rules",
+              file=sys.stderr)
+        return {"schema_version": BASELINE_SCHEMA, "cases": {}}
+    if not isinstance(blob, dict):
+        print("  baseline is not a JSON object — budgets use their absolute rules",
+              file=sys.stderr)
+        return {"schema_version": BASELINE_SCHEMA, "cases": {}}
+    blob.setdefault("cases", {})
+    return blob
+
+
+def write_baseline(path: Path, results: List[Dict[str, Any]]) -> Dict[str, int]:
+    """Merge the current budget numbers into the baseline file.
+
+    Merges rather than replaces: `--only <case> --update-baseline` must not erase
+    the other cases' numbers. Never runs extraction — only budget values observed
+    on outputs already on disk are written.
+    """
+    blob = load_baseline(path)
+    blob["schema_version"] = BASELINE_SCHEMA
+    blob["generated_by"] = (
+        "scripts/run_extraction_tests.py --update-baseline "
+        "(validate-only; no model call)"
+    )
+    blob["note"] = (
+        "Quality counts measured from saved output JSON. Each budget compares "
+        "against these values ± its tolerance; regenerate deliberately and review "
+        "the diff, because accepting a moved baseline also accepts the change."
+    )
+    cases = blob.setdefault("cases", {})
+    written: Dict[str, int] = {}
+    for result in results:
+        values = {c.name: round(float(c.value), 4)
+                  for c in result["checks"]
+                  if c.kind == "budget" and c.value is not None}
+        if values:
+            cases[result["case"]] = values
+            written[result["case"]] = len(values)
+    path.write_text(json.dumps(blob, indent=2, sort_keys=True) + "\n")
+    return written
+
+
+# ----------------------------------------------------------------------------
 # Cases
 # ----------------------------------------------------------------------------
 
@@ -438,6 +904,11 @@ CASES: List[Dict[str, Any]] = [
         # No `input`: this profile reads REQ-G and the baseline ARC-G out of the
         # store. `store_root` is the input, and the run writes a proposal only —
         # it never touches the working set.
+        #
+        # A case may also declare a `"scorecard": {"root", "scope"}` pointing at a
+        # WORKSPACE store (not this RevisionStore root) when C4 readiness should be
+        # folded in; otherwise `store_root` is used and the scorecard reports
+        # SKIPPED with the reason when no workspace is there.
         "store_root": "data/sea",
         "output": "data/output/test_design.json",
         "domain_pack": "payment_processing",
@@ -449,34 +920,12 @@ CASES: List[Dict[str, Any]] = [
 ]
 
 
-def _checks(case: Dict[str, Any], result, out: Dict[str, Any]) -> List[tuple]:
-    """Run a case's invariants and return (name, passed, detail) triples.
-
-    `AgentResult` is a pydantic model, so a lightweight proxy carries the
-    case-level expectations the completeness invariants need rather than trying to
-    bolt an attribute onto it.
-    """
-
-    class _Res:
-        def __init__(self, real, expected):
-            self._real = real
-            self.expected = expected
-
-        def __getattr__(self, item):
-            return getattr(self._real, item)
-
-    result_view = _Res(result, case.get("expected", []))
-    checks = []
-    for inv in case["invariants"]:
-        try:
-            passed, detail = inv(result_view, out)
-        except Exception as e:                                  # noqa: BLE001
-            passed, detail = False, f"raised {type(e).__name__}: {e}"
-        checks.append((inv.__name__, passed, detail))
-    return checks
+# ----------------------------------------------------------------------------
+# Case execution
+# ----------------------------------------------------------------------------
 
 
-def _run_design_case(case: Dict[str, Any]) -> Dict[str, Any]:
+def _run_design_case(case: Dict[str, Any], baseline: Dict[str, Any]) -> Dict[str, Any]:
     """The Design Assistant's case: a GRAPH input, so a different flow.
 
     Kept separate rather than threaded through `run_case`, which reads a document
@@ -493,7 +942,7 @@ def _run_design_case(case: Dict[str, Any]) -> Dict[str, Any]:
         raise RuntimeError(f"no working set at {case.get('store_root')} — ingest first")
 
     baselines = store.baselines()
-    baseline = store.load_revision(baselines[0].id).graph if baselines else None
+    baseline_graph = store.load_revision(baselines[0].id).graph if baselines else None
     base_ref = baselines[0].id if baselines else ""
 
     agent = create_design_assistant_agent()
@@ -508,7 +957,7 @@ def _run_design_case(case: Dict[str, Any]) -> Dict[str, Any]:
     t0 = time.time()
     result = agent.run({
         "graph": snapshot.graph,
-        "baseline": baseline,
+        "baseline": baseline_graph,
         "base_ref": base_ref,
         "initiative_id": snapshot.meta.get("initiative_id", ""),
         "domain_pack": agent.active_domain_pack_id(),
@@ -526,13 +975,13 @@ def _run_design_case(case: Dict[str, Any]) -> Dict[str, Any]:
         "input": case.get("store_root", ""), "output": case["output"],
         "elapsed": elapsed,
         "path": (result.metadata or {}).get("extraction_path"),
-        "checks": _checks(case, result, out),
+        "checks": _checks(case, result, out, baseline),
     }
 
 
-def run_case(case: Dict[str, Any]) -> Dict[str, Any]:
+def run_case(case: Dict[str, Any], baseline: Dict[str, Any]) -> Dict[str, Any]:
     if case["agent"] == "design_assistant":
-        return _run_design_case(case)
+        return _run_design_case(case, baseline)
 
     agent = (create_knowledge_extraction_agent()
              if case["agent"] == "knowledge_extraction"
@@ -568,11 +1017,11 @@ def run_case(case: Dict[str, Any]) -> Dict[str, Any]:
         "case": case["name"], "agent": case["agent"],
         "input": case["input"], "output": case["output"],
         "elapsed": elapsed, "path": result.metadata.get("extraction_path"),
-        "checks": _checks(case, result, out),
+        "checks": _checks(case, result, out, baseline),
     }
 
 
-def validate_saved(case: Dict[str, Any]) -> Dict[str, Any]:
+def validate_saved(case: Dict[str, Any], baseline: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Re-check the last saved output for a case, without re-running extraction."""
     path = Path(case["output"])
     if not path.exists():
@@ -585,57 +1034,272 @@ def validate_saved(case: Dict[str, Any]) -> Dict[str, Any]:
         metadata = blob.get("metadata", {})
         expected = case.get("expected", [])
 
-    checks = []
-    for inv in case["invariants"]:
-        try:
-            passed, detail = inv(_Res(), blob)
-        except Exception as e:                                  # noqa: BLE001
-            passed, detail = False, f"raised {type(e).__name__}: {e}"
-        checks.append((inv.__name__, passed, detail))
-
     return {"case": case["name"], "agent": case["agent"],
             "input": case.get("input", ""), "output": case["output"], "elapsed": 0.0,
             "path": blob.get("metadata", {}).get("extraction_path"),
-            "checks": checks}
+            "checks": _checks(case, _Res(), blob, baseline)}
+
+
+# ----------------------------------------------------------------------------
+# C4 scorecard pairing (subprocess — never an import)
+# ----------------------------------------------------------------------------
+
+
+def _scorecard_spec(cases: List[Dict[str, Any]], args: argparse.Namespace) -> Dict[str, str]:
+    """Resolve which workspace store, if any, the scorecard should measure."""
+    if args.scorecard_root:
+        return {"root": args.scorecard_root, "scope": args.scorecard_scope}
+    for case in cases:
+        spec = case.get("scorecard")
+        if spec:
+            return {"root": str(spec.get("root", "")), "scope": str(spec.get("scope", ""))}
+    for case in cases:
+        if case.get("store_root"):
+            return {"root": str(case["store_root"]), "scope": str(case.get("scorecard_scope", ""))}
+    return {}
+
+
+def _skipped(case: str, reason: str) -> Dict[str, Any]:
+    return {"case": case, "skipped": True, "reason": reason}
+
+
+def run_scorecard(spec: Dict[str, str], baseline: Dict[str, Any]) -> Dict[str, Any]:
+    """Run `scripts/c4_scorecard.py` as a subprocess and fold its report in.
+
+    Returns a result dict (with `case == "c4"`) or a `_skipped(...)` record. Every
+    failure path — no store named, store absent, timeout, non-JSON output, an
+    empty graph — is a SKIPPED check carrying the reason. It is never a pass.
+    """
+    root = spec.get("root") or ""
+    scope = spec.get("scope") or ""
+    label = root or "(default workspace)"
+    if scope:
+        label += f" scope={scope}"
+
+    if not root:
+        return _skipped("c4", "no workspace store named "
+                              "(pass --scorecard-root, or give a case `scorecard`/`store_root`)")
+    if not Path(root).exists():
+        return _skipped("c4", f"no workspace store at {root} (directory does not exist)")
+    if not SCORECARD_PATH.exists():
+        return _skipped("c4", f"companion tool missing: {SCORECARD_PATH}")
+
+    t0 = time.time()
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(SCORECARD_PATH),
+             "--root", root, "--scope", scope, "--json"],
+            capture_output=True, text=True, timeout=SCORECARD_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        return _skipped("c4", f"scorecard timed out after {SCORECARD_TIMEOUT}s on {label}")
+    except OSError as exc:
+        return _skipped("c4", f"scorecard could not run: {exc}")
+    elapsed = time.time() - t0
+
+    # The scorecard exits 1 when the graph is simply not READY; only an unparseable
+    # stdout means it did not produce a report at all.
+    try:
+        report = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        lines = [ln for ln in (proc.stderr or proc.stdout or "").strip().splitlines() if ln]
+        return _skipped("c4", f"scorecard produced no report on {label}: "
+                              f"{lines[-1] if lines else f'exit {proc.returncode}'}")
+
+    if not (report.get("elements") or {}).get("total") and not (report.get("runs") or {}).get("runs"):
+        return _skipped("c4", f"scorecard found no graph at {label} (empty working set) "
+                              "— readiness of nothing is not a pass")
+
+    checks: List[Check] = []
+    for item in report.get("verdict") or []:
+        rule = str(item.get("rule") or "")
+        value = item.get("value")
+        detail = f"{item.get('claim', '')} (value={value})"
+        budget = C4_RULE_BUDGETS.get(f"c4.{rule}")
+        if budget is not None:
+            checks.append(_band_check(
+                f"c4.{rule}", budget,
+                float(value) if isinstance(value, (int, float)) else None,
+                _baseline_value(baseline, "c4", f"c4.{rule}"),
+                context=str(item.get("claim") or ""),
+            ))
+            continue
+        checks.append(Check(f"c4.{rule}", "gate",
+                            "PASS" if item.get("held") else "FAIL", detail))
+    for name, spec_ in C4_BUDGETS.items():
+        value = spec_.measure(report)
+        checks.append(_band_check(name, spec_, value,
+                                  _baseline_value(baseline, "c4", name)))
+
+    return {
+        "case": "c4", "agent": "c4_scorecard", "input": label,
+        "output": "scorecard report (in-memory)", "elapsed": elapsed, "path": "",
+        "ready": bool(report.get("ready")), "checks": checks,
+    }
+
+
+# ----------------------------------------------------------------------------
+# Reporting
+# ----------------------------------------------------------------------------
+
+
+def _print_checks(checks: List[Check]) -> None:
+    for check in checks:
+        print(f"    [{check.status}] {check.name:<40} {check.detail}")
+
+
+def print_summary(results: List[Dict[str, Any]], skipped: List[Dict[str, Any]]) -> None:
+    print(f"\n{'=' * 72}\nSUMMARY\n{'=' * 72}")
+
+    for result in results:
+        gates = [c for c in result["checks"] if c.kind == "gate"]
+        budgets = [c for c in result["checks"] if c.kind == "budget"]
+        gate_pass = sum(1 for c in gates if c.status == "PASS")
+        budget_in = sum(1 for c in budgets if c.status == "PASS")
+        print(f"  {result['case']:<14} gates {gate_pass}/{len(gates)}   "
+              f"budgets {budget_in}/{len(budgets)} in band   "
+              f"{result['elapsed']:.0f}s   {result['path']}")
+
+    gates = [c for r in results for c in r["checks"] if c.kind == "gate"]
+    gate_fail = [c for c in gates if c.status == "FAIL"]
+    budgets = [c for r in results for c in r["checks"] if c.kind == "budget"]
+    budget_in = [c for c in budgets if c.status == "PASS"]
+    budget_out = [c for c in budgets if c.status == "WARN"]
+
+    if gates:
+        print(f"\n  GATES  {len(gates) - len(gate_fail)}/{len(gates)} passed"
+              + ("  — RUN BROKEN" if gate_fail else "  — structural contract holds"))
+    else:
+        print("\n  GATES  none evaluated")
+    for check in gate_fail:
+        print(f"    FAIL {check.name:<40} {check.detail}")
+
+    print(f"\n  BUDGETS within tolerance   {len(budget_in)}/{len(budgets)}")
+    print(f"  BUDGETS outside tolerance  {len(budget_out)}/{len(budgets)}")
+    for check in budget_out:
+        print(f"    WARN {check.name:<40} {check.detail}")
+
+    print(f"\n  SKIPPED  {len(skipped)}")
+    for item in skipped:
+        print(f"    SKIP {item['case']:<40} {item['reason']}")
+
+    if not gates:
+        # Nothing was evaluated (every selected case reported "no saved output").
+        # That is not a pass: it is the silent-green failure this harness exists
+        # to prevent, so the caller gets a non-zero exit (2) and this wording.
+        verdict = ("NOTHING CHECKED — no gate was evaluated; a skipped-only run "
+                   "is not a pass")
+    elif gate_fail:
+        verdict = f"FAIL — {len(gate_fail)} gate(s) broken"
+    elif budget_out:
+        verdict = (f"PASS with warnings — gates hold; "
+                   f"{len(budget_out)} budget(s) outside tolerance")
+    else:
+        verdict = "PASS — gates hold; every budget within tolerance"
+    print(f"\n  VERDICT: {verdict}")
+
+
+# ----------------------------------------------------------------------------
+# Entry point
+# ----------------------------------------------------------------------------
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser()
+    ap = argparse.ArgumentParser(
+        description="Run extraction agents and check gates/budgets against a baseline.")
     ap.add_argument("--only", help="run one case by name")
     ap.add_argument("--validate-only", action="store_true",
                     help="re-check saved outputs without re-running extraction "
                          "(validation is instant; extraction takes minutes)")
+    ap.add_argument("--update-baseline", action="store_true",
+                    help="write the current budget numbers into the baseline file "
+                         "(implies --validate-only; never calls a model)")
+    ap.add_argument("--baseline", default=str(BASELINE_PATH),
+                    help=f"baseline JSON path (default: {BASELINE_PATH.name})")
+    ap.add_argument("--scorecard-root", default="",
+                    help="workspace root for scripts/c4_scorecard.py "
+                         "(default: a case's `scorecard`/`store_root`)")
+    ap.add_argument("--scorecard-scope", default="",
+                    help="scope id for scripts/c4_scorecard.py")
     args = ap.parse_args()
 
+    if args.update_baseline:
+        # Never spend a model call to record numbers: the baseline is measured
+        # from output JSON that extraction has already paid for.
+        args.validate_only = True
+
     cases = [c for c in CASES if not args.only or c["name"] == args.only]
-    results = []
+    if args.only and not cases:
+        print(f"unknown case {args.only!r}; known: {[c['name'] for c in CASES]}",
+              file=sys.stderr)
+        return 2
+
+    problems = _classification_problems(CASES)
+    if problems:
+        print("HARNESS MISCONFIGURED — every invariant must be exactly one of "
+              "gate/budget:", file=sys.stderr)
+        for problem in problems:
+            print(f"  - {problem}", file=sys.stderr)
+        return 2
+
+    unexercised = sorted(_defined_invariants()
+                         - {inv.__name__ for c in CASES for inv in c["invariants"]})
+    if unexercised:
+        print(f"note: invariants classified but used by no case: {unexercised}")
+
+    baseline = load_baseline(Path(args.baseline))
+    baseline_note = ("baseline loaded" if (baseline.get("cases"))
+                     else "no baseline yet — budgets use absolute rules")
+    print(f"baseline: {args.baseline} ({baseline_note})")
+
+    results: List[Dict[str, Any]] = []
+    skipped: List[Dict[str, Any]] = []
+
     for case in cases:
         print(f"\n{'=' * 72}\nCASE {case['name']}  ({case['agent']})\n{'=' * 72}")
         if case.get("input"):
             print(f"  input : {case['input']}")
         if args.validate_only:
-            r = validate_saved(case)
-            if r is None:
-                print("  (no saved output — run without --validate-only first)")
+            result = validate_saved(case, baseline)
+            if result is None:
+                reason = f"no saved output at {case['output']}"
+                print(f"  (no saved output — run without --validate-only first: "
+                      f"{case['output']})")
+                skipped.append({"case": case["name"], "reason": reason})
                 continue
         else:
-            r = run_case(case)
-        results.append(r)
-        print(f"  output: {r['output']}")
-        print(f"  path  : {r['path']}   elapsed: {r['elapsed']:.0f}s")
-        for name, passed, detail in r["checks"]:
-            print(f"    [{'PASS' if passed else 'FAIL'}] {name:<32} {detail}")
+            result = run_case(case, baseline)
+        results.append(result)
+        print(f"  output: {result['output']}")
+        print(f"  path  : {result['path']}   elapsed: {result['elapsed']:.0f}s")
+        _print_checks(result["checks"])
 
-    print(f"\n{'=' * 72}\nSUMMARY\n{'=' * 72}")
-    total = passed_n = 0
-    for r in results:
-        p = sum(1 for _, ok, _ in r["checks"] if ok)
-        t = len(r["checks"])
-        total += t
-        passed_n += p
-        print(f"  {r['case']:<14} {p}/{t} invariants   {r['elapsed']:.0f}s   {r['path']}")
-    print(f"\n  TOTAL: {passed_n}/{total} invariants passed")
-    return 0 if passed_n == total else 1
+    # ---- C4 scorecard: one workspace-level measurement, folded into the report ----
+    print(f"\n{'=' * 72}\nC4 SCORECARD  (companion: scripts/c4_scorecard.py)\n{'=' * 72}")
+    scorecard = run_scorecard(_scorecard_spec(cases, args), baseline)
+    if scorecard.get("skipped"):
+        print(f"  [SKIP] {scorecard['reason']}")
+        skipped.append({"case": "c4", "reason": scorecard["reason"]})
+    else:
+        results.append(scorecard)
+        print(f"  workspace: {scorecard['input']}   elapsed: {scorecard['elapsed']:.1f}s   "
+              f"READY: {'yes' if scorecard['ready'] else 'NO'}")
+        _print_checks(scorecard["checks"])
+
+    if args.update_baseline:
+        written = write_baseline(Path(args.baseline), results)
+        detail = ", ".join(f"{case}={n}" for case, n in sorted(written.items()))
+        print(f"\nbaseline written: {args.baseline}"
+              + (f"  ({detail})" if detail else "  (no budget values observed)"))
+
+    print_summary(results, skipped)
+
+    failed_gates = [c for r in results for c in r["checks"]
+                    if c.kind == "gate" and c.status == "FAIL"]
+    evaluated_gates = [c for r in results for c in r["checks"] if c.kind == "gate"]
+    if not evaluated_gates:
+        return 2          # nothing was checked — not a pass (see print_summary)
+    return 1 if failed_gates else 0
 
 
 if __name__ == "__main__":

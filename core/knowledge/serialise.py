@@ -130,6 +130,9 @@ def pass_record_to_dict(p: PassRecord) -> Dict[str, Any]:
         "elapsed": p.elapsed,
         "error": p.error,
         "triples_produced": p.triples_produced,
+        # Was recorded on the record and dropped on the way to disk, so a saved
+        # run could not say which sampler produced a pass it reported on.
+        "temperature": p.temperature,
     }
 
 
@@ -152,6 +155,10 @@ def run_to_dict(r: ExtractionRun) -> Dict[str, Any]:
         "passes": [pass_record_to_dict(p) for p in r.passes],
         "usage": dict(r.usage or {}),
         "completeness": r.completeness,
+        "output_counts": {str(k): dict(v) for k, v in (r.output_counts or {}).items()},
+        "unconsumed_keys": list(r.unconsumed_keys or []),
+        "stored_facts": int(r.stored_facts or 0),
+        "refusals": [dict(x) for x in (r.refusals or [])],
     }
 
 
@@ -170,6 +177,15 @@ def run_from_dict(data: Dict[str, Any]) -> ExtractionRun:
         passes=[pass_record_from_dict(p) for p in (data.get("passes") or [])],
         usage=dict(data.get("usage") or {}),
         completeness=data.get("completeness") or "UNKNOWN",
+        # Absent in runs written before the accounting existed. Empty is the
+        # honest reading for those: not "nothing was lost", but "not measured".
+        output_counts={
+            str(k): {str(ik): int(iv) for ik, iv in (v or {}).items()}
+            for k, v in (data.get("output_counts") or {}).items()
+        },
+        unconsumed_keys=[str(k) for k in (data.get("unconsumed_keys") or [])],
+        stored_facts=int(data.get("stored_facts") or 0),
+        refusals=[dict(x) for x in (data.get("refusals") or [])],
     )
 
 

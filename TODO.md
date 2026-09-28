@@ -3,7 +3,7 @@
 
 Open work only. Each item is one file under `docs/todos/entries/` — that file is the source of truth and this index is generated from it.
 
-**27 active · 1 parked · 2 superseded · 29 closed records**
+**27 active · 1 parked · 2 superseded · 30 closed records**
 
 | Where | What |
 |---|---|
@@ -37,7 +37,6 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [YB-045](docs/todos/entries/YB-045-ontology-version-provenance.md) | Ontology version is not recorded per run — a graph cannot be attributed to the vocabulary that produced it | open | `core/knowledge/model.py`, `core/knowledge/ingest.py`, `core/ontology.py`, `agents/base_agent.py` |
 | [YB-046](docs/todos/entries/YB-046-branching-and-promotion.md) | Branching and guarded promotion — two architects on one initiative, and the merge between them | open | `core/knowledge/store.py`, `core/knowledge/model.py`, `core/knowledge/review.py`, `core/knowledge/ingest.py` |
 | [YB-051](docs/todos/entries/YB-051-connections-dropped-at-ingest.md) | Connections are extracted and then discarded — the graph has no C4 arrows | in-progress | `core/knowledge/ingest.py` (does not read `connections`), `app/viewpoints/merged.py` (kind registry), tests |
-| [YB-052](docs/todos/entries/YB-052-reflexive-and-duplicate-extraction.md) | Reflexive `part_of` and concepts extracted twice — the two defects the C4 view found | open | `agents/architecture_extraction/` (triples/connections passes), `core/knowledge/ingest.py` (reflexive guard), `core/knowledge/review.py` (bulk-verify guard), tests |
 | [YB-053](docs/todos/entries/YB-053-category-elements-and-duplicate-system.md) | Category elements, one system named twice, and a hub that is really a document gap | open | `agents/architecture_extraction/passes.py` (structure rules), `agents/extraction/validators.py` (a name validator), `core/knowledge/ingest.py` (`_resolve` identity) |
 
 ## Medium
@@ -54,6 +53,7 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [YB-041](docs/todos/entries/YB-041-pattern-catalogue-reach.md) | The architecture pattern catalogue reaches the Design Assistant only — never ARC-G extraction, and no verifier | open | `core/patterns.py`, `agents/architecture_extraction/`, `config/agent_config.py`, `core/knowledge/ingest.py` |
 | [YB-048](docs/todos/entries/YB-048-traversal-index.md) | Traversal index — cache adjacency per scope load, and use networkx for algorithms, not speed | open | `core/knowledge/` (new traversal projection), `app/projections.py`, `core/knowledge/quality.py` |
 | [YB-050](docs/todos/entries/YB-050-artifact-retention-and-quota.md) | Artifact retention and quota — the document store grows without a bound nobody chose | open | `core/artifacts.py`, `app/worker.py` (sweep), `core/workspace.py` |
+| [YB-054](docs/todos/entries/YB-054-unrouted-requirements-output-keys.md) | The requirements profile computes contract violations and low-confidence items that no consumer reads | open | `agents/knowledge_extraction/agent.py` (emits them), `core/knowledge/ingest.py` or the run pipeline (must read them), `app/templates/` (where a reviewer would see them) |
 
 ## Low
 
@@ -90,6 +90,7 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [YB-032](docs/todos/entries/YB-032-multivalued-quality-fields-joined.md) | Multivalued quality fields arrive as one comma-joined string on a single assertion | [ADR-0019-split-joined-enum-values](docs/decisions/ADR-0019-split-joined-enum-values.md) |
 | [YB-035](docs/todos/entries/YB-035-design-assistant.md) | Design Assistant — draft an initial architecture from REQ-G, on request or on an event | [ADR-0017-design-assistant-proposes-arc-g](docs/decisions/ADR-0017-design-assistant-proposes-arc-g.md) |
 | [YB-038](docs/todos/entries/YB-038-techniques-pass-echoes-requirements.md) | The Design Assistant's techniques pass echoes requirements and links no quality attribute | [ADR-0020-techniques-pass-closed-list](docs/decisions/ADR-0020-techniques-pass-closed-list.md) |
+| [YB-052](docs/todos/entries/YB-052-reflexive-and-duplicate-extraction.md) | Reflexive `part_of` and concepts extracted twice — the two defects the C4 view found | [ADR-0030-boundary-refusals-and-output-accounting](docs/decisions/ADR-0030-boundary-refusals-and-output-accounting.md) |
 
 ## Closed work — records
 
@@ -124,5 +125,6 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [ADR-0027](docs/decisions/ADR-0027-async-run-progress.md) | Asynchronous run progress — the execution substrate, and one view over two transports | 2026-09-27 | item — |
 | [ADR-0028](docs/decisions/ADR-0028-no-workspace-migration.md) | No workspace migration — MVP validation starts on a fresh scope | 2026-09-27 | item — |
 | [ADR-0029](docs/decisions/ADR-0029-c4-specification-view.md) | A C4 specification view: text notation first, a rendering second, well-formedness as the point | 2026-09-27 | item 25 |
+| [ADR-0030](docs/decisions/ADR-0030-boundary-refusals-and-output-accounting.md) | Refusals and accounting at the ingest boundary — and a harness that can be wrong out loud | 2026-09-28 | item — |
 
 The index is generated from the entries — do not edit `TODO.md` by hand.

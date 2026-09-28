@@ -14,6 +14,15 @@
 > [YB-051](../todos/entries/YB-051-connections-dropped-at-ingest.md),
 > [YB-052](../todos/entries/YB-052-reflexive-and-duplicate-extraction.md),
 > [YB-053](../todos/entries/YB-053-category-elements-and-duplicate-system.md).
+>
+> **Status 2026-09-28.** The first tranche was taken and recorded in
+> [ADR-0030](../decisions/ADR-0030-boundary-refusals-and-output-accounting.md):
+> §3.1 output-consumption accounting, §3.3 a paid-for run kept on a post-extraction
+> error, §3.4 refusal at the write boundary (closing YB-052 defect 1), §3.13 the
+> harness with gates, budgets and a committed baseline, and YB-053's fixture stating
+> its own request path. The sections below are marked where they landed; the rest of
+> the list is still uncommitted, and the measurement that made the tranche falsifiable
+> now exists.
 
 ---
 
@@ -75,6 +84,10 @@ hypothesis to test.
 1. **[M] Output-consumption accounting.** Every `PassSpec` declares `output_keys`; assert
    that ingest consumes each one, and report "pass emitted N, stored M" per run. Would have
    caught #2 and #3 on the first run. *Cost: small, bounded, one place.*
+   **Landed** (ADR-0030 §2): `INGESTED_OUTPUT_KEYS` + a seam test for the static half, and
+   `run.output_counts` / `unconsumed_keys` / `stored_facts` for the runtime half. It caught
+   [YB-054](../todos/entries/YB-054-unrouted-requirements-output-keys.md) on its first real
+   output.
 2. **[M] Seam tests, one per producer→consumer pair.** #1 was a representation mismatch
    across a seam (`merge_triples` → `repair.py`) that no unit test could see because each
    side was correct in isolation. A test that feeds a producer's **real** output into the
@@ -82,9 +95,15 @@ hypothesis to test.
 3. **[M] Never lose a paid-for run to a post-extraction error.** If the merge throws, store
    what merged and mark the run PARTIAL with the error, rather than failing the job with
    nothing. Extraction is the expensive part and it had already succeeded. *Cost: small.*
+   **Landed** (ADR-0030 §3): merge, repair and validation each under a guard; a failure
+   keeps the facts, adds a `post_extraction_error` finding, and appends a failed
+   `(post-extraction)` pass record so the run's own verdict is PARTIAL.
 4. **[M] Invariants that can refuse, not only flag.** `X part_of X` cannot be true of
    anything, yet three became `VERIFIED` facts. Refusal at the boundary, with the reason
    recorded, is the general form of the reflexive guard. *Cost: small; see YB-052.*
+   **Landed** (ADR-0030 §1): refused in `KnowledgeGraph.add_assertion`, reported on the run,
+   and refused by `verify` singly and in bulk with the reason shown to the reviewer.
+   YB-052 defect 1 is closed; defect 2 moved to YB-053.
 
 ### B. Shape the output rather than asking for it
 
@@ -137,6 +156,11 @@ hypothesis to test.
     session silently broke a previously-working invariant… makes it a command instead of a
     discipline."* Pair it with `scripts/c4_scorecard.py`: invariants as hard gates, quality
     counts as toleranced budgets. **Without this, every other lever here is unfalsifiable.**
+    **Landed** (ADR-0030 §4): `[DRAFT]` removed; every `inv_*` classified as gate or budget
+    in one self-checked table; budgets toleranced against a committed
+    `scripts/extraction_test_baseline.json`; the scorecard folded in as gates (the four
+    defect rules) and budgets (counts, plus the two share rules that legitimately fail on
+    this test case). Exit code separates a broken run from a moved number.
 14. **[M] Calibrate reconciliation instead of choosing it.** `DEFAULT_MATCH_THRESHOLD =
     0.75` is hand-set and documented as "deliberately conservative". With verdicts plus a
     labelled sample, pick the point that maximises precision at an acceptable recall and
@@ -245,9 +269,9 @@ with a clean metric and a real labelled set — which is the point.
 ## 4. If five were chosen, in this order
 
 1. **Output-consumption accounting** (§3.1) — proven silent loss, small cost, no model
-   calls.
+   calls. **Done** (ADR-0030 §2).
 2. **The invariant harness with tolerances** (§3.13) — makes every other lever measurable;
-   without it, prompt tuning cannot be told apart from variance.
+   without it, prompt tuning cannot be told apart from variance. **Done** (ADR-0030 §4).
 3. **The verdict feedback loop** (§3.12) — the only asset here that cannot be copied, and
    it is currently inert.
 4. **Span anchoring plus constrained decoding** (§3.6, §3.5) — moves correctness from
@@ -256,13 +280,18 @@ with a clean metric and a real labelled set — which is the point.
    confronts run-to-run variance head-on rather than on average.
 
 The first two are cheap and would have prevented or exposed five of the nine failures in
-§1 on the day they happened.
+§1 on the day they happened. **Both are now in place** (ADR-0030); item 4's
+"span anchoring plus constrained decoding" is the next one whose cost is not trivial, and
+item 3 remains the one with the longest half-life.
 
 ## 5. Deliberately not yet
 
-- **More prompt tuning before §3.13 exists.** With 27 vs 30 elements of run-to-run
-  variance, a one-run improvement is indistinguishable from noise. Prompt changes made now
-  are unfalsifiable.
+- **More prompt tuning on the strength of the new harness alone.** The blocker is no
+  longer "no harness" — §3.13 exists — but the noise floor has not moved: the baseline is
+  one saved run per case, the corpus is two documents, and §1 measured 27-vs-30 elements
+  on identical input. A prompt change can now be *measured*, which is real progress, but
+  one before/after pair is still a sample of size one. Accumulate runs and review the
+  baseline diff before treating an arrow as a result.
 - **DSPy-class prompt compilation, for the same reason and one more** (§3.G). It needs a
   metric and a dev set of tens of examples; the corpus is two documents and four fixtures.
   Compiling now would fit the noise floor rather than the effect — and if the target is the
@@ -299,10 +328,14 @@ The first two are cheap and would have prevented or exposed five of the nine fai
 
 ```
 scripts/c4_scorecard.py --scope acme_pillar_01      # the C4 readiness measurements in §1
-uv run scripts/run_extraction_tests.py              # the [DRAFT] invariant harness
+.venv/bin/python scripts/run_extraction_tests.py --validate-only   # gates + budgets, offline
+uv run scripts/run_extraction_tests.py              # the same, re-running extraction (costs money)
 data/sea_home_01/pillar01/jobs.sqlite               # job states, errors, timings
 data/sea_home_01/pillar01.sqlite                    # the graph and its run records
 ```
+
+`run_extraction_tests.py --validate-only` is the free, deterministic half: it re-checks
+saved output JSON and never calls a model. `--update-baseline` implies it.
 
 Per-pass outcomes, elapsed time and `triples_produced` are on the `ExtractionRun` record,
 so the numbers in §1 can be re-derived from the store rather than taken on trust.
