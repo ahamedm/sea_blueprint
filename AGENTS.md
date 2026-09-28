@@ -30,6 +30,12 @@ This is a platform shrinked to a tool/app to prove the core idea of leveraging O
 - **Verify against the source before asserting.** A name, a type annotation and a docstring
   are not the body. Several diagnoses in this repo were wrong because the first two were
   read and the third was assumed.
+- **To understand the test suite, read the report, not the run.** `.venv/bin/python
+  scripts/test_report.py --catalog` prints every area, file and test with its intent and
+  description in ~0.1 s and runs nothing; without `--catalog` it also executes the suite
+  and writes `reports/`. A new `tests/test_*.py` must be assigned to an area in
+  `scripts/test_report.py` — `tests/test_test_report.py` fails until it is. See
+  [Reading the tests](docs/testing.md).
 - Use Memory to store Architecture Overview and Critical Decisions
 
 # References
@@ -39,3 +45,4 @@ This is a platform shrinked to a tool/app to prove the core idea of leveraging O
 - [Intended User Journey](docs/user-journey.md)
 - [Notes on Architecture as Living System](docs/living-system-architecture.md)
 - [Review Gate: projection, review and change management](docs/ui-review-workflow.md) **MVP UI — implemented, current state**
+- [Reading the tests](docs/testing.md) **areas, intent and the extraction harness layer**

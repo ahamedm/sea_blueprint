@@ -3,7 +3,7 @@
 
 Open work only. Each item is one file under `docs/todos/entries/` — that file is the source of truth and this index is generated from it.
 
-**27 active · 1 parked · 2 superseded · 30 closed records**
+**27 active · 1 parked · 2 superseded · 31 closed records**
 
 | Where | What |
 |---|---|
@@ -126,5 +126,6 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [ADR-0028](docs/decisions/ADR-0028-no-workspace-migration.md) | No workspace migration — MVP validation starts on a fresh scope | 2026-09-27 | item — |
 | [ADR-0029](docs/decisions/ADR-0029-c4-specification-view.md) | A C4 specification view: text notation first, a rendering second, well-formedness as the point | 2026-09-27 | item 25 |
 | [ADR-0030](docs/decisions/ADR-0030-boundary-refusals-and-output-accounting.md) | Refusals and accounting at the ingest boundary — and a harness that can be wrong out loud | 2026-09-28 | item — |
+| [ADR-0031](docs/decisions/ADR-0031-test-reporting-taxonomy.md) | Test reporting — areas are questions, every test gets a sentence, and the taxonomy is checked | 2026-09-28 | item — |
 
 The index is generated from the entries — do not edit `TODO.md` by hand.

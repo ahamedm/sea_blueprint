@@ -50,6 +50,9 @@ data/
 .coverage
 htmlcov/
 .tox/
+# Generated test reports (scripts/test_report.py). Regenerate rather than review a
+# stale copy: a committed report is a claim about a suite that has since changed.
+reports/
 
 # Jupyter
 .ipynb_checkpoints/
