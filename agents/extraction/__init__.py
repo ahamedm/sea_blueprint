@@ -21,9 +21,14 @@ from .merging import (
     triple_key,
 )
 from .validators import (
+    CONNECTION_FIELD_ENUMS,
+    FIELD_ENUMS,
     Flag,
+    allowed_parent_kinds,
     as_record_dicts,
+    check_connection_endpoints,
     check_containment,
+    check_containment_kinds,
     check_deployment_levels,
     check_element_types,
     check_enum_membership,
@@ -33,6 +38,8 @@ from .validators import (
     check_schema_consistency,
     ontology_classes,
     ontology_enum,
+    ontology_slot_range,
+    ontology_subclasses,
 )
 
 __all__ = [
@@ -43,4 +50,7 @@ __all__ = [
     "check_deployment_levels", "check_enum_membership", "check_expected_present",
     "check_nonempty_field", "check_schema_consistency",
     "ontology_enum", "ontology_classes", "as_record_dicts",
+    "check_containment_kinds", "check_connection_endpoints",
+    "allowed_parent_kinds", "ontology_slot_range", "ontology_subclasses",
+    "FIELD_ENUMS", "CONNECTION_FIELD_ENUMS",
 ]

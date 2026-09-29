@@ -460,7 +460,7 @@ def graph_from_extraction(
             graph.add_assertion(nid, "description", value=e["description"],
                                 confidence=1.0, provenance=p, scope=scope, initiative_id=init_id)
         for attr in ("element_type", "c4_level", "system_class", "origin",
-                     "deployment_model"):
+                     "deployment_model", "container_type"):
             if e.get(attr):
                 graph.add_assertion(nid, attr, value=str(e[attr]),
                                     confidence=1.0, provenance=p, scope=scope, initiative_id=init_id)
@@ -533,6 +533,17 @@ def graph_from_extraction(
                                 confidence=1.0, provenance=p, scope=scope, initiative_id=init_id)
         if c.get("description"):
             graph.add_assertion(cid, "description_text", value=str(c["description"]),
+                                confidence=1.0, provenance=p, scope=scope, initiative_id=init_id)
+        # Declared on `Connection` in the ontology and reachable from nowhere: the
+        # pass schema did not ask, so the graph could not answer "which links carry
+        # regulated data?" — the PCI-scope question the payment domain exists to ask.
+        # Emitted only when true, so an unstated link is silent rather than asserting
+        # a false negative the document never made.
+        if c.get("carries_sensitive_data"):
+            graph.add_assertion(cid, "carries_sensitive_data", value="true",
+                                confidence=1.0, provenance=p, scope=scope, initiative_id=init_id)
+        if c.get("failure_handling"):
+            graph.add_assertion(cid, "failure_handling", value=str(c["failure_handling"]),
                                 confidence=1.0, provenance=p, scope=scope, initiative_id=init_id)
 
     # ---- technology / style usage ----

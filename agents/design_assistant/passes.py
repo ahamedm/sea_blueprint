@@ -80,7 +80,11 @@ Rules:
 7. Name concepts; never emit a sentence as an element name. Emit nothing you cannot
    justify from Input 1 — an element answering no requirement is a finding, not a
    contribution. The traceability pass records which requirement each element
-   answers; your job here is the elements themselves.""",
+   answers; your job here is the elements themselves.
+8. Set `container_type` on every Container and DataStore — the KIND of running thing
+   it is (API_SERVICE, WORKER, BATCH_JOB, DATABASE, CACHE, MESSAGE_BROKER, GATEWAY,
+   WEB_APPLICATION, UI_COMPONENT, FILE_STORE, SCHEDULER). The ontology marks it
+   required, so a Container without one classifies as nothing.""",
 )
 
 
@@ -106,7 +110,12 @@ Rules:
 3. Emit both the `connections` record and the matching
    `<source> --connects_to--> <target>` triple.
 4. Use only the listed protocol and style values. Leave a field empty rather than
-   inventing a term.""",
+   inventing a term.
+5. Set `carries_sensitive_data` where regulated or sensitive data crosses the link
+   (cardholder data, credentials, personal data) and `failure_handling` where the
+   design depends on one ("retry x3 then DLQ", "circuit breaker"). A design that
+   sends cardholder data over a link without saying so is a gap a reviewer cannot
+   see.""",
 )
 
 

@@ -52,6 +52,8 @@
 | — | No workspace migration — MVP validation starts on a fresh scope | [ADR-0028](../decisions/ADR-0028-no-workspace-migration.md) | record |
 | — | Refusals and accounting at the ingest boundary — and a harness that can be wrong out loud | [ADR-0030](../decisions/ADR-0030-boundary-refusals-and-output-accounting.md) | record |
 | — | Test reporting — areas are questions, every test gets a sentence, and the taxonomy is checked | [ADR-0031](../decisions/ADR-0031-test-reporting-taxonomy.md) | record |
+| — | Aspect guards — a required slot nobody produced, containment by kind, and a backstop for the connections rule | [ADR-0032](../decisions/ADR-0032-aspect-guards-container-component-integration.md) | record |
+| — | Edge labels on demand — the map stops drawing 285 pieces of text at once | [ADR-0033](../decisions/ADR-0033-map-edge-labels-on-demand.md) | record |
 | None | Semantic reference matching — bridge the paraphrase the deterministic scorer cannot | [YB-027](entries/YB-027-semantic-reference-matching.md) | entry (open) |
 | None | Remove a fact the extractor invented — and stop a dispute withholding the audit | [YB-028](entries/YB-028-remove-extracted-facts.md) | entry (done) |
 | None | Quality-attribute views for the map — the architect's primary focus has no view of its own | [YB-029](entries/YB-029-quality-attribute-views.md) | entry (done) |
@@ -78,3 +80,5 @@
 | None | Reflexive `part_of` and concepts extracted twice — the two defects the C4 view found | [YB-052](entries/YB-052-reflexive-and-duplicate-extraction.md) | entry (done) |
 | None | Category elements, one system named twice, and a hub that is really a document gap | [YB-053](entries/YB-053-category-elements-and-duplicate-system.md) | entry (open) |
 | None | The requirements profile computes contract violations and low-confidence items that no consumer reads | [YB-054](entries/YB-054-unrouted-requirements-output-keys.md) | entry (open) |
+| None | Domain data elements and their exchanges — the architecture aspect with no model | [YB-055](entries/YB-055-data-element-design.md) | entry (open) |
+| None | A second representation for the knowledge map — hierarchy over force, and real filtering | [YB-056](entries/YB-056-map-representation-modes.md) | entry (open) |

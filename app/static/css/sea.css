@@ -437,8 +437,38 @@ details.card > .card-body { padding: 14px 20px 18px; }
 }
 .node circle { stroke: #fff; stroke-width: 2px; cursor: pointer; }
 .node text { font-size: 11px; fill: var(--text); pointer-events: none; }
-.link line { stroke: #94a3b8; stroke-width: 1.2px; }
-.link text { font-size: 9.5px; fill: var(--text-faint); }
+/* No `stroke` here on purpose: a CSS declaration beats the SVG presentation
+   attribute the script sets, so naming a colour in this rule silently flattened
+   the distinction between a held link and an open reference — both drew #94a3b8.
+   The colour belongs to the script; this owns the width. */
+.link line { stroke-width: 1.2px; pointer-events: none; }
+
+/* EDGE LABELS ARE OFF BY DEFAULT. Every link used to carry a label at its
+   midpoint, so a graph of any size drew a wall of overlapping text across the
+   nodes it was meant to explain — the picture got less readable the more there
+   was to read. A label now appears on demand: hover the edge, hover either
+   endpoint, or turn all of them on with the Labels control. */
+.link-hit line { stroke: transparent; stroke-width: 16px; pointer-events: stroke; cursor: pointer; }
+.link-text text {
+  font-size: 9.5px;
+  fill: var(--text);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .12s ease;
+  /* A halo, so a label that lands on top of other edges still reads. */
+  paint-order: stroke;
+  stroke: #fff;
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+.link-text text.is-on { opacity: 1; }
+.link line.is-hot { stroke: #0f172a; stroke-width: 2.6px; }
+.node.is-hot circle { stroke: #0f172a; stroke-width: 3px; }
+
+/* Hovering a node dims everything that is not it or a neighbour. On a dense
+   graph this is what makes one node's neighbourhood legible without filtering —
+   the alternative is clicking through a filter and losing the context. */
+.node.is-dim { opacity: .18; }
 .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; font-size: 12px; color: var(--text-dim); }
 .legend .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; }
 

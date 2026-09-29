@@ -40,10 +40,13 @@ from core.patterns import (
 from ..architecture_extraction.agent import ArchitectureExtractionAgent
 from ..base_agent import AgentResult
 from ..extraction import (
+    check_connection_endpoints,
     check_containment,
+    check_containment_kinds,
     check_deployment_levels,
     check_element_types,
     check_enum_membership,
+    check_nonempty_field,
     check_object_contract,
     completeness,
     connection_key,
@@ -184,9 +187,21 @@ class DesignAssistantAgent(ArchitectureExtractionAgent):
             flags = []
             flags += check_object_contract(triples)
             flags += check_containment(elements, triples)
+            # No repair runs in this profile, so nothing is excluded as inferred.
+            flags += check_containment_kinds(elements)
             flags += check_element_types(elements)
             flags += check_deployment_levels(elements)
             flags += check_enum_membership(elements)
+            flags += check_nonempty_field(elements, "container_type",
+                                          applies_to=("Container", "DataStore"))
+            # `known_labels` is the existing graph, and it is load-bearing here: this
+            # profile is told to REUSE an existing element by its exact name rather
+            # than re-propose it (structure rule 3), so an endpoint that Input 2
+            # declares legitimately appears in no proposed element record. Without
+            # the graph, every reused endpoint would be reported as undeclared.
+            flags += check_connection_endpoints(
+                connections, elements, known_labels=list(self._existing_kinds(graph))
+            )
             flags += check_grounded_elements(elements, references)
             flags += check_scenario_shape(scenarios)
             flags += check_pattern_resolution(patterns, catalogue)

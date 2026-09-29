@@ -18,6 +18,7 @@ and reports drift. Run it in the test harness so a schema/ontology mismatch fail
 loudly rather than being discovered in production output.
 """
 
+import typing
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -69,6 +70,76 @@ def ontology_classes() -> frozenset:
     for doc in _load_ontology_docs().values():
         values.update((doc.get("classes") or {}).keys())
     return frozenset(values)
+
+
+@lru_cache(maxsize=None)
+def _ontology_class_map() -> Dict[str, Dict[str, Any]]:
+    """class name -> its spec, merged across every ontology layer."""
+    out: Dict[str, Dict[str, Any]] = {}
+    for doc in _load_ontology_docs().values():
+        for name, spec in (doc.get("classes") or {}).items():
+            if isinstance(spec, dict):
+                out.setdefault(name, spec)
+    return out
+
+
+def _parents_of(spec: Dict[str, Any]) -> List[str]:
+    """`is_a` as a list, whether the ontology writes one parent or several."""
+    raw = spec.get("is_a")
+    if not raw:
+        return []
+    if isinstance(raw, str):
+        return [raw]
+    return [str(x) for x in raw if x]
+
+
+@lru_cache(maxsize=None)
+def ontology_slot_range(class_name: str, slot_name: str) -> str:
+    """The declared `range` of `slot_name` on `class_name`, or "" when undeclared.
+
+    Walks the `is_a` chain because the slot is usually INHERITED: a `DataStore`
+    declares no `parent_system` of its own, it has `Container`'s. Reading only the
+    named class would report the rule as absent and silently disable the check
+    that depends on it.
+    """
+    seen: set = set()
+    frontier = [class_name]
+    while frontier:
+        current = frontier.pop(0)
+        if not current or current in seen:
+            continue
+        seen.add(current)
+        spec = _ontology_class_map().get(current) or {}
+        attr = (spec.get("attributes") or {}).get(slot_name)
+        if isinstance(attr, dict) and attr.get("range"):
+            return str(attr["range"])
+        frontier.extend(_parents_of(spec))
+    return ""
+
+
+@lru_cache(maxsize=None)
+def ontology_subclasses(class_name: str) -> frozenset:
+    """`class_name` plus every class that transitively `is_a` it.
+
+    Needed because a range names the PARENT class and a graph carries the concrete
+    one: `Component.belongs_to_container` ranges over `Container`, and a `DataStore`
+    is a Container, so a Component inside a DataStore is legitimate while a set
+    built from the range alone would call it a violation.
+    """
+    out = {class_name}
+    for name, spec in _ontology_class_map().items():
+        seen: set = set()
+        frontier = _parents_of(spec)
+        while frontier:
+            parent = frontier.pop(0)
+            if not parent or parent in seen:
+                continue
+            if parent == class_name:
+                out.add(name)
+                break
+            seen.add(parent)
+            frontier.extend(_parents_of(_ontology_class_map().get(parent) or {}))
+    return frozenset(out)
 
 
 # ----------------------------------------------------------------------------
@@ -156,6 +227,93 @@ def check_object_contract(triples: Sequence[Any]) -> List[Flag]:
 
 _CONTAINED_TYPES = frozenset({"Container", "DataStore", "Component", "CodeElement"})
 
+# Element type -> the ontology slot that names its parent. The RANGE is deliberately
+# NOT written here: it is read from the ontology by `allowed_parent_kinds`, so a
+# changed range cannot leave this table asserting a rule the ontology no longer
+# states — the "green but wrong" divergence this module's docstring warns about.
+# What IS local is the slot↔type pairing, because the extraction record carries a
+# single `parent` field where the ontology has four differently-named slots.
+_CONTAINMENT_PARENT_SLOT: Dict[str, str] = {
+    "Container": "parent_system",
+    "DataStore": "parent_system",
+    "Component": "belongs_to_container",
+    "CodeElement": "belongs_to_component",
+}
+
+
+@lru_cache(maxsize=None)
+def allowed_parent_kinds(element_type: str) -> frozenset:
+    """Element types the ontology permits as the container of `element_type`.
+
+    The declared range plus its subclasses. Empty when the ontology states no slot
+    or range for the type, which callers read as "no rule to check" rather than as
+    "no parent allowed".
+    """
+    slot = _CONTAINMENT_PARENT_SLOT.get(element_type)
+    if not slot:
+        return frozenset()
+    declared = ontology_slot_range(element_type, slot)
+    if not declared:
+        return frozenset()
+    return ontology_subclasses(declared)
+
+
+def check_containment_kinds(
+    elements: Sequence[Any],
+    inferred_parents: Sequence[str] = (),
+) -> List[Flag]:
+    """A contained element's parent must be the KIND of thing the ontology allows.
+
+    `check_containment` proves a parent EXISTS and that a `part_of` edge backs the
+    declaration. It does not prove the parent is the right LEVEL, so a Component
+    attached to a SoftwareSystem passed every check while the ontology says
+    `Component.belongs_to_container` ranges over `Container`. The result is a graph
+    that reports a C4 hierarchy and is in fact flat: the component sits at context
+    level, and every C4 reduction then has to guess which level it belongs to.
+
+    `inferred_parents` names elements whose parent was ATTACHED by
+    `repair_containment` rather than stated by the document. They are excluded
+    because the repair already reports each one as `containment_repaired` — the
+    same underlying cause counted twice is the double-reporting the C4 scorecard
+    was already caught doing (three false positives on a complete run), and it
+    makes a document gap look like two defects.
+    """
+    docs = [e for e in as_record_dicts(elements) if e.get("element_type")]
+    if not docs:
+        return []
+
+    kinds = {
+        str(e.get("name") or "").strip(): str(e.get("element_type") or "").strip()
+        for e in docs
+    }
+    skip = {str(n).strip() for n in inferred_parents}
+
+    flags: List[Flag] = []
+    for e in docs:
+        name = str(e.get("name") or "").strip()
+        etype = str(e.get("element_type") or "").strip()
+        parent = str(e.get("parent") or "").strip()
+
+        if not (name and parent) or name in skip:
+            continue
+        allowed = allowed_parent_kinds(etype)
+        # No ontology rule, or a parent this run never declared: the second is
+        # `check_containment`'s finding, and reporting it twice would inflate the
+        # count of a defect that is already visible.
+        if not allowed or parent not in kinds:
+            continue
+
+        parent_kind = kinds[parent]
+        if parent_kind not in allowed:
+            flags.append(Flag(
+                "containment_kind", name,
+                [f"{etype} is contained by a {parent_kind} ({parent!r}); the ontology "
+                 f"allows {'/'.join(sorted(allowed))} here — the element would sit at "
+                 f"the wrong C4 level"],
+                "part_of", parent,
+            ))
+    return flags
+
 
 def check_containment(elements: Sequence[Any], triples: Sequence[Any]) -> List[Flag]:
     """C4 is a hierarchy; without containment the graph is a flat bag of nodes.
@@ -241,6 +399,10 @@ def check_enum_membership(elements: Sequence[Any]) -> List[Flag]:
         ("origin", "SoftwareOrigin"),
         ("deployment_model", "SoftwareDeploymentModel"),
         ("c4_level", "C4Level"),
+        # `container_type` is `required: true` on Container, so a value outside
+        # ContainerType is worse than an absent one: it classifies the container as
+        # something the ontology cannot name.
+        ("container_type", "ContainerType"),
     )
     flags: List[Flag] = []
     for e in as_record_dicts(elements):
@@ -254,6 +416,70 @@ def check_enum_membership(elements: Sequence[Any]) -> List[Flag]:
                 reasons.append(f"{fieldname}={value!r} not in {enum_name}")
         if reasons:
             flags.append(Flag("enum_membership", str(e.get("name") or ""), reasons))
+    return flags
+
+
+# ----------------------------------------------------------------------------
+# Connections — integration mechanisms
+# ----------------------------------------------------------------------------
+
+
+def check_connection_endpoints(
+    connections: Sequence[Any],
+    elements: Sequence[Any] = (),
+    known_labels: Sequence[str] = (),
+) -> List[Flag]:
+    """Both ends of a connection must be things something actually declares.
+
+    The connections prompt already states this in the strongest terms it has — both
+    endpoints must be a named element, and a style, quality attribute, technique,
+    category word or group of things "cannot be drawn" — but until now that rule had
+    NO deterministic backstop. An off-list endpoint became a placeholder node through
+    `_resolve` and surfaced only as a dangling edge in the C4 view, which is
+    downstream of ingest and was itself measured producing three false positives on a
+    complete run. A prompt rule with no check is the situation §3.B of the reliability
+    brainstorm exists to end: shape the output, do not ask for it.
+
+    `known_labels` is what a profile that HAS the graph passes in, and the Design
+    Assistant is the reason it exists: it is told to REUSE an existing element by
+    name rather than re-propose it, so a reused endpoint appears in no proposed
+    element record, and flagging it would punish the behaviour the prompt asks for.
+    An EXTRACTION run has no graph to consult — its input is a document — so it
+    passes nothing, and a connection to an element that only an earlier run declared
+    is reported. That is the honest reading: the document connected two things it
+    never introduced, which is what a reviewer needs to see, and it is the same gap
+    `_resolve` already makes visible as an unresolved reference.
+    """
+    declared = {
+        str(e.get("name") or "").strip().lower()
+        for e in as_record_dicts(elements)
+        if str(e.get("name") or "").strip()
+    }
+    declared |= {str(n).strip().lower() for n in known_labels if str(n).strip()}
+    # Nothing to judge against: an empty declaration set would flag every endpoint
+    # of every connection, which is a measurement of this run rather than of the
+    # graph. Same posture as `check_element_types` when the ontology is unavailable.
+    if not declared:
+        return []
+
+    flags: List[Flag] = []
+    for c in as_record_dicts(connections):
+        reasons: List[str] = []
+        for fieldname in ("source", "target"):
+            value = str(c.get(fieldname) or "").strip()
+            if not value:
+                reasons.append(f"{fieldname} is empty — a connection needs two ends")
+            elif value.lower() not in declared:
+                reasons.append(
+                    f"{fieldname} {value!r} is not an element this run declared, and no "
+                    f"known element carries that name"
+                )
+        if reasons:
+            flags.append(Flag(
+                "connection_endpoint",
+                f"{c.get('source') or '?'} → {c.get('target') or '?'}",
+                reasons, "connects_to", str(c.get("target") or ""),
+            ))
     return flags
 
 
@@ -300,23 +526,47 @@ def check_nonempty_field(elements: Sequence[Any], fieldname: str,
 # Schema / ontology consistency
 # ----------------------------------------------------------------------------
 
-def check_schema_consistency(schema: type) -> List[Flag]:
+# Literal-valued fields to hold against the ontology, per schema. The pairing is
+# local because a field name is the extraction record's choice, not the ontology's;
+# the VOCABULARY is always the ontology's. `element_type` names an enum the
+# architecture layer does not define (element types are CLASSES there), so its
+# lookup returns nothing and the check simply skips it — see `check_element_types`
+# for the check that does cover it.
+FIELD_ENUMS: Dict[str, str] = {
+    "element_type": "C4ElementType",
+    "system_class": "SoftwareSystemClass",
+    "origin": "SoftwareOrigin",
+    "deployment_model": "SoftwareDeploymentModel",
+}
+
+# The connection schema's own vocabularies. Separate because they live on
+# `ConnectionRecord`, and both were consumed by no Python at all before this.
+CONNECTION_FIELD_ENUMS: Dict[str, str] = {
+    "style": "IntegrationStyle",
+    "protocol": "IntegrationProtocol",
+}
+
+def check_schema_consistency(
+    schema: type,
+    field_enums: Optional[Dict[str, str]] = None,
+) -> List[Flag]:
     """Compare an extraction schema's Literal fields against the ontology.
 
     Prevents the drift described in the module docstring: a schema constraint
     and a validator rule that were once the same fact but have diverged.
-    """
-    import typing
 
-    FIELD_ENUMS = {
-        "element_type": "C4ElementType",
-        "system_class": "SoftwareSystemClass",
-        "origin": "SoftwareOrigin",
-        "deployment_model": "SoftwareDeploymentModel",
-    }
+    `field_enums` defaults to the element vocabulary. The connection vocabularies
+    are passed in explicitly because they live on a different schema, and
+    `IntegrationStyle` / `IntegrationProtocol` were the pair the default missed
+    entirely: both are `Literal`s hand-copied from an ontology enum that no Python
+    read, so editing either enum would have left the schema asserting the old
+    vocabulary with nothing to notice.
+    """
+    if field_enums is None:
+        field_enums = FIELD_ENUMS
 
     flags: List[Flag] = []
-    for fieldname, enum_name in FIELD_ENUMS.items():
+    for fieldname, enum_name in field_enums.items():
         field = getattr(schema, "model_fields", {}).get(fieldname)
         if field is None:
             continue

@@ -173,6 +173,7 @@ AREAS: Tuple[Area, ...] = (
         ),
         files=(
             "test_containment_repair",
+            "test_aspect_guards",
             "test_quality_classifier",
             "test_generation_bounds",
             "test_hosted_endpoint",

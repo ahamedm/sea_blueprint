@@ -37,10 +37,13 @@ from ..extraction import (
     merge_triples,
     named_key,
     summarise_chunks,
+    check_connection_endpoints,
     check_containment,
+    check_containment_kinds,
     check_deployment_levels,
     check_element_types,
     check_enum_membership,
+    check_nonempty_field,
     check_object_contract,
 )
 from ..extraction.passes import collect, outcome_records, run_passes, summarise
@@ -253,9 +256,19 @@ class ArchitectureExtractionAgent(KnowledgeExtractionAgent):
                 flags = list(stage_flags)
                 flags += check_object_contract(triples)
                 flags += check_containment(elements, triples)
+                # Parents ATTACHED by `repair_containment` above are excluded: the
+                # repair already reports each as `containment_repaired`, and one
+                # document gap counted as two defects is how a report overstates the
+                # damage (the C4 scorecard was caught doing exactly that).
+                inferred = [f.subject for f in stage_flags
+                            if getattr(f, "kind", "") == "containment_repaired"]
+                flags += check_containment_kinds(elements, inferred_parents=inferred)
                 flags += check_element_types(elements)
                 flags += check_deployment_levels(elements)
                 flags += check_enum_membership(elements)
+                flags += check_nonempty_field(elements, "container_type",
+                                              applies_to=("Container", "DataStore"))
+                flags += check_connection_endpoints(connections, elements)
                 flags += style_as_element(elements)
                 flag_dicts = [f.to_dict() for f in flags]
             except Exception as exc:                                 # noqa: BLE001

@@ -3,7 +3,7 @@
 
 Open work only. Each item is one file under `docs/todos/entries/` — that file is the source of truth and this index is generated from it.
 
-**27 active · 1 parked · 2 superseded · 31 closed records**
+**29 active · 1 parked · 2 superseded · 33 closed records**
 
 | Where | What |
 |---|---|
@@ -38,6 +38,7 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [YB-046](docs/todos/entries/YB-046-branching-and-promotion.md) | Branching and guarded promotion — two architects on one initiative, and the merge between them | open | `core/knowledge/store.py`, `core/knowledge/model.py`, `core/knowledge/review.py`, `core/knowledge/ingest.py` |
 | [YB-051](docs/todos/entries/YB-051-connections-dropped-at-ingest.md) | Connections are extracted and then discarded — the graph has no C4 arrows | in-progress | `core/knowledge/ingest.py` (does not read `connections`), `app/viewpoints/merged.py` (kind registry), tests |
 | [YB-053](docs/todos/entries/YB-053-category-elements-and-duplicate-system.md) | Category elements, one system named twice, and a hub that is really a document gap | open | `agents/architecture_extraction/passes.py` (structure rules), `agents/extraction/validators.py` (a name validator), `core/knowledge/ingest.py` (`_resolve` identity) |
+| [YB-055](docs/todos/entries/YB-055-data-element-design.md) | Domain data elements and their exchanges — the architecture aspect with no model | open | `ontology/architecture_base.yaml` (a `DataElement`/`DataExchange` class), `agents/*/passes.py` (a pass or rules), `agents/extraction/validators.py` (guards), `core/knowledge/ingest.py` (the seam) |
 
 ## Medium
 
@@ -54,6 +55,7 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [YB-048](docs/todos/entries/YB-048-traversal-index.md) | Traversal index — cache adjacency per scope load, and use networkx for algorithms, not speed | open | `core/knowledge/` (new traversal projection), `app/projections.py`, `core/knowledge/quality.py` |
 | [YB-050](docs/todos/entries/YB-050-artifact-retention-and-quota.md) | Artifact retention and quota — the document store grows without a bound nobody chose | open | `core/artifacts.py`, `app/worker.py` (sweep), `core/workspace.py` |
 | [YB-054](docs/todos/entries/YB-054-unrouted-requirements-output-keys.md) | The requirements profile computes contract violations and low-confidence items that no consumer reads | open | `agents/knowledge_extraction/agent.py` (emits them), `core/knowledge/ingest.py` or the run pipeline (must read them), `app/templates/` (where a reviewer would see them) |
+| [YB-056](docs/todos/entries/YB-056-map-representation-modes.md) | A second representation for the knowledge map — hierarchy over force, and real filtering | open | `app/templates/map.html`, `app/viewpoints/merged.py` (the projection a layout reads), `app/static/js/` (a layout module), `app/__init__.py` (a `/?mode=` route parameter), `app/static/css/sea.css` |
 
 ## Low
 
@@ -127,5 +129,7 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [ADR-0029](docs/decisions/ADR-0029-c4-specification-view.md) | A C4 specification view: text notation first, a rendering second, well-formedness as the point | 2026-09-27 | item 25 |
 | [ADR-0030](docs/decisions/ADR-0030-boundary-refusals-and-output-accounting.md) | Refusals and accounting at the ingest boundary — and a harness that can be wrong out loud | 2026-09-28 | item — |
 | [ADR-0031](docs/decisions/ADR-0031-test-reporting-taxonomy.md) | Test reporting — areas are questions, every test gets a sentence, and the taxonomy is checked | 2026-09-28 | item — |
+| [ADR-0032](docs/decisions/ADR-0032-aspect-guards-container-component-integration.md) | Aspect guards — a required slot nobody produced, containment by kind, and a backstop for the connections rule | 2026-09-28 | item — |
+| [ADR-0033](docs/decisions/ADR-0033-map-edge-labels-on-demand.md) | Edge labels on demand — the map stops drawing 285 pieces of text at once | 2026-09-28 | item — |
 
 The index is generated from the entries — do not edit `TODO.md` by hand.

@@ -36,3 +36,5 @@ Closed work from the TODO. Each record preserves its original write-up verbatim;
 | [ADR-0029](ADR-0029-c4-specification-view.md) | A C4 specification view: text notation first, a rendering second, well-formedness as the point | 2026-09-27 | 25 |
 | [ADR-0030](ADR-0030-boundary-refusals-and-output-accounting.md) | Refusals and accounting at the ingest boundary — and a harness that can be wrong out loud | 2026-09-28 | — |
 | [ADR-0031](ADR-0031-test-reporting-taxonomy.md) | Test reporting — areas are questions, every test gets a sentence, and the taxonomy is checked | 2026-09-28 | — |
+| [ADR-0032](ADR-0032-aspect-guards-container-component-integration.md) | Aspect guards — a required slot nobody produced, containment by kind, and a backstop for the connections rule | 2026-09-28 | — |
+| [ADR-0033](ADR-0033-map-edge-labels-on-demand.md) | Edge labels on demand — the map stops drawing 285 pieces of text at once | 2026-09-28 | — |

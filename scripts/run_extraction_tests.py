@@ -262,10 +262,17 @@ def inv_schema_ontology_consistency(res, out):
 
     Both read from the ontology; this catches the case where one was edited and
     the other was not — validators then check rules the schema no longer states.
+
+    The CONNECTION vocabularies are checked here too. `IntegrationStyle` and
+    `IntegrationProtocol` are `Literal`s hand-copied from ontology enums that no
+    Python read at all, so they were the pair most able to drift unnoticed: editing
+    either enum would have left the pass schema asserting the old vocabulary, with
+    no failing test and no run reporting anything.
     """
-    from agents.extraction import check_schema_consistency
-    from agents.architecture_extraction.passes import ElementRecord
+    from agents.extraction import CONNECTION_FIELD_ENUMS, check_schema_consistency
+    from agents.architecture_extraction.passes import ConnectionRecord, ElementRecord
     flags = check_schema_consistency(ElementRecord)
+    flags += check_schema_consistency(ConnectionRecord, CONNECTION_FIELD_ENUMS)
     return _ok(not flags,
                f"{len(flags)} schema/ontology drift findings"
                + (f": {[f.subject for f in flags]}" if flags else " — in sync"))

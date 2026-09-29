@@ -112,6 +112,8 @@
     <div class="card-head">
       <h2>{{ view.lens_label }}</h2>
       <div class="row">
+        <button type="button" class="btn btn-sm" id="graph-labels" aria-pressed="false"
+                title="Show every edge label, or only the one under the pointer">Labels: hover</button>
         <button type="button" class="btn btn-sm" id="graph-relayout" title="Restart the force layout, releasing dragged nodes">Re-layout</button>
         <button type="button" class="btn btn-sm" id="graph-full" title="Draw the graph on the whole screen">Fullscreen</button>
       </div>
@@ -131,6 +133,12 @@
     <p class="hint graph-footnote">
       Drag the bar under the graph to resize it; the height is remembered. Drag a
       node to pin it; <em>Re-layout</em> releases it.
+    </p>
+    <p class="hint graph-footnote">
+      Edge labels are drawn on demand rather than all at once, because a label on
+      every link buries the nodes it describes: <strong>hover an edge or a node</strong>
+      to see the label and light up that neighbourhood, <strong>click an edge</strong> to
+      pin its label, or <em>Labels</em> to show every one. The choice is remembered.
     </p>
     {% if view.excluded_kinds %}
       <p class="hint graph-footnote">
@@ -268,17 +276,83 @@
         window.addEventListener('resize', resize);
       }
 
+      // -- edge labels, revealed on demand ----------------------------------
+      //
+      // Every link used to carry its label at the midpoint, so a graph of any size
+      // drew a wall of text across the nodes it was meant to explain: the picture
+      // got less readable the more there was to read. A label is now revealed by
+      // the pointer — hover the edge, hover either endpoint, click to pin it, or
+      // turn them all on with the Labels control.
+      //
+      // Ids are resolved through `byId` rather than read off `d.source`: `forceLink`
+      // swaps those strings for node objects only when the simulation initialises,
+      // and the pointer can arrive before it has.
+      var byId = {};
+      nodes.forEach(function (n) { byId[n.id] = n; });
+
+      // Adjacency, so dimming is a lookup rather than a scan per node per frame.
+      var neighbours = {};
+      nodes.forEach(function (n) { neighbours[n.id] = {}; neighbours[n.id][n.id] = true; });
+      links.forEach(function (l) {
+        var s = typeof l.source === 'object' ? l.source.id : l.source;
+        var t = typeof l.target === 'object' ? l.target.id : l.target;
+        if (neighbours[s]) { neighbours[s][t] = true; }
+        if (neighbours[t]) { neighbours[t][s] = true; }
+      });
+
+      var showAllLabels = false;
+      var hoveredLink = null, pinnedLink = null, hoveredNode = null;
+
+      function endIds(d) {
+        if (!d) { return null; }
+        return {
+          s: typeof d.source === 'object' ? d.source.id : d.source,
+          t: typeof d.target === 'object' ? d.target.id : d.target
+        };
+      }
+      function focusLink() { return pinnedLink || hoveredLink; }
+      function touchesHoveredNode(d) {
+        if (!hoveredNode) { return false; }
+        var e = endIds(d);
+        return e.s === hoveredNode.id || e.t === hoveredNode.id;
+      }
+      function isLive(d) { return d === focusLink() || touchesHoveredNode(d); }
+
+      function refresh() {
+        var ends = endIds(focusLink());
+        link.classed('is-hot', function (d) { return isLive(d); });
+        linkText.classed('is-on', function (d) { return showAllLabels || isLive(d); });
+        node.classed('is-hot', function (n) {
+          return !!ends && (n.id === ends.s || n.id === ends.t);
+        });
+        node.classed('is-dim', function (n) {
+          if (!hoveredNode) { return false; }
+          return !(neighbours[hoveredNode.id] || {})[n.id];
+        });
+      }
+
       var link = svg.append('g').attr('class', 'link')
         .selectAll('line').data(links).join('line')
         .attr('stroke-dasharray', function (d) { return d.reference ? '5,4' : null; })
         .attr('stroke', function (d) { return d.reference ? '#94a3b8' : '#cbd5e1'; });
 
-      var linkText = svg.append('g')
+      var linkText = svg.append('g').attr('class', 'link-text')
         .selectAll('text').data(links).join('text')
         .attr('text-anchor', 'middle')
-        .attr('font-size', 9.5)
-        .attr('fill', '#94a3b8')
         .text(function (d) { return d.label; });
+
+      // A 1.2px line is not a pointer target, so the hit area is a transparent
+      // 16px line on top of it. It sits above the labels and below the nodes, so
+      // it never steals a drag from a node.
+      var linkHit = svg.append('g').attr('class', 'link-hit')
+        .selectAll('line').data(links).join('line')
+        .on('pointerenter', function (event, d) { hoveredLink = d; refresh(); })
+        .on('pointerleave', function () { hoveredLink = null; refresh(); })
+        .on('click', function (event, d) {
+          event.stopPropagation();
+          pinnedLink = (pinnedLink === d) ? null : d;
+          refresh();
+        });
 
       var node = svg.append('g').attr('class', 'node')
         .selectAll('g').data(nodes).join('g')
@@ -291,7 +365,9 @@
           .on('end', function (event, d) {
             if (!event.active) { sim.alphaTarget(0); }
             d.fx = null; d.fy = null;
-          }));
+          }))
+        .on('pointerenter', function (event, d) { hoveredNode = d; refresh(); })
+        .on('pointerleave', function () { hoveredNode = null; refresh(); });
 
       node.append('circle')
         .attr('r', function (d) { return 9 + Math.min(11, (d.external_refs || []).length * 3); })
@@ -308,11 +384,16 @@
         .attr('fill', function (d) { return d.placeholder ? '#94a3b8' : '#0f172a'; })
         .text(function (d) { return d.label.length > 30 ? d.label.slice(0, 29) + '…' : d.label; });
 
+      function position(sel) {
+        sel.attr('x1', function (d) { return d.source.x; })
+           .attr('y1', function (d) { return d.source.y; })
+           .attr('x2', function (d) { return d.target.x; })
+           .attr('y2', function (d) { return d.target.y; });
+      }
+
       sim.on('tick', function () {
-        link.attr('x1', function (d) { return d.source.x; })
-            .attr('y1', function (d) { return d.source.y; })
-            .attr('x2', function (d) { return d.target.x; })
-            .attr('y2', function (d) { return d.target.y; });
+        position(link);
+        position(linkHit);
         linkText.attr('x', function (d) { return (d.source.x + d.target.x) / 2; })
                 .attr('y', function (d) { return (d.source.y + d.target.y) / 2 - 3; });
         node.attr('transform', function (d) { return 'translate(' + d.x + ',' + d.y + ')'; });
@@ -385,6 +466,37 @@
           sim.alpha(1).restart();
         });
       }
+
+      // -- the Labels control ------------------------------------------------
+      var labelsBtn = document.getElementById('graph-labels');
+      try {
+        showAllLabels = window.localStorage.getItem('sea.map.edgeLabels') === 'on';
+      } catch (err) { /* private mode: hover-only is the default and still works */ }
+
+      function syncLabelsBtn() {
+        if (!labelsBtn) { return; }
+        labelsBtn.textContent = showAllLabels ? 'Labels: on' : 'Labels: hover';
+        labelsBtn.setAttribute('aria-pressed', showAllLabels ? 'true' : 'false');
+      }
+      if (labelsBtn) {
+        labelsBtn.addEventListener('click', function () {
+          showAllLabels = !showAllLabels;
+          try {
+            window.localStorage.setItem('sea.map.edgeLabels', showAllLabels ? 'on' : 'off');
+          } catch (err) { /* not fatal: the choice simply will not persist */ }
+          syncLabelsBtn();
+          refresh();
+        });
+      }
+      syncLabelsBtn();
+
+      // Escape releases a pinned label. `Re-layout` does not — pinning is about
+      // reading the graph, and the two controls should not interfere.
+      document.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape' && pinnedLink) { pinnedLink = null; refresh(); }
+      });
+
+      refresh();
 
       // -- the concept table, demoted and filtered ---------------------------
       var panelSearch = document.getElementById('concept-search');

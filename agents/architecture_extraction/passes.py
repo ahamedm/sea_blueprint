@@ -111,6 +111,24 @@ class ElementRecord(BaseModel):
         "SoftwareSystem; a Component to its Container. Empty only for top-level "
         "elements (SoftwareSystem, ExternalSystem, Person)."
     ))
+    container_type: str = Field(default="", description=(
+        "Container and DataStore only: the KIND of running thing this is. One of "
+        "WEB_APPLICATION, API_SERVICE, WORKER, BATCH_JOB, DATABASE, CACHE, "
+        "MESSAGE_BROKER, GATEWAY, UI_COMPONENT, FILE_STORE, SCHEDULER. Empty for "
+        "every other element type."
+    ))
+    """`container_type` is `required: true` on Container in the ontology and was
+    emitted by nothing: not in this schema, not in ingest, not in any validator — so
+    a required slot the pipeline never produced was invisible, because an absent
+    field and an unasked question look identical.
+
+    Deliberately `str`, not `Literal`, following the policy stated for `c4_level`
+    below: `ContainerType` is a vocabulary the model guesses at ("SERVICE"), and a
+    strict `enum` in the JSON schema makes a near-miss fail at the SCHEMA level, so
+    the pass retries and dies on the turn cap having produced nothing. The allowed
+    values are still named here for guidance, and `check_enum_membership` flags
+    anything outside `ContainerType` — so the guidance is kept without the retry loop.
+    """
     system_class: Literal[
         "", "ENTERPRISE_TECHNOLOGY_PLATFORM", "BUSINESS_TECHNOLOGY_PLATFORM",
         "BUSINESS_APPLICATION", "SHARED_TECHNICAL_SERVICE", "INTEGRATION_PLATFORM",
@@ -196,7 +214,7 @@ class ElementRecord(BaseModel):
     def _coerce_c4(cls, v):
         return _norm_c4(v)
 
-    @field_validator("parent", "description", mode="before")
+    @field_validator("parent", "description", "container_type", mode="before")
     @classmethod
     def _coerce_optional_text(cls, v):
         """`None` means "not stated", which is what the empty string already means.
@@ -318,6 +336,11 @@ Rules:
 8. Use the concrete name the document gives (PostgreSQL, Valkey, OpenShift).
    Never emit a bare category word — "Database", "Cache", "Services",
    "Microservices" — as an element when the document names the specific thing.
+9. Set `container_type` on every Container and DataStore — the KIND of running
+   thing it is (WEB_APPLICATION, API_SERVICE, WORKER, BATCH_JOB, DATABASE, CACHE,
+   MESSAGE_BROKER, GATEWAY, UI_COMPONENT, FILE_STORE, SCHEDULER). The ontology
+   marks it required, so a Container without one classifies as nothing. Leave it
+   empty for every other element type.
 
 Name concepts; never emit a sentence as an element name. Do not invent elements
 the excerpt does not describe.""",
@@ -341,6 +364,15 @@ class ConnectionRecord(BaseModel):
         "ASYNCHRONOUS_REQUEST_REPLY", "BATCH_TRANSFER", "PUBLISH_SUBSCRIBE",
         "SHARED_DATABASE",
     ] = Field(default="", description="Integration style. Empty if unclear.")
+    carries_sensitive_data: bool = Field(default=False, description=(
+        "True when regulated or sensitive data crosses this connection — cardholder "
+        "data, credentials, personal data. Set it only where the document states or "
+        "clearly implies it; leave false otherwise. Drives PCI scope decisions."
+    ))
+    failure_handling: str = Field(default="", description=(
+        "What happens when this call fails, as the document states it — 'retry x3 then "
+        "DLQ', 'circuit breaker', 'no handling'. Empty if unstated."
+    ))
 
 
 class ConnectionPassResult(BaseModel):
@@ -381,7 +413,11 @@ Rules:
    Components"), or a group of things ("External Services", "External PGSP/PSP").
    If the excerpt names no specific pair of elements, emit an EMPTY list — an empty
    answer is a real answer, and a connection between two things the architecture
-   does not declare is a fact about nothing.""",
+   does not declare is a fact about nothing.
+7. Set `carries_sensitive_data` when regulated or sensitive data crosses the link
+   (cardholder data, credentials, personal data) — PCI scope is decided from this.
+   Set `failure_handling` where the document states it ("retry x3 then DLQ",
+   "circuit breaker"). Leave both empty/false rather than guessing.""",
 )
 
 

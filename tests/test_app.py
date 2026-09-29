@@ -245,6 +245,42 @@ def test_the_map_table_reports_the_total_when_it_truncates(client, load_working,
     assert html.count(b"<tr data-concept-row") == 2, "the cap is what the hint reports"
 
 
+def test_map_edge_labels_are_revealed_on_demand_rather_than_all_at_once(
+        client, load_working):
+    """A label on every link buries the nodes it describes.
+
+    There is no JS runner in this repo, so what is pinned here is the CONTRACT the
+    script and the stylesheet have to keep together: the labels are off by default
+    in CSS, the control exists to turn them all on, and the hover plumbing is
+    present. A revert to unconditional labels would satisfy every other map test.
+    """
+    client.post("/ingest", data={"text": "architecture body", "type": "architecture"})
+
+    html = client.get("/map?lens=all").data
+
+    # The control, and its honest default label.
+    assert b'id="graph-labels"' in html
+    assert b'aria-pressed="false"' in html, "labels must start hidden, not pressed"
+    assert b"Labels: hover" in html
+
+    # The hover plumbing: a transparent hit line (a 1.2px edge is not a pointer
+    # target), a separate label layer, and the three states refresh() toggles.
+    for marker in (b"link-hit", b"link-text", b"pointerenter", b"is-on",
+                   b"is-hot", b"is-dim", b"sea.map.edgeLabels"):
+        assert marker in html, f"missing from the map script: {marker!r}"
+
+    # The stylesheet is the half that actually hides them, and the halo is what
+    # makes a label readable when it lands on top of another edge.
+    css = (Path(__file__).resolve().parents[1] / "app" / "static" / "css" / "sea.css").read_text()
+    assert ".link-text text" in css
+    assert "opacity: 0" in css, "labels must default to hidden in the stylesheet"
+    assert ".link-text text.is-on" in css
+    assert "paint-order: stroke" in css, "no halo: a label over another edge is unreadable"
+    # A CSS `stroke` here would beat the presentation attribute the script sets and
+    # flatten held links into open references — the bug this rule used to have.
+    assert ".link line { stroke:" not in css
+
+
 def test_gap_report_page_shows_unresolved_references(seeded_client):
     response = seeded_client.get("/gaps")
     assert response.status_code == 200
