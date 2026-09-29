@@ -190,6 +190,139 @@ def test_abstract_pack_classes_are_excluded_from_the_grounding_list(pack):
 
 
 # ============================================================================
+# The lifecycle's hard cases: disputes, reversals and non-card instruments
+# ============================================================================
+#
+# These pin the concepts a design most often omits — authorisation and capture are
+# always described, and what happens afterwards usually is not. A concept that is
+# declared but hollow (no slots, no link to the payment it concerns) cannot turn
+# that omission into a coverage finding, which is the whole reason the pack has a
+# `PaymentCore` census.
+
+# The vocabulary the census relies on. Named here as one list so a concept that
+# disappears is a failing test rather than a quiet gap in a report.
+_OPERATIONS_NOT_TO_LOSE = (
+    "Authorization", "Capture", "Refund", "Settlement",
+    "Chargeback", "Dispute", "Payout", "Mandate", "Reconciliation",
+)
+_PARTIES_NOT_TO_LOSE = ("Merchant", "Cardholder", "Acquirer", "Issuer", "PaymentGateway")
+_INSTRUMENTS_NOT_TO_LOSE = ("Card", "BankAccount", "Wallet")
+
+
+def test_the_operations_a_design_omits_are_all_declared(pack):
+    """Disputes, reversals and reconciliation are exactly what a design document
+    leaves out. They are declared AND in the census subset, so their absence from a
+    requirements document is reportable rather than invisible."""
+    core = {name for name, spec in pack.classes.items() if "PaymentCore" in spec.subsets}
+    assert set(_OPERATIONS_NOT_TO_LOSE) <= set(pack.classes)
+    assert set(_OPERATIONS_NOT_TO_LOSE) <= core
+
+
+def test_the_parties_beyond_the_gateway_and_merchant_are_declared_and_usable(pack):
+    """`Issuer` and `Acquirer` were declared with NO attributes at all, so the
+    institutions that decide an authorisation and can raise a chargeback could be
+    named and nothing recorded about them."""
+    assert set(_PARTIES_NOT_TO_LOSE) <= set(pack.classes)
+    for party in ("Issuer", "Acquirer"):
+        assert pack.get(party).attributes, f"{party} is a stub with no slots"
+
+
+def test_every_instrument_is_declared_and_usable(pack):
+    """Non-card instruments. `Wallet` was a stub: a payment method the enum offers
+    (`WALLET`) with nowhere to record the wallet."""
+    assert set(_INSTRUMENTS_NOT_TO_LOSE) <= set(pack.classes)
+    assert pack.get("Wallet").attributes
+
+
+def test_a_partial_refund_is_a_refund_and_not_a_second_class(pack):
+    """The decision, pinned so it is not 'fixed' later by duplication.
+
+    A partial refund is not a different thing from a refund — it is a refund whose
+    amount does not exhaust the capture. That is a boolean on the operation plus a
+    lifecycle state, and modelling it as a sibling class would put two nodes on one
+    fact and give the census two ways to report the same coverage.
+    """
+    refund = pack.get("Refund")
+    assert "is_partial" in {slot.name for slot in refund.attributes}
+    assert "refund_amount" in {slot.name for slot in refund.attributes}
+    assert "PARTIALLY_REFUNDED" in pack.enums["PaymentLifecycleState"].values
+    assert "PartialRefund" not in pack.classes
+
+
+def test_an_operation_can_name_the_payment_it_concerns(pack):
+    """The structural gap this section exists for.
+
+    Every operation inherited the root's role slots (merchant, cardholder,
+    instrument) and had NO way to reference the payment itself, so "which refunds
+    belong to this payment?" was unanswerable and each operation was an island.
+    """
+    operation = pack.get("PaymentOperation")
+    assert operation.abstract is True
+    by_name = {slot.name: slot for slot in operation.attributes}
+    assert by_name["payment"].range == "Payment"
+    assert by_name["authorization"].range == "Authorization"
+
+    # The operations that act ON a payment inherit it...
+    for name in ("Authorization", "Capture", "Refund", "Chargeback", "Dispute"):
+        assert pack.get(name).is_a == "PaymentOperation", name
+
+    # ...and the things that are not operations do not, because `Payment` is not an
+    # operation, a mandate is an authority, and a settlement is a money movement.
+    for name in ("Payment", "Merchant", "Card", "Payout", "Settlement", "Mandate",
+                 "Reconciliation"):
+        assert pack.get(name).is_a != "PaymentOperation", name
+
+
+def test_a_dispute_links_to_the_chargeback_it_became(pack):
+    """The description promised escalation and the model could not record it.
+
+    "A challenge that may or may not escalate" was prose with no link, so the
+    interesting outcome — resolved BEFORE escalation — was unrepresentable.
+    """
+    dispute = pack.get("Dispute")
+    by_name = {slot.name: slot for slot in dispute.attributes}
+    assert by_name["escalated_to"].range == "Chargeback"
+    # The escalation is also a state, and the states are closed.
+    assert by_name["dispute_state"].range == "DisputeState"
+    assert by_name["dispute_state"].range_kind == "enum"
+    assert "ESCALATED" in pack.enums["DisputeState"].values
+
+
+def test_the_closed_sets_are_enums_and_not_free_text(pack):
+    """A free-text state cannot answer a yes/no.
+
+    "Was this collection against an active mandate?" is the question a direct-debit
+    control turns on, and `mandate_state: string` made it unanswerable.
+    """
+    mandate = {slot.name: slot for slot in pack.get("Mandate").attributes}
+    assert mandate["mandate_state"].range == "MandateState"
+    assert mandate["mandate_state"].range_kind == "enum"
+    assert set(pack.enums["MandateState"].values) == {
+        "ACTIVE", "SUSPENDED", "CANCELLED", "EXPIRED",
+    }
+
+
+def test_a_mandate_and_a_payout_name_what_they_act_on(pack):
+    """Two directions that existed only one way, or not at all.
+
+    `BankAccount.mandate_reference` answered "which mandate covers this account?"
+    as a string and could not answer the reverse. A payout recorded its direction
+    (out) and had no destination at all.
+    """
+    mandate = {slot.name: slot for slot in pack.get("Mandate").attributes}
+    assert mandate["account"].range == "BankAccount"
+    # The root's `scheme` is a CardScheme, which a direct-debit authority is not.
+    assert mandate["collection_scheme"].range_kind == "primitive"
+
+    payout = {slot.name: slot for slot in pack.get("Payout").attributes}
+    assert payout["destination"].range == "PaymentInstrument"
+    assert payout["direction"].range == "TransactionDirection"
+
+    reconciliation = {slot.name: slot for slot in pack.get("Reconciliation").attributes}
+    assert reconciliation["reconciles"].range == "Settlement"
+
+
+# ============================================================================
 # Selection: "no pack" is a state, a bad pack is an error
 # ============================================================================
 
@@ -630,7 +763,10 @@ def test_selecting_a_pack_after_construction_is_recorded_in_provenance(ontology_
     assert agent.active_domain_pack_id() == ""
 
     agent.domain_pack = load_domain_pack(PAYMENTS, ontology_dir)
-    assert agent.active_domain_pack_id() == "payment_processing@0.1.0"
+    # Derived, not hardcoded: the assertion is about the SHAPE (pack@version), and
+    # a literal here would fail on every legitimate vocabulary bump — which is a
+    # change this pack is expected to have.
+    assert agent.active_domain_pack_id() == f"payment_processing@{agent.domain_pack.version}"
 
 
 # ============================================================================

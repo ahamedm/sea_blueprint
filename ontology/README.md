@@ -353,9 +353,12 @@ This base ontology is **extended** by domain packs under `domains/`. One is buil
 
 - **`domains/payment_processing.yaml`** — the parties (Merchant, Cardholder,
   Acquirer, Issuer, PaymentGateway), the instruments (PaymentInstrument → Card,
-  BankAccount, Wallet), the operations (Payment, Authorization, Capture, Refund,
-  Settlement, Chargeback, Payout, Mandate, Reconciliation, Dispute) and the
-  lifecycle state machine as a closed enum.
+  BankAccount, Wallet), the operations (`Payment` plus the abstract
+  `PaymentOperation` and its subclasses — Authorization, Capture, Refund,
+  Chargeback, Dispute) and the lifecycle state machine as a closed enum.
+  Settlement, Payout, Mandate and Reconciliation are deliberately *not*
+  `PaymentOperation`s: they act over a batch, an account or an authority rather
+  than against one payment, and each carries its own link to what it concerns.
 
 A pack **inherits** from this base — it is a *schema*, not a set of instances — and adds:
 

@@ -62,7 +62,7 @@
 id: https://sea.platform/ontology/domains/payment-processing
 name: payment-processing
 title: Payment Processing Domain Pack
-version: 0.1.0
+version: 0.2.0
 description: >-
   Domain vocabulary for payment processing: the parties, instruments, processing
   operations and lifecycle states that payment requirements and architectures
@@ -291,6 +291,39 @@ enums:
       SUBSCRIPTION_CANCELLED:
         description: Recurring billing continued after cancellation.
 
+  MandateState:
+    description: >-
+      Whether a standing authority is currently exercisable. Closed because the
+      question it answers is a yes/no — "was this collection legitimate?" — and a
+      free-text state cannot be checked. A collection against a mandate that is not
+      ACTIVE is the defect; there is no fourth thing it could be.
+    permissible_values:
+      ACTIVE:
+        description: The authority is in force and may be collected against.
+      SUSPENDED:
+        description: Temporarily not collectable — held, disputed, or awaiting confirmation.
+      CANCELLED:
+        description: Revoked by the payer. Any later collection is unauthorised. Terminal.
+      EXPIRED:
+        description: Lapsed by its own terms or by scheme/regulatory limit. Terminal.
+
+  DisputeState:
+    description: >-
+      Where a cardholder challenge sits before it becomes — or fails to become — a
+      chargeback. Kept explicit and ordered because most disputes never escalate,
+      and the steps before escalation are where they are cheaply resolved.
+    permissible_values:
+      RAISED:
+        description: The cardholder has challenged the transaction.
+      UNDER_REVIEW:
+        description: The merchant or acquirer is gathering evidence.
+      RESOLVED_MERCHANT:
+        description: Resolved in the merchant's favour without escalation. Terminal.
+      RESOLVED_CARDHOLDER:
+        description: Resolved in the cardholder's favour without escalation. Terminal.
+      ESCALATED:
+        description: Escalated to a chargeback; the dispute continues as one.
+
 # ============================================================================
 # CLASSES — the root
 # ============================================================================
@@ -362,6 +395,37 @@ classes:
         range: BusinessRule
         multivalued: true
 
+  PaymentOperation:
+    description: >-
+      An operation performed ON or AGAINST a specific payment. Abstract, and
+      introduced because the operations were islands: they inherited the root's
+      role slots (merchant, cardholder, instrument) but had no way to name the
+      payment they concern, so "which refunds belong to this payment?" and "what
+      was charged back?" were unanswerable while every other relationship was
+      modelled. Deliberately not on the root: `Payment`, `Merchant` and `Card` are
+      not operations, and a `payment` slot there would invite a payment to point at
+      itself.
+
+      Settlement, Payout, Reconciliation and Mandate are NOT operations in this
+      sense — settlement and payout are money movements in their own right,
+      reconciliation is an operation over settlements, and a mandate is an
+      authority. Each carries its own link to what it actually concerns.
+    is_a: PaymentDomainConcept
+    abstract: true
+    in_subset:
+      - PaymentCore
+      - PaymentLifecycle
+    attributes:
+      payment:
+        description: The payment this operation concerns.
+        range: Payment
+      authorization:
+        description: >-
+          The authorisation this operation acts against, where one exists — capture
+          claims it, refund returns against it. Empty for an operation that stands
+          on its own, such as a chargeback raised from a clearing record.
+        range: Authorization
+
   # ==========================================================================
   # CLASSES — parties (PaymentParties)
   # ==========================================================================
@@ -402,13 +466,37 @@ classes:
     in_subset:
       - PaymentCore
       - PaymentParties
+    attributes:
+      acquirer_id:
+        description: The scheme or network reference for this acquirer.
+        range: string
+      supported_schemes:
+        description: The networks this acquirer can clear through.
+        range: CardScheme
+        multivalued: true
+      settlement_account:
+        description: The account funds settle into. Names a BankAccount rather than the number.
+        range: BankAccount
 
   Issuer:
-    description: The institution that issued the instrument and authorises against it.
+    description: >-
+      The institution that issued the instrument and authorises against it. The
+      party that decides an authorisation and that can later raise a chargeback,
+      which is why it is modelled rather than folded into the scheme.
     is_a: PaymentDomainConcept
     in_subset:
       - PaymentCore
       - PaymentParties
+    attributes:
+      issuer_id:
+        description: The scheme or network reference for this issuer.
+        range: string
+      bin_range:
+        description: The issuer identification number range, where stated. Not a PAN.
+        range: string
+      country:
+        description: The issuer's country — drives interchange and some routing rules.
+        range: string
 
   PaymentGateway:
     description: >-
@@ -482,6 +570,13 @@ classes:
     is_a: PaymentInstrument
     in_subset:
       - PaymentCore
+    attributes:
+      wallet_reference:
+        description: The tokenised or masked wallet identifier. Never the underlying funding PAN.
+        range: string
+      provider:
+        description: Who operates the wallet, where stated.
+        range: string
 
   # ==========================================================================
   # CLASSES — operations
@@ -515,7 +610,7 @@ classes:
       The reservation of funds on the instrument, requested from the issuer. It
       reserves; it does not move money. Everything downstream depends on its
       outcome and its expiry window.
-    is_a: PaymentDomainConcept
+    is_a: PaymentOperation
     in_subset:
       - PaymentCore
       - PaymentLifecycle
@@ -535,7 +630,7 @@ classes:
       Claiming an authorisation for settlement. May be full or partial, and may
       be delayed — the three together are the usual source of settlement
       mismatches.
-    is_a: PaymentDomainConcept
+    is_a: PaymentOperation
     in_subset:
       - PaymentCore
       - PaymentLifecycle
@@ -549,7 +644,7 @@ classes:
 
   Refund:
     description: The return of captured funds to the payer, in full or in part.
-    is_a: PaymentDomainConcept
+    is_a: PaymentOperation
     in_subset:
       - PaymentCore
       - PaymentLifecycle
@@ -580,6 +675,14 @@ classes:
       fees:
         description: Interchange and scheme fees deducted for this settlement.
         range: decimal
+      payments:
+        description: >-
+          The payments settled in this batch. Multivalued because settlement is a
+          batched funds movement — the group is the unit that reaches a bank
+          account, while the individual payments are what a discrepancy is
+          eventually traced to.
+        range: Payment
+        multivalued: true
 
   Chargeback:
     description: >-
@@ -588,7 +691,7 @@ classes:
       lifecycle, evidence and liability rules — and because a design that handles
       authorisation and capture but not chargebacks is a coverage finding that
       nothing else in the graph can express.
-    is_a: PaymentDomainConcept
+    is_a: PaymentOperation
     in_subset:
       - PaymentCore
       - PaymentLifecycle
@@ -622,6 +725,12 @@ classes:
       payout_batch:
         description: The batch a payout is grouped into for execution.
         range: string
+      destination:
+        description: >-
+          Where the funds are sent. A payout without a destination is half a fact —
+          the direction (out) is recorded and the account it went to is not, which
+          is the half an operations reconciliation needs.
+        range: PaymentInstrument
 
   Mandate:
     description: >-
@@ -636,7 +745,23 @@ classes:
         description: The reference under which the authority was granted.
         range: string
       mandate_state:
-        description: Whether the authority is active, cancelled or expired.
+        description: >-
+          Whether the authority is exercisable. Closed, because the question it
+          answers is a yes/no — a collection against a state that is not ACTIVE is
+          the defect, and a free-text state cannot be checked.
+        range: MandateState
+      account:
+        description: >-
+          The account the authority is over. The typed direction of a link that
+          previously existed only as the string `BankAccount.mandate_reference`,
+          which answered "which mandate covers this account?" and not "which
+          account does this mandate cover?".
+        range: BankAccount
+      collection_scheme:
+        description: >-
+          The direct-debit scheme the collection runs under (BACS, SEPA, ACH).
+          A plain string because the root's `scheme` ranges over `CardScheme`, and
+          a card network is not what a direct-debit authority is granted under.
         range: string
 
   Reconciliation:
@@ -655,16 +780,39 @@ classes:
       unmatched_count:
         description: Items that could not be matched. The number an operations team acts on.
         range: integer
+      reconciles:
+        description: >-
+          The settlements this reconciliation covers. Without the link, a
+          reconciliation is a pair of numbers about nothing in particular, and
+          "which settlement produced these unmatched items?" is unanswerable.
+        range: Settlement
+        multivalued: true
 
   Dispute:
     description: >-
-      A cardholder challenge that may or may not escalate to a chargeback.
-      Modelled separately because most disputes never reach one, and the steps
-      before escalation are where they are cheaply resolved.
-    is_a: PaymentDomainConcept
+      A cardholder challenge that may or may not escalate to a chargeback — the
+      pre-chargeback challenge. Modelled separately because most disputes never
+      reach one, and the steps before escalation are where they are cheaply
+      resolved. The escalation is a LINK (`escalated_to`) and not only a state, so
+      "how many challenges became chargebacks, and how many were resolved before
+      they could?" is answerable rather than inferred from prose.
+    is_a: PaymentOperation
     in_subset:
       - PaymentCore
+      - PaymentLifecycle
     attributes:
       dispute_state:
         description: Where the challenge sits in its resolution process.
-        range: string
+        range: DisputeState
+      escalated_to:
+        description: >-
+          The chargeback this challenge became, where it escalated. Empty means it
+          was resolved before escalation — which is the outcome worth measuring,
+          and was previously unrepresentable.
+        range: Chargeback
+      disputed_amount:
+        description: The amount under challenge. Usually the payment amount, but can differ.
+        range: decimal
+      response_deadline:
+        description: The date by which the merchant must supply evidence. Missing it is a loss.
+        range: date
