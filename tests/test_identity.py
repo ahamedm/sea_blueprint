@@ -24,8 +24,8 @@ import pytest
 from core.knowledge.ingest import graph_from_extraction, merge_graphs
 from core.knowledge.model import (
     MANAGED_REFERENCE_TYPES,
-    SCOPE_DOCUMENT,
-    SCOPE_ENTERPRISE,
+    IDENTITY_SCOPE_DOCUMENT,
+    IDENTITY_SCOPE_ENTERPRISE,
     ExternalReference,
     KnowledgeGraph,
     document_reference,
@@ -45,7 +45,7 @@ def test_a_document_label_records_where_it_came_from():
     ref = document_reference("NFR-PS-001", "sample_requirements.md")
     assert ref.identifier == "NFR-PS-001"
     assert ref.system == "sample_requirements.md"
-    assert ref.scope == SCOPE_DOCUMENT
+    assert ref.scope == IDENTITY_SCOPE_DOCUMENT
     assert ref.is_join_key is False
 
 
@@ -63,7 +63,7 @@ def test_a_document_label_is_not_typed_as_a_requirements_tooling_key():
 def test_a_managed_reference_is_enterprise_scoped_and_matchable():
     ref = ExternalReference(
         identifier="CI0004872", system="ServiceNow CMDB",
-        reference_type="CMDB_CI", scope=SCOPE_ENTERPRISE, is_authoritative=True,
+        reference_type="CMDB_CI", scope=IDENTITY_SCOPE_ENTERPRISE, is_authoritative=True,
     )
     assert ref.is_join_key is True
 
@@ -86,7 +86,7 @@ def test_an_identifier_with_a_named_system_is_inferred_enterprise_scoped():
     }
     graph, _ = graph_from_extraction(payload, document_ref="req.md")
     node = graph.nodes["functionalrequirement:payment_acceptance"]
-    assert [r.scope for r in node.external_references] == [SCOPE_ENTERPRISE]
+    assert [r.scope for r in node.external_references] == [IDENTITY_SCOPE_ENTERPRISE]
     assert node.matchable_refs() == ("PAY-142",)
 
 
@@ -103,7 +103,7 @@ def test_an_identifier_with_no_system_stays_document_scoped():
     }
     graph, _ = graph_from_extraction(payload, document_ref="req.md")
     node = graph.nodes["functionalrequirement:payment_acceptance"]
-    assert [r.scope for r in node.external_references] == [SCOPE_DOCUMENT]
+    assert [r.scope for r in node.external_references] == [IDENTITY_SCOPE_DOCUMENT]
     assert node.matchable_refs() == ()
 
 
@@ -128,7 +128,7 @@ def test_typing_survives_a_serialise_round_trip():
         "Container", "Payment Orchestrator",
         external_references=[
             ExternalReference(identifier="CI1", system="ServiceNow CMDB",
-                              reference_type="CMDB_CI", scope=SCOPE_ENTERPRISE,
+                              reference_type="CMDB_CI", scope=IDENTITY_SCOPE_ENTERPRISE,
                               uri="https://cmdb/CI1", is_authoritative=True)
         ],
     )
@@ -137,7 +137,7 @@ def test_typing_survives_a_serialise_round_trip():
     for rebuilt in (node_from_dict(node_to_dict(node)), node_from_dict(node.to_dict())):
         ref = rebuilt.external_references[0]
         assert (ref.identifier, ref.system, ref.reference_type, ref.scope) == (
-            "CI1", "ServiceNow CMDB", "CMDB_CI", SCOPE_ENTERPRISE,
+            "CI1", "ServiceNow CMDB", "CMDB_CI", IDENTITY_SCOPE_ENTERPRISE,
         )
         assert ref.uri == "https://cmdb/CI1"
         assert ref.is_authoritative is True
@@ -153,12 +153,12 @@ def test_typing_survives_a_merge():
         "Container", "Payment Orchestrator",
         external_references=[
             ExternalReference(identifier="CI1", system="ServiceNow CMDB",
-                              reference_type="CMDB_CI", scope=SCOPE_ENTERPRISE)
+                              reference_type="CMDB_CI", scope=IDENTITY_SCOPE_ENTERPRISE)
         ],
     )
     merged = merge_graphs(KnowledgeGraph(), incoming)
     node = merged.nodes["container:payment_orchestrator"]
-    assert [r.scope for r in node.external_references] == [SCOPE_ENTERPRISE]
+    assert [r.scope for r in node.external_references] == [IDENTITY_SCOPE_ENTERPRISE]
     assert node.matchable_refs() == ("CI1",)
 
 
@@ -184,12 +184,12 @@ def test_folding_upgrades_what_the_new_reference_knows():
         "Container", "Orch",
         external_references=[
             ExternalReference(identifier="CI1", system="ServiceNow CMDB",
-                              reference_type="CMDB_CI", scope=SCOPE_ENTERPRISE)
+                              reference_type="CMDB_CI", scope=IDENTITY_SCOPE_ENTERPRISE)
         ],
     )
     refs = graph.nodes["container:orch"].external_references
     assert len(refs) == 1
-    assert refs[0].scope == SCOPE_ENTERPRISE
+    assert refs[0].scope == IDENTITY_SCOPE_ENTERPRISE
     assert graph.nodes["container:orch"].matchable_refs() == ("CI1",)
 
 
@@ -222,7 +222,7 @@ def test_a_v1_node_without_typed_references_is_read_as_document_scoped():
     }
     node = node_from_dict(legacy)
     assert node.external_refs == ["FR-001", "FR-002"]
-    assert {r.scope for r in node.external_references} == {SCOPE_DOCUMENT}
+    assert {r.scope for r in node.external_references} == {IDENTITY_SCOPE_DOCUMENT}
     assert node.matchable_refs() == ()
 
 
@@ -235,7 +235,7 @@ def test_an_enterprise_key_outranks_wording_without_a_document():
     score, reason = match_score(
         "CI0004872", "Something Unrelated",
         [ExternalReference(identifier="CI0004872", system="ServiceNow CMDB",
-                           reference_type="CMDB_CI", scope=SCOPE_ENTERPRISE)],
+                           reference_type="CMDB_CI", scope=IDENTITY_SCOPE_ENTERPRISE)],
     )
     assert (score, reason) == (1.0, "external_ref")
 
@@ -267,7 +267,7 @@ def test_an_enterprise_key_is_preferred_over_a_document_label_of_the_same_name()
     refs = [
         document_reference("FR-001", "brief.md"),
         ExternalReference(identifier="FR-001", system="Jira",
-                          reference_type="REQUIREMENT_KEY", scope=SCOPE_ENTERPRISE),
+                          reference_type="REQUIREMENT_KEY", scope=IDENTITY_SCOPE_ENTERPRISE),
     ]
     assert match_score("FR-001", "Unrelated", refs, "brief.md") == (1.0, "external_ref")
     # And in the other order.

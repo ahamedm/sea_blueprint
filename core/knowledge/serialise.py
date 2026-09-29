@@ -25,7 +25,8 @@ import json
 from typing import Any, Dict
 
 from .model import (
-    SCOPE_DOCUMENT,
+    IDENTITY_SCOPE_DOCUMENT,
+    SCOPE_INITIATIVE,
     Assertion,
     ExternalReference,
     ExtractionRun,
@@ -94,7 +95,7 @@ def node_from_dict(data: Dict[str, Any]) -> Node:
                     identifier=str(raw["identifier"]),
                     system=str(raw.get("system") or ""),
                     reference_type=str(raw.get("reference_type") or "OTHER"),
-                    scope=str(raw.get("scope") or SCOPE_DOCUMENT),
+                    scope=str(raw.get("scope") or IDENTITY_SCOPE_DOCUMENT),
                     uri=str(raw.get("uri") or ""),
                     is_authoritative=bool(raw.get("is_authoritative")),
                     attribute_scope=list(raw.get("attribute_scope") or []),
@@ -103,7 +104,7 @@ def node_from_dict(data: Dict[str, Any]) -> Node:
             )
         elif isinstance(raw, str) and raw.strip():
             node.external_references.append(
-                ExternalReference(identifier=raw.strip(), scope=SCOPE_DOCUMENT,
+                ExternalReference(identifier=raw.strip(), scope=IDENTITY_SCOPE_DOCUMENT,
                                   reference_type="OTHER")
             )
 
@@ -114,7 +115,7 @@ def node_from_dict(data: Dict[str, Any]) -> Node:
     # every flat ref already has its typed record.
     if node.external_refs and not node.external_references:
         node.external_references = [
-            ExternalReference(identifier=text, scope=SCOPE_DOCUMENT, reference_type="OTHER")
+            ExternalReference(identifier=text, scope=IDENTITY_SCOPE_DOCUMENT, reference_type="OTHER")
             for text in node.external_refs
             if text
         ]
@@ -220,7 +221,11 @@ def assertion_from_dict(data: Dict[str, Any]) -> Assertion:
         provenance=provenance_from_dict(data.get("provenance")),
         status=data.get("status") or "UNVERIFIED",
         superseded_by=data.get("superseded_by"),
-        scope=data.get("scope") or "INITIATIVE_PROPOSAL",
+        # The constant, not a copy of its value: the copy here said
+        # "INITIATIVE_PROPOSAL" while the shadowed constant wrote "INITIATIVE",
+        # so a fact restored through this default was invisible to
+        # `promote_to_baseline` — skipped without being counted.
+        scope=data.get("scope") or SCOPE_INITIATIVE,
         initiative_id=data.get("initiative_id"),
     )
 

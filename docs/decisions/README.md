@@ -39,3 +39,4 @@ Closed work from the TODO. Each record preserves its original write-up verbatim;
 | [ADR-0032](ADR-0032-aspect-guards-container-component-integration.md) | Aspect guards — a required slot nobody produced, containment by kind, and a backstop for the connections rule | 2026-09-28 | — |
 | [ADR-0033](ADR-0033-map-edge-labels-on-demand.md) | Edge labels on demand — the map stops drawing 285 pieces of text at once | 2026-09-28 | — |
 | [ADR-0034](ADR-0034-payment-pack-hard-cases.md) | The payment pack's hard cases — an operation class, closed state sets, and a list that was already implemented | 2026-09-29 | — |
+| [ADR-0035](ADR-0035-baseline-promotion-and-evolution-journey.md) | Promoting ARC-G to a baseline, and the evolution journey that was never walked — one silent scope collision | 2026-09-29 | — |

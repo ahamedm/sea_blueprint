@@ -35,8 +35,8 @@ from .model import (
     RUN_PARTIAL,
     RUN_UNKNOWN,
     SCOPE_BASELINE,
-    SCOPE_DOCUMENT,
-    SCOPE_ENTERPRISE,
+    IDENTITY_SCOPE_DOCUMENT,
+    IDENTITY_SCOPE_ENTERPRISE,
     SCOPE_INITIATIVE,
     SOURCE_EXTRACTION,
     ExternalReference,
@@ -188,9 +188,9 @@ def _typed_external_refs(
             # label, and claiming more would be inventing authority.
             if not declared_scope:
                 declared_scope = (
-                    SCOPE_ENTERPRISE
+                    IDENTITY_SCOPE_ENTERPRISE
                     if system and ref_type in MANAGED_REFERENCE_TYPES
-                    else SCOPE_DOCUMENT
+                    else IDENTITY_SCOPE_DOCUMENT
                 )
             refs.append(
                 ExternalReference(

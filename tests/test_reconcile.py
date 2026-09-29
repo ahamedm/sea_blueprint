@@ -27,8 +27,8 @@ from core.knowledge import (
     review_progress,
 )
 from core.knowledge.model import (
-    SCOPE_DOCUMENT,
-    SCOPE_ENTERPRISE,
+    IDENTITY_SCOPE_DOCUMENT,
+    IDENTITY_SCOPE_ENTERPRISE,
     ExternalReference,
     SOURCE_EXTRACTION,
     STATUS_SUPERSEDED,
@@ -59,7 +59,7 @@ def refs():
             external_references=[
                 ExternalReference(
                     identifier="FR-PM-001", system="Jira", reference_type="REQUIREMENT_KEY",
-                    scope=SCOPE_ENTERPRISE, is_authoritative=True,
+                    scope=IDENTITY_SCOPE_ENTERPRISE, is_authoritative=True,
                 )
             ],
         ),
@@ -78,7 +78,7 @@ def refs():
             external_references=[
                 ExternalReference(
                     identifier="FR-PM-001", system="brief.md",
-                    reference_type="REQUIREMENT_KEY", scope=SCOPE_DOCUMENT,
+                    reference_type="REQUIREMENT_KEY", scope=IDENTITY_SCOPE_DOCUMENT,
                 )
             ],
         ),
@@ -169,7 +169,7 @@ def test_an_enterprise_reference_scores_one_and_wins_over_wording():
     score, reason = match_score(
         "FR-PM-001", "Payment Acceptance",
         [ExternalReference(identifier="FR-PM-001", system="Jira",
-                           reference_type="REQUIREMENT_KEY", scope=SCOPE_ENTERPRISE)],
+                           reference_type="REQUIREMENT_KEY", scope=IDENTITY_SCOPE_ENTERPRISE)],
     )
     assert (score, reason) == (1.0, "external_ref")
 
@@ -186,7 +186,7 @@ def test_a_document_local_reference_cannot_win_on_identity_alone():
     score, reason = match_score(
         "FR-PM-001", "Payment Acceptance",
         [ExternalReference(identifier="FR-PM-001", system="brief.md",
-                           reference_type="REQUIREMENT_KEY", scope=SCOPE_DOCUMENT)],
+                           reference_type="REQUIREMENT_KEY", scope=IDENTITY_SCOPE_DOCUMENT)],
     )
     assert reason == "unscoped_ref"
     assert score < 1.0
@@ -199,8 +199,8 @@ def test_a_document_local_reference_cannot_win_on_identity_alone():
 def test_an_enterprise_reference_outranks_a_document_label():
     """Two nodes carrying the same identifier: only one may be matched on."""
     refs = [
-        ExternalReference(identifier="FR-PM-001", system="brief.md", scope=SCOPE_DOCUMENT),
-        ExternalReference(identifier="FR-PM-001", system="Jira", scope=SCOPE_ENTERPRISE),
+        ExternalReference(identifier="FR-PM-001", system="brief.md", scope=IDENTITY_SCOPE_DOCUMENT),
+        ExternalReference(identifier="FR-PM-001", system="Jira", scope=IDENTITY_SCOPE_ENTERPRISE),
     ]
     assert match_score("FR-PM-001", "Something Else", refs) == (1.0, "external_ref")
 

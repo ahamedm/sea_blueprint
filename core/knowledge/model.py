@@ -106,9 +106,34 @@ SOURCE_DESIGN_ASSISTANT = "DESIGN_ASSISTANT"
 SOURCE_BASELINE_MERGE = "BASELINE_MERGE"  # Fact promoted from Initiative to System Baseline
 
 # Assertion Lifecycle / Scope
+#
+# These say WHERE A FACT STANDS — proposed by an initiative, established system
+# truth, universal domain truth. They are NOT the identity scope below
+# (`IDENTITY_SCOPE_*`), which says how far an identifier's authority reaches.
+#
+# The two were once both named `SCOPE_INITIATIVE`, and because the identity
+# declaration came later in this file it silently won: ingest wrote the identity
+# value `"INITIATIVE"` while this declaration, `Assertion.scope`'s default and
+# `serialise`'s load default all said `"INITIATIVE_PROPOSAL"`. See
+# `INITIATIVE_SCOPES` for what that cost and how it is handled.
 SCOPE_INITIATIVE = "INITIATIVE_PROPOSAL"  # A change proposed by a specific initiative
 SCOPE_BASELINE = "SYSTEM_BASELINE"        # Established, persistent system truth
 SCOPE_DOMAIN = "DOMAIN_TRUTH"             # Universal domain concept (e.g., "PAN is sensitive")
+
+# Every value a persisted assertion may carry meaning "proposed by an initiative".
+#
+# `"INITIATIVE"` is what graphs written before the collision above actually hold,
+# because that is the value the shadowing constant produced. Those graphs are real,
+# and a fact not recognised as an initiative proposal can NEVER be merged into the
+# baseline: `promote_to_baseline` skips it without counting it, which is
+# indistinguishable from there being nothing to promote. So both values are accepted
+# on READ, and only `SCOPE_INITIATIVE` is ever written.
+INITIATIVE_SCOPES = frozenset({SCOPE_INITIATIVE, "INITIATIVE"})
+
+
+def is_initiative_scope(scope: str) -> bool:
+    """Whether an assertion's scope means "proposed by an initiative"."""
+    return scope in INITIATIVE_SCOPES
 
 STATUS_UNVERIFIED = "UNVERIFIED"
 STATUS_VERIFIED = "VERIFIED"
@@ -492,19 +517,25 @@ class ExtractionRun:
 # Identity scope — how far an identifier's authority extends, and therefore
 # whether it may be used as a JOIN KEY. Mirrors `IdentityScope` in sea_common.
 #
+# Named `IDENTITY_SCOPE_*` and not `SCOPE_*` because the bare name collided with the
+# ASSERTION lifecycle scope above, and the collision was silent: whichever
+# declaration came last won, so `SCOPE_INITIATIVE` meant two different things
+# depending on which line of this file you read. The value is unchanged, because the
+# ontology's `IdentityScope` enum fixes it.
+#
 # The distinction that matters: `NFR-PS-001` read out of a markdown file is a
 # real label and worth keeping, but it is not an enterprise identity. Two
 # documents may both number a requirement `FR-001`. Matching on such a label
 # globally produces confident WRONG joins — worse than missing joins, because it
 # makes the audit wrong rather than incomplete.
-SCOPE_ENTERPRISE = "ENTERPRISE"
-SCOPE_INITIATIVE = "INITIATIVE"
-SCOPE_DOCUMENT = "DOCUMENT"
-SCOPE_RUN = "RUN"
+IDENTITY_SCOPE_ENTERPRISE = "ENTERPRISE"
+IDENTITY_SCOPE_INITIATIVE = "INITIATIVE"
+IDENTITY_SCOPE_DOCUMENT = "DOCUMENT"
+IDENTITY_SCOPE_RUN = "RUN"
 
 # Scopes whose identifiers are unique beyond the document that stated them, and
 # so are safe to match on. DOCUMENT and RUN are deliberately excluded.
-GLOBALLY_MATCHABLE_SCOPES = frozenset({SCOPE_ENTERPRISE})
+GLOBALLY_MATCHABLE_SCOPES = frozenset({IDENTITY_SCOPE_ENTERPRISE})
 
 # Reference types that denote a system of record rather than a source document.
 # An identifier read out of a document is given the document as its `system`.
@@ -542,7 +573,7 @@ class ExternalReference:
     identifier: str
     system: str = ""
     reference_type: str = "OTHER"
-    scope: str = SCOPE_DOCUMENT
+    scope: str = IDENTITY_SCOPE_DOCUMENT
     uri: str = ""
     is_authoritative: bool = False
     attribute_scope: List[str] = field(default_factory=list)
@@ -564,7 +595,7 @@ class ExternalReference:
         return {k: v for k, v in asdict(self).items() if v not in ("", None, [], False)}
 
 
-def document_reference(identifier: str, document_ref: str = "", scope: str = SCOPE_DOCUMENT) -> ExternalReference:
+def document_reference(identifier: str, document_ref: str = "", scope: str = IDENTITY_SCOPE_DOCUMENT) -> ExternalReference:
     """A label read out of a source document.
 
     Typed `OTHER`, NOT `REQUIREMENT_KEY`, and the distinction is load-bearing:
@@ -623,7 +654,7 @@ class Node:
                 continue
             if existing.reference_type in ("", "OTHER") and ref.reference_type:
                 existing.reference_type = ref.reference_type
-            if existing.scope in ("", SCOPE_DOCUMENT) and ref.scope:
+            if existing.scope in ("", IDENTITY_SCOPE_DOCUMENT) and ref.scope:
                 existing.scope = ref.scope
             if not existing.system and ref.system:
                 existing.system = ref.system

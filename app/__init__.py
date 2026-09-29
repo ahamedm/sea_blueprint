@@ -1907,12 +1907,25 @@ def create_app(
             snapshot.graph, snapshot.log, actor=reviewer(), note=request.form.get("note", "")
         )
         save(snapshot)
-        flash(
-            f"Promoted {result.promoted} verified fact(s) to the system baseline. "
+        # Every fact is accounted for. `unrecognised_scope` in particular is not
+        # decoration: it is the only signal that a fact exists which this merge
+        # could never promote, and its absence is what let a scope mismatch look
+        # like "nothing to do" rather than "one fact you cannot see was skipped".
+        detail = (
             f"Left behind: {result.skipped_unverified} unverified, "
             f"{result.skipped_disputed} disputed — a baseline does not absorb "
-            f"unchecked extraction.",
-            "success" if result.promoted else "warning",
+            f"unchecked extraction."
+        )
+        if result.skipped_inactive:
+            detail += f" {result.skipped_inactive} retired or superseded."
+        if result.unrecognised_scope:
+            detail += (
+                f" {result.unrecognised_scope} with an unrecognised scope, which this "
+                f"merge can never promote — a vocabulary problem, not a review one."
+            )
+        flash(
+            f"Promoted {result.promoted} verified fact(s) to the system baseline. {detail}",
+            "error" if result.unrecognised_scope else ("success" if result.promoted else "warning"),
         )
         return redirect(url_for("changes"))
 

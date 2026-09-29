@@ -47,7 +47,7 @@ from .model import (
     CROSS_GRAPH_PREDICATES,
     IDENTITY_BY_CITATION_PREDICATES,
     REQUIREMENT_KINDS as _REQUIREMENT_KINDS,
-    SCOPE_DOCUMENT,
+    IDENTITY_SCOPE_DOCUMENT,
     SOURCE_HUMAN_ARCHITECT,
     STATUS_SUPERSEDED,
     STATUS_VERIFIED,
@@ -174,7 +174,7 @@ def _as_references(values: Sequence[Any]) -> List[ExternalReference]:
         if isinstance(value, ExternalReference):
             out.append(value)
         elif isinstance(value, str) and value.strip():
-            out.append(ExternalReference(identifier=value.strip(), scope=SCOPE_DOCUMENT,
+            out.append(ExternalReference(identifier=value.strip(), scope=IDENTITY_SCOPE_DOCUMENT,
                                          reference_type="OTHER"))
     return out
 

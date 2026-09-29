@@ -47,6 +47,7 @@ from .model import (
     Assertion,
     KnowledgeGraph,
     Provenance,
+    is_initiative_scope,
     reflexive_violation,
     utc_now,
 )
@@ -784,6 +785,14 @@ def promote_to_baseline(
     `docs/living-system-architecture.md`. Unverified and disputed facts are
     deliberately left behind — a baseline that absorbs unchecked extraction is
     not a baseline.
+
+    EVERY fact is classified into exactly one bucket. That is the point of
+    `unrecognised_scope`: this loop used to skip anything whose scope it did not
+    recognise, counting nothing, so a fact that could never be promoted was
+    indistinguishable from there being nothing to promote. The scope collision in
+    `model.py` made exactly that happen — a fact restored through `serialise`'s load
+    default carried `"INITIATIVE_PROPOSAL"` while the constant in force said
+    `"INITIATIVE"`, and the merge reported "0 promoted, 0 left behind".
     """
     result = PromotionResult()
     promoted: List[str] = []
@@ -791,9 +800,17 @@ def promote_to_baseline(
         if a.scope == SCOPE_BASELINE:
             result.already_baseline += 1
             continue
-        if a.scope != SCOPE_INITIATIVE or not a.is_active:
+        if not is_initiative_scope(a.scope):
+            # Neither baseline nor an initiative proposal. Only an inactive fact or
+            # an unrecognised scope reaches here, and both are worth counting: the
+            # first because a retired fact is not a proposal to merge, the second
+            # because it is a vocabulary disagreement we cannot see otherwise.
+            if a.is_active:
+                result.unrecognised_scope += 1
             continue
-        if a.status in REVIEWED_STATUSES:
+        if not a.is_active:
+            result.skipped_inactive += 1
+        elif a.status in REVIEWED_STATUSES:
             a.scope = SCOPE_BASELINE
             result.promoted += 1
             promoted.append(a.id)
@@ -816,15 +833,33 @@ def promote_to_baseline(
 
 @dataclass
 class PromotionResult:
+    """What a promotion did, with every input fact accounted for.
+
+    The four skip counters are not decoration: "promoted 0" is only informative
+    next to what it passed over, and a bucket that does not exist is a fact that
+    vanishes without being reported.
+    """
+
     promoted: int = 0
     skipped_unverified: int = 0
     skipped_disputed: int = 0
+    skipped_inactive: int = 0
     already_baseline: int = 0
+    unrecognised_scope: int = 0
+
+    @property
+    def considered(self) -> int:
+        """Every fact the promotion classified."""
+        return (self.promoted + self.skipped_unverified + self.skipped_disputed
+                + self.skipped_inactive + self.already_baseline
+                + self.unrecognised_scope)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "promoted": self.promoted,
             "skipped_unverified": self.skipped_unverified,
             "skipped_disputed": self.skipped_disputed,
+            "skipped_inactive": self.skipped_inactive,
             "already_baseline": self.already_baseline,
+            "unrecognised_scope": self.unrecognised_scope,
         }

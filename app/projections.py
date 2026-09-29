@@ -56,12 +56,15 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence
 from core.knowledge import completeness_note, review_progress
 from core.knowledge.model import (
     CROSS_GRAPH_PREDICATES,
+    SCOPE_BASELINE,
+    SCOPE_DOMAIN,
     STATUS_CORRECTED,
     STATUS_DISPUTED,
     STATUS_RETIRED,
     STATUS_SUPERSEDED,
     STATUS_UNVERIFIED,
     STATUS_VERIFIED,
+    is_initiative_scope,
 )
 from core.knowledge.realization import realization_report
 from core.knowledge.quality import quality_report
@@ -387,10 +390,15 @@ def project_review_rows(
                 "confidence_band": confidence_band(a.confidence),
                 "status": a.status,
                 "status_slug": _status_slug(a.status),
+                # Read through the constants, not copies of their values. These were
+                # bare strings, so a vocabulary change would have left the view
+                # labelling every fact "Initiative" — including baseline ones — with
+                # nothing failing. `is_initiative_scope` also covers the legacy value
+                # real graphs still carry.
                 "scope": (
-                    "Baseline"
-                    if a.scope == "SYSTEM_BASELINE"
-                    else ("Domain" if a.scope == "DOMAIN_TRUTH" else "Initiative")
+                    "Baseline" if a.scope == SCOPE_BASELINE
+                    else ("Domain" if a.scope == SCOPE_DOMAIN
+                          else ("Initiative" if is_initiative_scope(a.scope) else a.scope))
                 ),
                 "scope_raw": a.scope,
                 "initiative_id": a.initiative_id or "",

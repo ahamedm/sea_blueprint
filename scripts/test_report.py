@@ -206,6 +206,7 @@ AREAS: Tuple[Area, ...] = (
             "test_reconcile_cli",
             "test_realization",
             "test_quality_census",
+            "test_evolution_journey",
         ),
     ),
     Area(
