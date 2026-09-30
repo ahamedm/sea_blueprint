@@ -195,6 +195,55 @@ def test_a_baseline_is_used_and_named_when_one_is_given():
     assert not any("no frozen baseline" in c for c in digest.caveats)
 
 
+def test_a_baseline_with_no_architecture_is_announced_rather_than_passed_over():
+    """The frozen baseline is what a design EXTENDS, so an empty one has to say so.
+
+    Freezing REQ-G before any design exists is the greenfield path and is perfectly
+    legitimate. The case that must not pass silently is the narrower one: the
+    enterprise holds architecture in the working set that never reached a baseline.
+    The design cannot see it — `architecture_source` is the baseline and nothing
+    else — so it extends nothing and may duplicate elements that already exist,
+    with no caveat and no finding to explain the proposal.
+    """
+    digest = design_input(merged(), baseline=requirement_graph(), base_ref="rev_req_v1")
+    # `merged()` is the requirement graph merged with three architecture nodes.
+    caveat = next(c for c in digest.caveats if "names no architecture" in c)
+
+    assert "working set holds 3 architecture element(s)" in caveat
+    assert "duplicate" in caveat
+    assert "greenfield" not in caveat, "this is the hazard, not the benign case"
+    assert caveat in digest.text, "the caveat must reach the prompt, not only the object"
+
+
+def test_a_greenfield_baseline_is_stated_as_expected_not_as_a_hazard():
+    """No architecture anywhere is a first design, not a mistake.
+
+    A single alarmist message would cry wolf on the journey's own stage 4 -> 5
+    ("Baseline REQ-G", then design), which is exactly how a caveat gets ignored.
+    """
+    digest = design_input(requirement_graph(), baseline=requirement_graph(),
+                          base_ref="rev_req_v1")
+    caveat = next(c for c in digest.caveats if "names no architecture" in c)
+
+    assert "greenfield" in caveat
+    assert "working set holds" not in caveat, "nothing is being hidden here"
+    assert "duplicate" not in caveat
+
+
+def test_a_baseline_that_carries_architecture_gets_no_such_caveat():
+    """The other half of the contract: a correct baseline stays quiet.
+
+    Without this, the check could be unconditional and every design run would carry
+    a warning about architecture — which trains a reviewer to ignore the header.
+    """
+    digest = design_input(requirement_graph(), baseline=architecture_graph(),
+                          base_ref="rev_arc_v1")
+
+    assert not any("names no architecture" in c for c in digest.caveats), digest.caveats
+    # And the architecture it does carry is what the design is shown.
+    assert "Payment Orchestrator" in digest.text
+
+
 def test_a_budget_cut_is_recorded_and_ordered():
     """A design that silently saw half the requirements is a wrong design."""
     detail_cut = requirements_digest(merged(), budget_chars=250)

@@ -426,6 +426,17 @@ def architecture_digest(
     return section
 
 
+def _architecture_node_count(graph: KnowledgeGraph) -> int:
+    """How many nodes the architecture renderer would actually draw.
+
+    Deliberately the same `_ARCHITECTURE_KINDS` the sections are built from, so
+    "this graph declares no architecture" can never disagree with what the model was
+    shown. A second notion of "has architecture" would drift from the renderer and
+    the caveat below would start lying in whichever direction drifted last.
+    """
+    return sum(1 for n in graph.nodes.values() if n.kind in _ARCHITECTURE_KINDS)
+
+
 def design_input(
     graph: KnowledgeGraph,
     baseline: Optional[KnowledgeGraph] = None,
@@ -455,6 +466,29 @@ def design_input(
             "no frozen baseline ARC-G exists; the existing architecture shown is the "
             "working set, which may itself be an unreviewed proposal"
         )
+    elif _architecture_node_count(architecture_source) == 0:
+        # A frozen baseline with no architecture is NOT automatically a mistake:
+        # freezing REQ-G before any design exists is the greenfield path, and a
+        # proposal that reuses nothing is the correct answer there. What must not
+        # pass silently is the other case — the enterprise has architecture in the
+        # working set that never reached a baseline, and the design cannot see it.
+        # Extending nothing without saying so is how a proposal ends up duplicating
+        # containers that already exist, which is the hazard this whole header is
+        # for. The design still extends nothing: the baseline is the authority, and
+        # quietly substituting the working set would be a different baseline.
+        in_working = _architecture_node_count(graph)
+        if in_working:
+            caveats.append(
+                f"the frozen baseline names no architecture, but the working set holds "
+                f"{in_working} architecture element(s) that are not in it — the design "
+                f"extends an empty baseline and may propose duplicates"
+            )
+        else:
+            caveats.append(
+                "the frozen baseline names no architecture, and neither does the "
+                "working set — a greenfield design, so a proposal that reuses nothing "
+                "is expected"
+            )
     # `completeness_note` is a header plus one line per run; flatten it so the
     # prompt header stays one bullet per caveat rather than one multi-line bullet.
     caveats.extend(

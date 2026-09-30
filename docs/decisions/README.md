@@ -41,3 +41,4 @@ Closed work from the TODO. Each record preserves its original write-up verbatim;
 | [ADR-0034](ADR-0034-payment-pack-hard-cases.md) | The payment pack's hard cases — an operation class, closed state sets, and a list that was already implemented | 2026-09-29 | — |
 | [ADR-0035](ADR-0035-baseline-promotion-and-evolution-journey.md) | Promoting ARC-G to a baseline, and the evolution journey that was never walked — one silent scope collision | 2026-09-29 | — |
 | [ADR-0036](ADR-0036-home-page-overview.md) | The home page as an overview — and the two ways a templated Mermaid diagram silently dies | 2026-09-29 | — |
+| [ADR-0037](ADR-0037-empty-baseline-caveat.md) | An empty frozen baseline announces itself — warn, do not fall back, do not refuse | 2026-09-29 | — |
