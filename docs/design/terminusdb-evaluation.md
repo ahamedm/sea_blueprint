@@ -5,6 +5,11 @@
 > [YB-010](../todos/entries/YB-010-rdf-knowledge-layer.md) is trying to do, or what the
 > repo is already hand-rolling elsewhere?
 >
+> **Companion:** [`omnigraph-evaluation.md`](omnigraph-evaluation.md) evaluates the second
+> candidate and carries the head-to-head table across all three options. Its finding is
+> the mirror of this one: Omnigraph is the stronger of the two engines on time-travel and
+> collaboration, and has no ontology language at all.
+>
 > **Evidence discipline.** Claims about TerminusDB are from its own README and docs,
 > fetched 2026-09-30, and are *vendor-stated* — not independently verified here. Claims
 > about this repo were run against the code and are marked **[M]** where measured.

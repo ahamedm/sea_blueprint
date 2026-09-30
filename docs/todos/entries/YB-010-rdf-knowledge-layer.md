@@ -26,12 +26,24 @@ blocked_by: []
 
 The complete write-up for this item lives in the design document above, preserved verbatim from `TODO.md` v1 (YB-010).
 
-**Alternative evaluated (2026-09-30):** [`docs/design/terminusdb-evaluation.md`](../../design/terminusdb-evaluation.md)
-— TerminusDB, on the strength of its git-for-data model. Verdict: **not a substitute**,
-and it would reverse this item's central choice. Two findings decide it — the RDF document
-formats (Turtle/JSON-LD/RDF-XML) and `@context` processing are **Enterprise-only**, and its
-query language is **WOQL, not SPARQL**, which forecloses the Jena path this item preserves.
-Its real strength (branch/merge/time-travel over a graph) lands on **YB-046**, not here.
+**Alternatives evaluated (2026-09-30):**
+
+- [`docs/design/terminusdb-evaluation.md`](../../design/terminusdb-evaluation.md) —
+  TerminusDB, on the strength of its git-for-data model. **Not a substitute**, and it would
+  reverse this item's central choice. Two findings decide it: the RDF document formats
+  (Turtle/JSON-LD/RDF-XML) and `@context` processing are **Enterprise-only**, and its query
+  language is **WOQL, not SPARQL**, which forecloses the Jena path this item preserves.
+- [`docs/design/omnigraph-evaluation.md`](../../design/omnigraph-evaluation.md) — Omnigraph,
+  raised as coming close on time-travel *and* ontology. The premise splits: it is the
+  **strongest of the three on time-travel and collaboration** (branch-per-agent,
+  review-and-merge, `--if-commit`, static per-query `reads`/`writes`) and the **weakest on
+  ontology** — no RDF, no SPARQL, and no class hierarchy, so the LinkML ontology is not
+  expressible in its schema language (`is_a`, `abstract`, `mixins` and polymorphic `range`
+  are all absent, and edges take fixed concrete endpoints). Carries the head-to-head table.
+
+Both are relevant to **YB-004 and YB-046**, not to this item: they answer *"how do I version
+and collaborate on a graph?"* where YB-010 asks *"how do I reason over one
+deterministically?"* — and that answer is still rdflib, SHACL and SPARQL.
 
 **Gate status (2026-09-30):** the obstacle this entry names is met — `inv_ontology_class_coverage`
 passes at **100%** on both `req_sample` (48/48) and `req_prd` (59/59), against a `min 80%`
