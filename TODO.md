@@ -3,7 +3,7 @@
 
 Open work only. Each item is one file under `docs/todos/entries/` — that file is the source of truth and this index is generated from it.
 
-**29 active · 1 parked · 2 superseded · 37 closed records**
+**30 active · 1 parked · 2 superseded · 37 closed records**
 
 | Where | What |
 |---|---|
@@ -39,6 +39,7 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [YB-051](docs/todos/entries/YB-051-connections-dropped-at-ingest.md) | Connections are extracted and then discarded — the graph has no C4 arrows | in-progress | `core/knowledge/ingest.py` (does not read `connections`), `app/viewpoints/merged.py` (kind registry), tests |
 | [YB-053](docs/todos/entries/YB-053-category-elements-and-duplicate-system.md) | Category elements, one system named twice, and a hub that is really a document gap | open | `agents/architecture_extraction/passes.py` (structure rules), `agents/extraction/validators.py` (a name validator), `core/knowledge/ingest.py` (`_resolve` identity) |
 | [YB-055](docs/todos/entries/YB-055-data-element-design.md) | Domain data elements and their exchanges — the architecture aspect with no model | open | `ontology/architecture_base.yaml` (a `DataElement`/`DataExchange` class), `agents/*/passes.py` (a pass or rules), `agents/extraction/validators.py` (guards), `core/knowledge/ingest.py` (the seam) |
+| [YB-057](docs/todos/entries/YB-057-machine-checked-is-not-human-verified.md) | Machine-checked is not human-verified — the review queue asks 486 questions to get 175 answers | open | `core/knowledge/review.py` (the states and `review_progress`), `core/knowledge/model.py` (assertion status/provenance), `agents/extraction/validators.py` (the check list), `app/projections.py` + `app/templates/review.html` (what the queue shows and how it is ranked) |
 
 ## Medium
 
