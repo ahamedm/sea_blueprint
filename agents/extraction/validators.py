@@ -18,6 +18,7 @@ and reports drift. Run it in the test harness so a schema/ontology mismatch fail
 loudly rather than being discovered in production output.
 """
 
+import re
 import typing
 from dataclasses import dataclass
 from functools import lru_cache
@@ -403,6 +404,13 @@ def check_enum_membership(elements: Sequence[Any]) -> List[Flag]:
         # ContainerType is worse than an absent one: it classifies the container as
         # something the ontology cannot name.
         ("container_type", "ContainerType"),
+        # The ISO 25010 pair. On the ELEMENT record these are plain `str`, unlike the
+        # `Literal`s on `DesignTechniqueRecord`, so nothing constrains them at the
+        # decoder and nothing else checks them. Measured on the live scope: these two
+        # predicates are 57 of the 486 assertions awaiting a human decision, and every
+        # one of them carries a value the ontology already enumerates.
+        ("quality_category", "QualityAttributeCategory"),
+        ("subcharacteristic", "QualitySubcharacteristic"),
     )
     flags: List[Flag] = []
     for e in as_record_dicts(elements):
@@ -484,6 +492,115 @@ def check_connection_endpoints(
 
 
 # ----------------------------------------------------------------------------
+# Span anchoring — is this fact in the document at all?
+# ----------------------------------------------------------------------------
+#
+# §3.6 of the reliability brainstorm: require an emitted value to be present in the
+# source, and validate it deterministically. The two halves need DIFFERENT rules, and
+# the measurements below are why rather than a preference.
+#
+# Both measurements are on `test_data/arch/payment_platform_arch.md` against the saved
+# `data/output/test_arch.json` (30 elements, 15 connections), 2026-09-30.
+
+_ANCHOR_WORD = re.compile(r"[a-z]{5,}")
+
+# A NAME is meant to be the document's own word, so the rule is strict. Measured: 29 of
+# 30 element names appear literally in the source, so the rule discriminates rather than
+# flooding — and the one that does not ("Reconciliation Container" where the document
+# says "Reconciliation") is exactly the synthesis worth a reviewer's attention.
+#
+# A DESCRIPTION is a SUMMARY, not a quotation, and a strict rule on it is unusable:
+# measured 0 of 30 descriptions appear literally. What separates a summary from an
+# invention is whether it uses the document's vocabulary — at a floor of 20% of the
+# description's long words, those same 30 score min 0.60, mean 0.89, and none is
+# flagged. A floor, not a target: the check exists to catch a description written from
+# nothing, and a validator that reports a correct graph is worse than none.
+_ANCHOR_MIN_WORD_SHARE = 0.20
+
+
+def _norm(text: Any) -> str:
+    """Lowercased with runs of whitespace collapsed, for literal containment.
+
+    Whitespace matters because an extracted name can carry a line break from the
+    document it was read out of, and `"a\\nb" in "a b"` is False for a reason that has
+    nothing to do with whether the document says it.
+    """
+    return re.sub(r"\s+", " ", str(text or "")).strip().lower()
+
+
+def check_names_are_anchored(elements: Sequence[Any], source: str) -> List[Flag]:
+    """An element's name must appear in the document that is supposed to declare it.
+
+    The deterministic form of a rule both prompts already state in words — "use the
+    concrete name the document gives (PostgreSQL, Valkey, OpenShift)" and "never emit a
+    bare category word … when the document names the specific thing". An invented name
+    is invisible in the output: `External Services` looks exactly like a declared
+    element, and only this check separates them.
+
+    Extraction profiles only. A DESIGN is allowed to invent — proposing a container the
+    document does not name is its job — so anchoring a design proposal would flag every
+    legitimate element. That is the same line the model already draws between
+    `SOURCE_EXTRACTION` and `SOURCE_DESIGN_ASSISTANT`: an extractor reports what a
+    document said, a designer proposes what could be built.
+
+    Connection endpoints are deliberately not re-checked here. An endpoint that is not a
+    declared element is `check_connection_endpoints`' finding, and an endpoint that IS
+    declared is that element's name — already checked, once.
+    """
+    source_norm = _norm(source)
+    if not source_norm:
+        return []
+    flags: List[Flag] = []
+    for e in as_record_dicts(elements):
+        name = str(e.get("name") or "").strip()
+        if name and _norm(name) not in source_norm:
+            flags.append(Flag(
+                "unanchored_name", name,
+                [f"the document never uses this name — it is either a category word or "
+                 f"a synthesis, and nothing else in the output distinguishes it from a "
+                 f"declared element"],
+            ))
+    return flags
+
+
+def check_quotations_are_grounded(
+    elements: Sequence[Any],
+    source: str,
+    min_share: float = _ANCHOR_MIN_WORD_SHARE,
+) -> List[Flag]:
+    """A description must at least use the document's vocabulary.
+
+    Catches a description written from nothing — the failure a reviewer cannot see,
+    because a fluent invented description reads like every other description.
+
+    Deliberately a FLOOR on shared vocabulary and not a containment test: see the
+    measurements above the section. A description with no words long enough to judge is
+    left alone rather than guessed at.
+    """
+    source_norm = _norm(source)
+    if not source_norm:
+        return []
+    present = set(_ANCHOR_WORD.findall(source_norm))
+    flags: List[Flag] = []
+    for e in as_record_dicts(elements):
+        description = str(e.get("description") or "").strip()
+        if not description:
+            continue
+        words = _ANCHOR_WORD.findall(_norm(description))
+        if not words:
+            continue
+        share = sum(1 for w in words if w in present) / len(words)
+        if share < min_share:
+            flags.append(Flag(
+                "ungrounded_description", str(e.get("name") or ""),
+                [f"only {share:.0%} of this description's words appear anywhere in the "
+                 f"document (floor {min_share:.0%}) — it reads as written from nothing "
+                 f"rather than summarised from the source"],
+            ))
+    return flags
+
+
+# ----------------------------------------------------------------------------
 # Completeness — the gap that let a diminished graph pass validation
 # ----------------------------------------------------------------------------
 
@@ -545,6 +662,23 @@ CONNECTION_FIELD_ENUMS: Dict[str, str] = {
     "style": "IntegrationStyle",
     "protocol": "IntegrationProtocol",
 }
+
+# The technique and technology vocabularies. These four ARE `Literal`s, so the
+# decoder constrains them — which is why nothing caught that no Python compared them
+# to the ontology. Measured 2026-09-30: all four match exactly today (11/11, 10/10,
+# 40/40, 10/10), so this guard is green on arrival and exists to keep it that way. A
+# `Literal` and an ontology enum that were once the same fact will diverge silently on
+# the next edit, which is the drift `check_schema_consistency` exists to catch.
+TECHNIQUE_FIELD_ENUMS: Dict[str, str] = {
+    "technique_category": "PatternCategory",
+    "quality_category": "QualityAttributeCategory",
+    "subcharacteristic": "QualitySubcharacteristic",
+}
+
+TECHNOLOGY_FIELD_ENUMS: Dict[str, str] = {
+    "category": "TechnologyCategory",
+}
+
 
 def check_schema_consistency(
     schema: type,

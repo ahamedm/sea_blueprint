@@ -42,6 +42,21 @@
       {{ p.unverified }} unverified · {{ p.disputed }} disputed · {{ p.corrected }} corrected ·
       {{ p.human }} human-attributed · {{ p.superseded }} superseded
     </p>
+    {% if buckets and buckets.outstanding %}
+      {# The number above is the resistance. It reads as N judgements, and most of the
+         queue is not judgement — a classification the ontology enumerates, or words
+         taken from the document. Say which, so the queue is a size a person can plan
+         against. It does not shrink the queue: nothing here decides anything yet. #}
+      <p class="hint" style="margin-top:2px;">
+        Of those <strong>{{ buckets.outstanding }}</strong>,
+        <strong>{{ buckets.needs_judgement }}</strong> need a judgement —
+        the rest is {{ buckets.enum_valued }} closed-vocabulary classification(s) a
+        guard can decide and {{ buckets.quotation }} description(s) checkable against
+        the source. Getting the checkable ones out of the queue needs
+        <em>machine-checked</em> to be a state distinct from human-verified, which it
+        is not yet — so they still require a decision here, but not your attention.
+      </p>
+    {% endif %}
     {% if not p.is_auditable %}
       <div class="banner banner-warn" style="margin:0;">
         <strong>The audit gate is closed.</strong>

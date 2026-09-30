@@ -69,7 +69,7 @@ from core.knowledge.model import (
 from core.knowledge.realization import realization_report
 from core.knowledge.quality import quality_report
 from core.knowledge.reconcile import DEFAULT_MATCH_THRESHOLD, reference_candidates
-from core.knowledge.review import ReviewLog
+from core.knowledge.review import REVIEWED_STATUSES, ReviewLog
 
 # Confidence below this is what the review gate wants a human to look at first.
 # 0.7 is a product decision, not a model one: it is the point below which the
@@ -323,6 +323,62 @@ def _matches_filters(a, graph, f: ReviewFilters, unresolved_ids: set, dangling_i
         if needle not in haystack:
             return False
     return True
+
+
+# Predicates whose value is meant to come from a closed vocabulary, so that a
+# deterministic guard decides them rather than a reader. Kept here as data because the
+# review page reports the split, and a drift between this list and the guards would make
+# the page's claim WRONG rather than merely incomplete.
+#
+# The membership criterion is strict: a predicate belongs here only if a guard can be
+# NAMED for it. Two candidates were dropped on inspection for failing that — `pattern`
+# on `EngineeringConventionRecord` is a regex the convention matches names against, not
+# an enum, and `requirement_type` is a free string written at ingest with nothing
+# checking it. Counting either would have made the page's "needs judgement" figure a lie.
+_ENUM_VALUED_PREDICATES = frozenset({
+    # decided by `check_enum_membership`, which reads each vocabulary from the ontology
+    # (the last two added 2026-09-30)
+    "element_type", "c4_level", "system_class", "origin", "deployment_model",
+    "container_type", "quality_category", "subcharacteristic",
+    # `Literal`-constrained at the decoder, so the schema itself refuses an off-list
+    # value — a stronger guard than a post-hoc flag, but the same closed vocabulary
+    "technique_category", "technology_category", "style", "convention_type",
+})
+
+# Predicates whose value is the document's own words, so a check against the source can
+# decide them rather than a reader.
+_QUOTATION_PREDICATES = frozenset({"description", "description_text"})
+
+
+def project_review_buckets(graph) -> Dict[str, int]:
+    """What the outstanding queue is actually MADE OF.
+
+    The page stated one number — "N unverified" — and that number is the resistance.
+    Measured on the live scope, most of it is not judgement: a classification the
+    ontology already enumerates, or words taken from the source. Only the rest is a
+    question a person has to answer.
+
+    This does not SHRINK the queue. Nothing here decides anything — the guards that
+    read this split flag a wrong value, they do not verify a right one, and giving
+    "a deterministic check agrees" its own state is the separate change (YB-057). What
+    it fixes is the page claiming 486 decisions when 288 are decisions.
+    """
+    buckets = {"enum_valued": 0, "quotation": 0, "relational": 0, "other": 0}
+    for a in graph.active():
+        if a.status in REVIEWED_STATUSES:
+            continue
+        if a.object is not None:
+            buckets["relational"] += 1
+        elif a.predicate in _ENUM_VALUED_PREDICATES:
+            buckets["enum_valued"] += 1
+        elif a.predicate in _QUOTATION_PREDICATES:
+            buckets["quotation"] += 1
+        else:
+            buckets["other"] += 1
+    buckets["needs_judgement"] = buckets["relational"] + buckets["other"]
+    buckets["outstanding"] = sum(buckets[k] for k in
+                                 ("enum_valued", "quotation", "relational", "other"))
+    return buckets
 
 
 def project_review_rows(

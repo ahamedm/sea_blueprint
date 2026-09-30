@@ -67,6 +67,7 @@ from app.projections import (
     project_quality_report,
     project_realization,
     project_reconciliation,
+    project_review_buckets,
     project_review_rows,
     project_review_summary,
 )
@@ -1373,6 +1374,11 @@ def create_app(
             presets=presets,
             current_query=current_query,
             total_rows=len(rows),
+            # What the outstanding queue is made of, so the page can say how much of it
+            # is actually a question a person has to answer. It does NOT shrink the
+            # queue — nothing here decides anything — but "486 unverified" reads as 486
+            # judgements and most of it is classification and transcription.
+            buckets=project_review_buckets(snapshot.graph),
             empty=not snapshot.graph.nodes and not snapshot.graph.assertions,
         )
 

@@ -269,10 +269,26 @@ def inv_schema_ontology_consistency(res, out):
     either enum would have left the pass schema asserting the old vocabulary, with
     no failing test and no run reporting anything.
     """
-    from agents.extraction import CONNECTION_FIELD_ENUMS, check_schema_consistency
-    from agents.architecture_extraction.passes import ConnectionRecord, ElementRecord
+    from agents.extraction import (
+        CONNECTION_FIELD_ENUMS,
+        TECHNIQUE_FIELD_ENUMS,
+        TECHNOLOGY_FIELD_ENUMS,
+        check_schema_consistency,
+    )
+    from agents.architecture_extraction.passes import (
+        ConnectionRecord,
+        DesignTechniqueRecord,
+        ElementRecord,
+        TechnologyStackRecord,
+    )
     flags = check_schema_consistency(ElementRecord)
     flags += check_schema_consistency(ConnectionRecord, CONNECTION_FIELD_ENUMS)
+    # The technique and technology vocabularies. These four are `Literal`s, so the
+    # decoder constrains them and nothing was comparing them to the ontology — which
+    # is exactly the pair of conditions under which a schema silently outlives the
+    # vocabulary it was copied from.
+    flags += check_schema_consistency(DesignTechniqueRecord, TECHNIQUE_FIELD_ENUMS)
+    flags += check_schema_consistency(TechnologyStackRecord, TECHNOLOGY_FIELD_ENUMS)
     return _ok(not flags,
                f"{len(flags)} schema/ontology drift findings"
                + (f": {[f.subject for f in flags]}" if flags else " — in sync"))

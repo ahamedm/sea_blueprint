@@ -58,20 +58,75 @@ equally-certain items arbitrarily.
    `QualitySubcharacteristic` (40), `technique_category` → `PatternCategory` (11),
    `technology_category` → `TechnologyCategory` (10). The vocabularies are already read
    from the ontology, so this is a list, not machinery. **Covers 99 of the 486.**
+   *(Landed, but as two different changes — see Status. Two of the four are `Literal`s and
+   needed a drift check, not a membership check.)*
 2. **Add a state for machine-checked.** Distinct from `VERIFIED` in name, provenance and
    every surface that reads it — see the risk below. Assertions a validator decides leave
    the human queue and are recorded *with the check that decided them*.
 3. **Span-anchor quotations** (reliability §3.6): a `description` that is a substring of
    its source chunk is checked; one that is not is a finding, which is the interesting
    case. **42 more leave the queue.**
+   *(Landed with a different rule — containment was measured wrong. See Status.)*
 4. **Rank the remainder by consequence, not confidence.** The reports are pure functions,
    so an assertion whose decision cannot move one does not belong at the top. Cheap
    version: does the subject appear in a report at all, then degree.
 5. **Report the queue as "N need a decision", not "N unverified"** — the page currently
    states the larger number, which is the resistance.
 
-**Measured effect of 1–3: 486 → ~230**, with the 175 relational facts filling the top. No
-model calls, no new engine, no new view.
+## Status 2026-09-30 — the cheap half landed, and the estimate was wrong
+
+**Done:** the first, third and fifth changes. The first turned out to be two different
+changes rather than one
+list — `quality_category`/`subcharacteristic` are plain `str` on `ElementRecord` so they
+became `check_enum_membership` entries, while `technique_category` and `technology_category`
+(alphabetically `category`) are already `Literal`s and needed a **drift** check against the
+ontology instead, not a membership check. Both are in, green on arrival, and
+`inv_schema_ontology_consistency` now covers all four schemas.
+
+Item 3 shipped with a **different rule than proposed here**, because the proposal was wrong
+and measuring it showed so: descriptions are **summaries, not quotations**. Against
+`test_data/arch/payment_platform_arch.md`, **0 of 30 descriptions** appear literally in the
+source — so "a `description` that is a substring of its source chunk" would have fired on
+every one of them, which is a report nobody would read. The shipped rule is a floor: a
+description must use at least 20% of its long words from the document, at which those same
+30 score min 0.60 and none is flagged. Names keep the strict rule, where 29 of 30 anchor and
+the rule discriminates.
+
+**The estimate of the effect was wrong twice, and the second reason is the one that
+matters.**
+
+- Arithmetically: 486 − 156 − 42 = **288**, not the ~230 written here.
+- Substantively: **the reduction comes from the machine-checked state, not from the guards.** A guard does not
+  remove an assertion from the queue — it converts "unverified" into "unverified, and
+  flagged if the value is wrong". With that state deferred, the queue is still 486, and what
+  changed is that its composition is now stated.
+
+**[M] Measured by the shipped classifier, on `data/sea_home_01` / `acme_pillar_01`:**
+
+```
+outstanding      486
+  enum_valued    174   a guard decides
+  quotation       42   the document decides
+  relational     175   a judgement
+  other           95   mixed, mostly prose — a judgement
+needs_judgement  270
+```
+
+The `enum_valued` figure is 174 rather than the 99 predicted, for two reasons worth
+recording: the four intended fields are 99, and the classifier also counts `style` (13) and
+`convention_type` (5), which are decoder `Literal`s — plus the two technique fields (42)
+that are the drift-check half. Two candidates were **removed** on inspection for failing the
+"name the guard" test: `pattern` on `EngineeringConventionRecord` is a regex the convention
+matches names against, not an enum, and `requirement_type` is a free string nothing checks.
+Counting either would have made the number the page prints a lie, and a wrong number is
+worse than none — it tells a reviewer to skip work only they can do.
+
+**Still open: the machine-checked state.** That is the part that shrinks the queue, and it is the
+product decision below rather than a mechanical one. Item 4 (rank by consequence) is also
+untouched.
+
+**Measured effect of 1, 3 and 5: none on the queue size — 486 stays 486 — and the page now
+says 270 of them are decisions.** No model calls, no new engine, no new view.
 
 ## The risk, which is a product decision not an implementation detail
 

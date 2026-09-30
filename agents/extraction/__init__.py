@@ -23,6 +23,8 @@ from .merging import (
 from .validators import (
     CONNECTION_FIELD_ENUMS,
     FIELD_ENUMS,
+    TECHNIQUE_FIELD_ENUMS,
+    TECHNOLOGY_FIELD_ENUMS,
     Flag,
     allowed_parent_kinds,
     as_record_dicts,
@@ -33,8 +35,10 @@ from .validators import (
     check_element_types,
     check_enum_membership,
     check_expected_present,
+    check_names_are_anchored,
     check_nonempty_field,
     check_object_contract,
+    check_quotations_are_grounded,
     check_schema_consistency,
     ontology_classes,
     ontology_enum,
@@ -51,6 +55,8 @@ __all__ = [
     "check_nonempty_field", "check_schema_consistency",
     "ontology_enum", "ontology_classes", "as_record_dicts",
     "check_containment_kinds", "check_connection_endpoints",
+    "check_names_are_anchored", "check_quotations_are_grounded",
     "allowed_parent_kinds", "ontology_slot_range", "ontology_subclasses",
     "FIELD_ENUMS", "CONNECTION_FIELD_ENUMS",
+    "TECHNIQUE_FIELD_ENUMS", "TECHNOLOGY_FIELD_ENUMS",
 ]

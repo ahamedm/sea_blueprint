@@ -58,6 +58,7 @@
 | — | Promoting ARC-G to a baseline, and the evolution journey that was never walked — one silent scope collision | [ADR-0035](../decisions/ADR-0035-baseline-promotion-and-evolution-journey.md) | record |
 | — | The home page as an overview — and the two ways a templated Mermaid diagram silently dies | [ADR-0036](../decisions/ADR-0036-home-page-overview.md) | record |
 | — | An empty frozen baseline announces itself — warn, do not fall back, do not refuse | [ADR-0037](../decisions/ADR-0037-empty-baseline-caveat.md) | record |
+| — | Grounding guards — a name anchors strictly, a description does not, and the queue says what it is | [ADR-0038](../decisions/ADR-0038-grounding-guards.md) | record |
 | None | Semantic reference matching — bridge the paraphrase the deterministic scorer cannot | [YB-027](entries/YB-027-semantic-reference-matching.md) | entry (open) |
 | None | Remove a fact the extractor invented — and stop a dispute withholding the audit | [YB-028](entries/YB-028-remove-extracted-facts.md) | entry (done) |
 | None | Quality-attribute views for the map — the architect's primary focus has no view of its own | [YB-029](entries/YB-029-quality-attribute-views.md) | entry (done) |

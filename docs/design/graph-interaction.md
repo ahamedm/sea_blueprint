@@ -73,9 +73,30 @@ Cheapest first, and none of it needs a model:
    critic-vs-extractor, confidence band. The queue is currently ordered by the one signal
    the model controls.
 
-After 1 and 2, the queue is ~230, and the 175 relational ones are the top of it. **That is
-a queue an architect can finish**, and it is reached without a new view, a new engine or a
-model call.
+**[M] Corrected 2026-09-30, after implementing the cheap half.** This passage first claimed
+"after 1 and 2 the queue is ~230". That was wrong twice, and the second error is the
+interesting one:
+
+- **Arithmetically**: 486 − 156 − 42 = **288**, not 230.
+- **Substantively**: the reduction is produced by item **1** — giving *machine-checked* a
+  state — not by the guards. Adding a check does not remove an assertion from the queue;
+  it converts "unverified" into "unverified, and flagged if the value is wrong". Without
+  that state the queue stays at 486 and only its **composition** becomes visible.
+
+What the implemented slice measures on the live scope:
+
+```
+outstanding      486
+  enum_valued    174   a guard can decide (check_enum_membership, or a Literal)
+  quotation       42   the document can decide
+  relational     175   a judgement
+  other           95   mixed, mostly prose — a judgement
+needs_judgement  270
+```
+
+So the queue is **486 assertions carrying 270 decisions**, and the page now says so. Getting
+the 216 decidable ones out of the queue is YB-057's deferred half, and it is a product
+decision rather than a mechanical one — see the risk section of that entry.
 
 ### B. Comprehension — altitude and answers, not density
 
@@ -147,8 +168,9 @@ Worth listing, because most of §A and §B needs no new machinery:
 1. **[YB-057](../todos/entries/YB-057-machine-checked-is-not-human-verified.md) — separate
    what is checkable from what is a judgement.** Extend the enum check list, add
    span-anchoring for quotations, give "machine-checked" a state, and report queue size as
-   "N need a decision" rather than "N unverified". Measured effect: **486 → ~230**, with
-   the 175 relational facts at the top. Cheapest, largest, no model calls.
+   "N need a decision" rather than "N unverified". **The first, third and fourth landed
+   2026-09-30** (see the correction in §2A); the state — the part that actually shrinks the
+   queue — is the product decision the entry leaves open. No model calls either way.
 2. **[YB-056](../todos/entries/YB-056-map-representation-modes.md) — altitude views over
    graph filtering.** Already filed; this analysis only adds the argument that altitude is
    the axis.
@@ -160,8 +182,9 @@ Worth listing, because most of §A and §B needs no new machinery:
 
 ## 5. What I am not claiming
 
-- **I have not run a user study.** The 486 → ~230 estimate is arithmetic on the live scope,
-  not evidence about what an architect would actually accept as checked.
+- **I have not run a user study.** The split into 270 judgements and 216 decidable facts is
+  a classification of the live scope, not evidence about what an architect would accept as
+  checked — and it was already wrong once in this document (see §2A).
 - **"Machine-checked" is a product decision, not an obvious one.** It weakens "a human
   vouched for this" unless the two states stay visibly distinct everywhere the graph is
   read — the review page, the audit trail, the reports, the exports. If they blur, the

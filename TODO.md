@@ -3,7 +3,7 @@
 
 Open work only. Each item is one file under `docs/todos/entries/` — that file is the source of truth and this index is generated from it.
 
-**30 active · 1 parked · 2 superseded · 37 closed records**
+**30 active · 1 parked · 2 superseded · 38 closed records**
 
 | Where | What |
 |---|---|
@@ -136,5 +136,6 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [ADR-0035](docs/decisions/ADR-0035-baseline-promotion-and-evolution-journey.md) | Promoting ARC-G to a baseline, and the evolution journey that was never walked — one silent scope collision | 2026-09-29 | item — |
 | [ADR-0036](docs/decisions/ADR-0036-home-page-overview.md) | The home page as an overview — and the two ways a templated Mermaid diagram silently dies | 2026-09-29 | item — |
 | [ADR-0037](docs/decisions/ADR-0037-empty-baseline-caveat.md) | An empty frozen baseline announces itself — warn, do not fall back, do not refuse | 2026-09-29 | item — |
+| [ADR-0038](docs/decisions/ADR-0038-grounding-guards.md) | Grounding guards — a name anchors strictly, a description does not, and the queue says what it is | 2026-09-30 | item — |
 
 The index is generated from the entries — do not edit `TODO.md` by hand.

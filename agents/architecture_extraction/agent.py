@@ -43,8 +43,10 @@ from ..extraction import (
     check_deployment_levels,
     check_element_types,
     check_enum_membership,
+    check_names_are_anchored,
     check_nonempty_field,
     check_object_contract,
+    check_quotations_are_grounded,
 )
 from ..extraction.passes import collect, outcome_records, run_passes, summarise
 from .repair import merge_style_elements, repair_containment, style_as_element
@@ -269,6 +271,12 @@ class ArchitectureExtractionAgent(KnowledgeExtractionAgent):
                 flags += check_nonempty_field(elements, "container_type",
                                               applies_to=("Container", "DataStore"))
                 flags += check_connection_endpoints(connections, elements)
+                # Span anchoring (§3.6). Extraction only — a design is allowed to
+                # invent, an extractor is not — and against the WHOLE document rather
+                # than the chunk, because `merge_records` has already merged across
+                # chunks and an element carries no record of which one it came from.
+                flags += check_names_are_anchored(elements, document)
+                flags += check_quotations_are_grounded(elements, document)
                 flags += style_as_element(elements)
                 flag_dicts = [f.to_dict() for f in flags]
             except Exception as exc:                                 # noqa: BLE001
