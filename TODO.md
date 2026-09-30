@@ -3,7 +3,7 @@
 
 Open work only. Each item is one file under `docs/todos/entries/` — that file is the source of truth and this index is generated from it.
 
-**29 active · 1 parked · 2 superseded · 35 closed records**
+**29 active · 1 parked · 2 superseded · 36 closed records**
 
 | Where | What |
 |---|---|
@@ -133,5 +133,6 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [ADR-0033](docs/decisions/ADR-0033-map-edge-labels-on-demand.md) | Edge labels on demand — the map stops drawing 285 pieces of text at once | 2026-09-28 | item — |
 | [ADR-0034](docs/decisions/ADR-0034-payment-pack-hard-cases.md) | The payment pack's hard cases — an operation class, closed state sets, and a list that was already implemented | 2026-09-29 | item — |
 | [ADR-0035](docs/decisions/ADR-0035-baseline-promotion-and-evolution-journey.md) | Promoting ARC-G to a baseline, and the evolution journey that was never walked — one silent scope collision | 2026-09-29 | item — |
+| [ADR-0036](docs/decisions/ADR-0036-home-page-overview.md) | The home page as an overview — and the two ways a templated Mermaid diagram silently dies | 2026-09-29 | item — |
 
 The index is generated from the entries — do not edit `TODO.md` by hand.

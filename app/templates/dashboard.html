@@ -1,13 +1,48 @@
 {% extends "base.html" %}
 {% block title %}Overview · SEA{% endblock %}
 
+{# Mermaid is 2.5 MB and page-scoped, as the base layout argues: loading it
+   everywhere would make every other page pay for a diagram it never draws. This
+   page draws four, so it pays. #}
+{% block head %}
+  <script src="{{ url_for('static', filename='js/mermaid.min.js') }}"></script>
+{% endblock %}
+
+{% macro diagram(id, title, caption, spec) %}
+  {# One diagram, and the CONTRACT it keeps: the canvas is drawn by mermaid from
+     `spec`, and the caller's block is the same content as prose for a reader whose
+     browser never renders it. A diagram that disappears into a blank box is worse
+     than no diagram — the text is the diagram's equal, not a consolation.
+
+     The mermaid source rides in a `<script type="text/plain">` node, and that is
+     load-bearing rather than stylistic. Two ways to get it wrong, both hit here:
+     autoescaping rewrites `-->` to `--&gt;` and `"` to `&#34;`, and mermaid then
+     reports "Syntax error in text" for every diagram; but capturing the spec in a
+     `{% set %}` block yields Markup, and Markup inside a QUOTED ATTRIBUTE breaks the
+     attribute on its first inner quote, truncating the diagram. A script element is
+     raw text: the parser does not decode entities inside it, so a captured spec
+     arrives exactly as written, and neither `<br/>` nor `"` nor `-->` is special. It
+     also has to be a script and not a `<pre>`, which WOULD decode entities. #}
+  <div class="card">
+    <div class="card-head"><h2>{{ title }}</h2></div>
+    <div class="diagram" data-diagram="{{ id }}">
+      <div class="diagram-canvas"></div>
+      <script type="text/plain" class="diagram-spec">{{ spec }}</script>
+      <div class="diagram-source">{{ caller() }}</div>
+    </div>
+    <p class="hint" style="margin:10px 0 0;">{{ caption }}</p>
+  </div>
+{% endmacro %}
+
 {% block content %}
 <div class="page-head">
   <div>
-    <h1>Architecture knowledge overview</h1>
+    <h1>SEA — Semantic Enterprise Architect</h1>
     <p>
-      The canonical graph is the memory; the agents are stateless functions over it.
-      This page is the state of that memory, and what it still needs from a human.
+      A <strong>System Memory</strong> for an enterprise: it turns the documents a
+      project writes into a single knowledge graph, and then keeps that graph honest
+      as the system it describes changes. The graph is the memory; the agents are
+      stateless functions over it.
     </p>
   </div>
   <div class="row">
@@ -15,6 +50,197 @@
     <a class="btn btn-primary" href="{{ url_for('review') }}">Go to review gate</a>
   </div>
 </div>
+
+{# ======================================================================
+   Part 1 — what the tool is. Shown whether or not this workspace holds
+   anything, because a reader meeting an empty tool needs the map before
+   the territory.
+   ====================================================================== #}
+
+<div class="grid grid-2">
+  <div class="card">
+    <div class="card-head"><h2>Why it exists</h2></div>
+    <p style="margin-top:0;">
+      An architecture document states what a system must do and how it is built.
+      It goes stale the moment it is saved, and nothing checks it against the next
+      project. The questions this tool answers are the ones that need <em>both</em>
+      halves at once:
+    </p>
+    <ul style="margin:0; padding-left:18px; line-height:1.7;">
+      <li>Which requirements have <strong>no</strong> architectural answer?</li>
+      <li>Which part of the design answers <strong>this</strong> requirement?</li>
+      <li>What did the architecture deliver that <strong>nobody asked for</strong>?</li>
+      <li>What changed since the baseline a human approved?</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>How it earns trust</h2></div>
+    <p style="margin-top:0;">
+      Extraction is a model's proposal, never a fact. Every assertion carries its
+      provenance and its confidence, and a <strong>human gate</strong> stands between
+      the proposal and the graph — so no finding is ever built on unreviewed output.
+    </p>
+    <ul style="margin:0; padding-left:18px; line-height:1.7;">
+      <li><strong>Nothing is dropped silently.</strong> An output key nothing reads, a
+        refused fact, a lost pass — each is reported rather than swallowed.</li>
+      <li><strong>Absence is only evidence when extraction is COMPLETE</strong>, and
+        the graph records its own completeness.</li>
+      <li><strong>An impossible fact is refused at the write boundary</strong>, so it
+        cannot acquire human authority later.</li>
+    </ul>
+  </div>
+</div>
+
+<h2 style="font-size:16px; margin:24px 0 10px;">The loop</h2>
+{% set loop_spec %}flowchart LR
+  A["1 · Ingest<br/>document → graph"] --> B["2 · Review<br/>verify / correct"]
+  B --> C["3 · Baseline<br/>freeze a revision"]
+  C --> D["4 · Reconcile<br/>REQ-G ↔ ARC-G"]
+  D --> E["5 · Audit<br/>gaps and coverage"]
+  E -->|findings| A
+  E -->|accepted| F["Promote<br/>initiative → system baseline"]{% endset %}
+{% call diagram(
+  'loop',
+  'From a document to an answer, and back',
+  'Every stage is a page in this tool. The loop closes on purpose: resolving a finding
+   changes the design or challenges the requirement, and the affected scope is
+   re-ingested rather than patched in place.',
+  loop_spec) %}
+  <strong>Ingest</strong> a document and the extraction agents draft a graph →
+  <strong>Review</strong> it, verifying or correcting each fact (a human gate, not a
+  screen) → <strong>Baseline</strong> it by freezing a revision →
+  <strong>Reconcile</strong> so the requirement and architecture sides actually meet →
+  <strong>Audit</strong> for gaps and coverage → then either resolve the findings by
+  re-ingesting the affected scope, or promote the verified facts into the system
+  baseline.
+{% endcall %}
+
+<div class="grid grid-2" style="margin-top:14px;">
+  {# Subgraph titles get ONE short line: mermaid draws the title straddling the
+     box's top border, so a second line is overlapped by the box itself. The
+     transient/persistent distinction is carried by the child labels instead —
+     "Proposed" against "Established" — and by the caption below. #}
+  {% set living_spec %}flowchart TB
+    subgraph INIT["Initiative"]
+      IR["Proposed requirements"]
+      IA["Proposed architecture"]
+    end
+    subgraph SYS["System baseline"]
+      BR["Established requirements"]
+      BA["Established architecture"]
+    end
+    O["Domain ontology<br/>the reference frame"]
+    INIT -->|"verified facts<br/>promoted"| SYS
+    O -.->|"vocabulary for"| INIT
+    O -.->|"vocabulary for"| SYS{% endset %}
+  {% call diagram(
+    'living',
+    'A living system, not a snapshot',
+    'An Initiative is a feature branch of the architecture: it proposes, and its
+     proposals are disposable. Only facts a human verified are merged into the system
+     baseline, which is what persists across projects. The domain ontology is the third
+     thing — the vocabulary both sides are stated in, growing as new concepts appear
+     rather than drifting per project.',
+    living_spec) %}
+    <strong>Initiative (transient):</strong> the requirements and architecture a project
+    proposes — disposable by design. <strong>System baseline (persistent):</strong> the
+    established truth that survives across projects; verified Initiative facts are
+    promoted into it. <strong>Domain ontology (reference frame):</strong> the shared
+    vocabulary both are stated in, so "Cardholder Data" in one project and "PAN" in
+    another are recognised as related instead of drifting apart.
+  {% endcall %}
+
+  {% set graphs_spec %}flowchart LR
+    RQ["REQ-G<br/>what must be true"] -->|"reconciliation"| AR["ARC-G<br/>how it is built"]
+    AR --> REAL["Realization report<br/>which requirements<br/>have no answer"]
+    RQ --> QUAL["Quality census<br/>stated vs delivered"]{% endset %}
+  {% call diagram(
+    'graphs',
+    'One graph, two sides',
+    'Requirements and architecture live in the same graph, so the join between them is
+     a query rather than a synchronisation problem. Reconciliation binds the
+     references; the reports then read the join in both directions.',
+    graphs_spec) %}
+    <strong>REQ-G</strong> (goals, capabilities, requirements) and <strong>ARC-G</strong>
+    (systems, containers, components, connections) are sides of one canonical graph,
+    not two files to keep in sync. Reconciliation resolves the references that join
+    them — <code>implements_requirement</code>, <code>traces_to_goal</code> and friends
+    — and the reports then read the join both ways: the realization report finds
+    requirements with no architectural answer, and the quality census finds quality
+    attributes stated but not delivered, and delivered but never asked for.
+  {% endcall %}
+</div>
+
+<div style="margin-top:14px;">
+{% set layers_spec %}flowchart TB
+  C["sea_common<br/>identity and provenance"] --> E["enterprise_structure<br/>Product, System, Application"]
+  E --> R["requirements_base<br/>requirements, business context, quality"]
+  R --> G["governance_base<br/>Policy, Control, Risk, StandardClause"]
+  G --> A["architecture_base<br/>C4 elements, patterns, techniques"]
+  D["domains/*.yaml<br/>subject-matter overlay"] -.->|"imports"| R{% endset %}
+{% call diagram(
+  'layers',
+  'The ontology, in layers',
+  'Five base layers in a strict one-way import chain, plus domain packs as a swappable
+   overlay. The base layers describe the artifact and stay domain-neutral; a pack
+   describes the subject matter and is chosen per Initiative. This is what stops the
+   tool being payment-shaped while appearing generic.',
+  layers_spec) %}
+  <strong>sea_common</strong> (identity and provenance) →
+  <strong>enterprise_structure</strong> (Product, System, Application, Platform) →
+  <strong>requirements_base</strong> (requirements, business context, the ISO 25010
+  quality model) → <strong>governance_base</strong> (Policy, Control, Risk,
+  StandardClause) → <strong>architecture_base</strong> (C4 elements, patterns,
+  techniques). A <strong>domain pack</strong> under <code>domains/</code> is a swappable
+  overlay that imports <code>requirements_base</code> and supplies the vocabulary of the
+  subject matter — the parties, instruments, operations and lifecycle of the domain in
+  hand.
+{% endcall %}
+</div>
+
+<div class="card" style="margin-top:14px;">
+  <div class="card-head"><h2>What each page is for</h2></div>
+  <table class="table-plain purpose-table">
+    <thead><tr><th>Page</th><th>Stage</th><th>What it is for</th></tr></thead>
+    <tbody>
+      <tr><td>Overview</td><td class="stage">—</td>
+        <td>This page: what the tool is, and the state of <em>this</em> workspace.</td></tr>
+      <tr><td>Ingest</td><td class="stage">1</td>
+        <td>Load a requirements or architecture document. The extraction agents draft
+          a graph; nothing is trusted until it is reviewed.</td></tr>
+      <tr><td>Review</td><td class="stage">2</td>
+        <td>The human gate. Verify, correct, dispute or retire each assertion, singly
+          or in bulk. Nothing downstream may run on unreviewed knowledge.</td></tr>
+      <tr><td>Design</td><td class="stage">2 → 3</td>
+        <td>Propose a core architecture from the requirements graph and the frozen
+          baseline. A proposal is a draft a human applies, never a write.</td></tr>
+      <tr><td>Changes</td><td class="stage">3</td>
+        <td>Revisions and baselines: commit a snapshot, freeze it as the baseline,
+          promote verified facts into the system baseline, diff any two states.</td></tr>
+      <tr><td>Reconcile</td><td class="stage">4</td>
+        <td>Resolve the cross-graph references so REQ-G and ARC-G meet, instead of
+          leaving <code>implements_requirement</code> pointing at a name.</td></tr>
+      <tr><td>Map</td><td class="stage">—</td>
+        <td>The whole knowledge graph, both sides, with the cross-graph references
+          drawn. Edge labels appear on hover, so a large graph stays readable.</td></tr>
+      <tr><td>C4</td><td class="stage">5</td>
+        <td>The architecture as a C4 specification, with its well-formedness checks
+          and Mermaid or Structurizr notation to take away.</td></tr>
+      <tr><td>Gaps</td><td class="stage">5</td>
+        <td>What is missing: unresolved references, requirements with no answer, and
+          the extraction completeness that decides whether absence means anything.</td></tr>
+      <tr><td>Quality</td><td class="stage">5</td>
+        <td>ISO/IEC 25010 coverage — which quality attributes are stated, which are
+          delivered, and which are gaps in either direction.</td></tr>
+      <tr><td>Ontology</td><td class="stage">0</td>
+        <td>The vocabulary extraction is held to: the import chain, every class and
+          enum, and how many instances of each this workspace actually has.</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2 style="font-size:16px; margin:26px 0 10px;">This workspace, right now</h2>
 
 {% if view.empty %}
   <div class="card empty">
@@ -73,6 +299,13 @@
       Every assertion has a human decision and extraction is COMPLETE — absence of a
       fact here may be meaningful.
     </div>
+  {% endif %}
+
+  {% if view.baselines %}
+    <p class="hint" style="margin:-6px 0 14px;">
+      Baseline in force: {% for label in view.baselines %}<span class="tag">{{ label }}</span>{% endfor %}
+      — a design run extends this. <a href="{{ url_for('design') }}">Design →</a>
+    </p>
   {% endif %}
 
   <div class="grid grid-2">
@@ -166,4 +399,38 @@
     </div>
   </div>
 {% endif %}
+
+<script>
+  // -- the overview diagrams ------------------------------------------------
+  //
+  // Client-side, from the `text/plain` spec beside each canvas. The fallback prose
+  // is already visible and is hidden only once an SVG has actually landed, so a
+  // browser without mermaid — or a diagram with a syntax error — degrades to the
+  // text rather than to an empty box. Nothing here is load-bearing: the prose says
+  // the same thing.
+  (function () {
+    var boxes = document.querySelectorAll('[data-diagram]');
+    if (!boxes.length || !window.mermaid) { return; }
+
+    try {
+      window.mermaid.initialize({ startOnLoad: false, securityLevel: 'strict' });
+    } catch (err) {
+      return;   // leave every fallback in place rather than half-render
+    }
+
+    Array.prototype.forEach.call(boxes, function (box, index) {
+      var spec = box.querySelector('.diagram-spec');
+      var canvas = box.querySelector('.diagram-canvas');
+      var fallback = box.querySelector('.diagram-source');
+      if (!spec || !canvas || !fallback) { return; }
+
+      window.mermaid.render('sea-diagram-' + index, spec.textContent).then(function (result) {
+        canvas.innerHTML = result.svg;
+        fallback.hidden = true;
+      }).catch(function () {
+        // Leave the prose. A failed diagram is a degraded view, not a lost page.
+      });
+    });
+  })();
+</script>
 {% endblock %}

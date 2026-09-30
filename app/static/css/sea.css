@@ -538,6 +538,31 @@ hr.sep { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
 }
 .c4-diagram svg { max-width: 100%; height: auto; }
 
+/* -- overview diagrams (home page) ---------------------------------------- */
+
+/* The same contract as `.c4-diagram`, kept a separate class because this box
+   holds several independent diagrams rather than one deliverable, and it sits in
+   a scrolling page section: no minimum height, because there is nothing below it
+   to shove. Mermaid renders client-side, so before it runs the box holds the
+   diagram's TEXT fallback — which is why the box must not be sized for an SVG it
+   may never receive. */
+.diagram { overflow-x: auto; margin: 4px 0 2px; }
+.diagram svg { max-width: 100%; height: auto; }
+.diagram-source {
+  margin: 0; padding: 12px 14px; border: 1px dashed var(--border);
+  border-radius: 8px; background: var(--surface-2, #f8fafc);
+  font-size: 12.5px; line-height: 1.6; color: var(--text-dim);
+}
+/* Only one of the two is ever shown: the source is the fallback, and the render
+   script swaps it out on success and leaves it in place on failure. */
+.diagram-source[hidden] { display: none; }
+
+/* The nav, as a table of what each page is FOR. A reader arriving at the tool
+   needs the map before the territory, and the top nav is a list of nouns. */
+.purpose-table td:first-child { white-space: nowrap; font-weight: 600; }
+.purpose-table td { vertical-align: top; }
+.purpose-table .stage { color: var(--text-faint); white-space: nowrap; }
+
 /* A notation block is text a human copies, so the copy button sits INSIDE the
    scroll container rather than above it — scrolling to the end of a 300-line DSL
    must not be how you reach the button. */

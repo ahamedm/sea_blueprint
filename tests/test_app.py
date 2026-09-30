@@ -30,6 +30,92 @@ def test_every_page_renders_on_an_empty_working_set(client):
         assert response.status_code == 200, f"{path} -> {response.status_code}"
 
 
+def test_the_home_page_explains_the_tool_before_showing_state(client):
+    """The landing page is an OVERVIEW of the tool, not only a status board.
+
+    A reader arriving cold — or arriving at a workspace with nothing in it — needs
+    the map before the territory: what the thing is for, how the stages fit, and
+    which page does what. The state section is the second half of the page.
+    """
+    html = client.get("/").data
+
+    assert b"Why it exists" in html
+    assert b"How it earns trust" in html
+    assert b"What each page is for" in html
+    assert b"This workspace, right now" in html
+
+    # Every diagram, with its spec and its prose fallback.
+    assert html.count(b"data-diagram=") == 4, "expected four overview diagrams"
+    assert html.count(b'class="diagram-spec"') == 4
+    assert html.count(b'class="diagram-source"') == 4
+
+    # Every destination in the nav is described, so the table cannot silently fall
+    # behind a page that gets added.
+    for label in (b"Ingest", b"Review", b"Design", b"Changes", b"Reconcile",
+                  b"Map", b"C4", b"Gaps", b"Quality", b"Ontology"):
+        assert label in html, label
+
+
+def test_the_overview_is_shown_whether_or_not_the_workspace_holds_anything(client):
+    """The overview is NOT conditional on the graph.
+
+    It was tempting to render it only for a populated workspace, which is exactly
+    backwards: an empty workspace is where a reader most needs to be told what the
+    tool is and where to start.
+
+    `client` alone — not `seeded_client` — because that fixture ingests during setup
+    and both fixtures resolve before the test body, so the "empty" read would already
+    be populated.
+    """
+    empty = client.get("/").data
+    assert b"No knowledge yet" in empty
+    assert b"Why it exists" in empty
+    assert empty.count(b"data-diagram=") == 4
+
+    client.post("/ingest", data={"text": "architecture body", "type": "architecture"})
+
+    full = client.get("/").data
+    assert b"Awaiting review" in full
+    assert b"Why it exists" in full
+    assert full.count(b"data-diagram=") == 4
+
+
+def test_the_diagram_source_is_raw_and_the_fallback_is_rendered_markup(client):
+    """Two ways to get this wrong, and both were hit while building the page.
+
+    Autoescaping rewrites `-->` to `--&gt;` in a text node, and mermaid then reports
+    "Syntax error in text" for every diagram on the page. The spec therefore lives in
+    a `<script type="text/plain">`, which is raw text. The FALLBACK is the opposite
+    case: it is markup that has to render, so it is a caller block and not a string —
+    passing it as a string printed literal `<strong>` tags at the reader.
+    """
+    html = client.get("/").data
+
+    assert b"--&gt;" not in html, (
+        "a mermaid arrow was HTML-escaped; every diagram on the page will fail to "
+        "render with 'Syntax error in text'"
+    )
+    assert b"&lt;strong&gt;" not in html, (
+        "the fallback prose was escaped and printed its tags at the reader"
+    )
+    assert b"<strong>Ingest</strong>" in html, "the fallback markup is not rendering"
+
+
+def test_mermaid_is_loaded_only_where_something_is_drawn(client, seeded_client):
+    """2.5 MB, and `base.html` argues it must not be loaded everywhere.
+
+    The home page now draws diagrams, so it pays — and this pins that the cost did
+    not leak into the pages that draw nothing.
+    """
+    assert b"mermaid.min.js" in client.get("/").data
+    assert b"mermaid.min.js" in client.get("/c4").data
+
+    for path in ("/ingest", "/review", "/gaps", "/quality", "/changes", "/reconcile"):
+        assert b"mermaid.min.js" not in client.get(path).data, (
+            f"{path} loads a 2.5 MB diagram library it never uses"
+        )
+
+
 def test_the_quality_census_renders_and_serves_json(client):
     """The attribute-shaped audit.
 
