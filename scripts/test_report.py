@@ -178,12 +178,29 @@ AREAS: Tuple[Area, ...] = (
             "test_quality_classifier",
             "test_generation_bounds",
             "test_hosted_endpoint",
-            "test_prompt_budget",
             "test_semantic_accuracy",
             "test_extraction_harness",
             "test_usage_accounting",
+        ),
+    ),
+    Area(
+        key="design",
+        title="The Design Assistant",
+        question="Does a proposed architecture stay grounded in the requirements, and extend the baseline a human accepted?",
+        intent=(
+            "The one profile that PROPOSES instead of reporting, and the constraints that "
+            "keep a proposal answerable: every element traceable to a requirement, "
+            "patterns resolved against the catalogue rather than invented, techniques "
+            "linked to a quality attribute, scenarios with a number in them, and a prompt "
+            "no larger than the document it instructs. Also the baseline it extends — a "
+            "design that cannot see what already exists duplicates it — and the caveats "
+            "that say what the model was not shown."
+        ),
+        files=(
             "test_design_agent",
             "test_design_digest",
+            "test_prompt_budget",
+            "test_design_app",
         ),
     ),
     Area(
@@ -193,21 +210,35 @@ AREAS: Tuple[Area, ...] = (
         intent=(
             "The half of the product that makes the graph trustworthy: verify, dispute, "
             "correct, retire, and the decision log that answers 'why does the graph look "
-            "like this?'. Also the reconciliation that binds a reference to a node, and "
-            "the reports (realization, quality census) that decide what a gap IS. A "
-            "review gate that accepts something impossible is the failure this area "
-            "exists to prevent."
+            "like this?'. Also the quality census, which decides what a gap IS. A review "
+            "gate that accepts something impossible is the failure this area exists to "
+            "prevent."
         ),
         files=(
             "test_review",
             "test_review_bulk",
             "test_review_exclusions",
             "test_retire",
+            "test_quality_census",
+            "test_evolution_journey",
+        ),
+    ),
+    Area(
+        key="reconciliation",
+        title="Reconciliation — the two graphs meeting",
+        question="Does a reference resolve to the right node in the right direction, and what is left over?",
+        intent=(
+            "The join the product exists for: an `implements_requirement` naming a "
+            "requirement, bound to the node that IS that requirement — or reported as "
+            "unresolved rather than confidently bound to the wrong one. Includes the CLI, "
+            "and the realization report that reads the join both ways to say which "
+            "requirements have an architectural answer. A wrong join is the failure here: "
+            "it makes the audit wrong rather than merely incomplete."
+        ),
+        files=(
             "test_reconcile",
             "test_reconcile_cli",
             "test_realization",
-            "test_quality_census",
-            "test_evolution_journey",
         ),
     ),
     Area(
@@ -234,14 +265,13 @@ AREAS: Tuple[Area, ...] = (
         intent=(
             "Routes, templates and the small amount of glue that turns domain "
             "operations into pages: ingest and its guards, the review queue's layout, "
-            "the Design Assistant's pages, and workspace-addressed requests. These run "
+            "and workspace-addressed requests. These run "
             "against the real Flask app with a fake extractor, so a break here is a "
             "break a user would meet."
         ),
         files=(
             "test_app",
             "test_app_workspace",
-            "test_design_app",
             "test_review_ui",
         ),
     ),
@@ -1259,6 +1289,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         description="Report the test suite as areas, with intent and outcomes.")
     parser.add_argument("--catalog", action="store_true",
                         help="describe the suite from source and run nothing")
+    parser.add_argument(
+        "-n", "--jobs", type=int, default=0, metavar="N",
+        help=("Run the suite across N xdist workers (0 = in-process, one at a time). "
+              "A full regression is ~1000 tests; without this the run can outlive a "
+              "single command's budget and the report it exists to write never lands."),
+    )
     parser.add_argument("--only", action="append", default=[], metavar="AREA",
                         help=f"limit to one area (repeatable): {', '.join(AREA_BY_KEY)}")
     parser.add_argument("-k", dest="keyword", default="",
@@ -1300,6 +1336,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     code, duration, note = 0, 0.0, ""
     if not args.catalog:
         extra = ["-k", args.keyword] if args.keyword else []
+        if args.jobs and args.jobs > 1:
+            extra += ["-n", str(args.jobs)]
         try:
             code, collector, duration = run_pytest(_select_targets(args.only), extra)
         except Exception as exc:                                 # noqa: BLE001

@@ -3,6 +3,19 @@ This is a platform shrinked to a tool/app to prove the core idea of leveraging O
 
 # Convention
 - TODOs/Deferred Items tracked as one file per item under `docs/todos/entries/`; `TODO.md` is a generated index — never edit it by hand, run `uv run scripts/todo.py render` (validate with `check`). Closed work becomes a record in `docs/decisions/`, long analysis lives in `docs/design/`. See [TODO system](docs/todos/README.md)
+- **A full regression generates the reports.** Any run of the whole suite ends with
+  `.venv/bin/python scripts/test_report.py -n 4` (no `--catalog`) so `reports/test-report.md`
+  and `reports/test-report.html` carry the outcomes of the code as it now stands. `-n 4` runs
+  it across xdist workers: serially the same run is ~28 minutes, which is how it goes stale.
+  The reports are gitignored, so nothing fails when they are late — which is exactly why it
+  is a step to perform rather than one to hope for. A report that predates the change it
+  describes is worse than no report, because it is read as current.
+- **Tests are grouped by the question they answer, not by the directory they sit in.** Every
+  `tests/test_*.py` is assigned to exactly one area in `scripts/test_report.py`; each area
+  states the QUESTION it answers and the intent behind it, and each test states its own
+  intent in a docstring. Assign a new file to the area whose question it serves, and if none
+  fits, add an area rather than widening one — a file list that has to be read to be
+  understood is the drift this taxonomy exists to catch. See [Reading the tests](docs/testing.md)
 - Documents under docs/ folder
 - Configurations Externalized
 - Use uv instead of direct python for build/dependency management etc.

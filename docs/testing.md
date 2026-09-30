@@ -20,15 +20,22 @@ regenerate rather than review a stale copy) and prints a console summary.
 | Flag | What it is for |
 |---|---|
 | `--catalog` | The comprehension view. Reads the sources and prints every area, file and test with its description, without executing anything. This is the one to read when you are new to the suite, or when the suite will not run. |
+| `-n N` | Run across N xdist workers. **Use it for a full regression**: serially the whole suite is ~28 minutes, which is how a report goes stale before anyone reads it. `-n 4` brings it inside a normal working interval. |
 | `--only AREA` | One area, and only its files. Fast enough to keep open while working. |
 | `-k EXPR` | Passed through to pytest. |
 | `--failures-only` | Console output that shows only the failures. |
 | `--format` | `console`, `md`, `html` or `all` (default). |
 | `--no-harness` | Skip the extraction-harness catalogue. |
 
+**A full regression ends by generating the reports** — `test_report.py` without `--catalog`.
+They are gitignored by design (a committed report is a claim about a suite that has since
+changed), so nothing fails when they are late; that is why it is a step to perform rather
+than one to hope for. A report that predates the change it describes is read as current, and
+is worse than no report at all.
+
 ## Areas are questions
 
-Nine areas, each answering one question. They are not directories: `tests/` is flat
+Eleven areas, each answering one question. They are not directories: `tests/` is flat
 and always has been, so the grouping is an explicit layer over it.
 
 | Area | The question it answers |
@@ -38,13 +45,27 @@ and always has been, so the grouping is an explicit layer over it.
 | The canonical graph | Does a fact survive being keyed, written, saved and loaded? |
 | Ingest and the seams | Is anything the model produced dropped, mangled or impossible once stored? |
 | Extraction agents and run reliability | Do the passes produce well-shaped output, on budget, on the configured endpoint? |
+| The Design Assistant | Does a proposed architecture stay grounded in the requirements, and extend the baseline a human accepted? |
 | Review gate and audit trail | Can a human vouch for, correct or remove a fact — and can the graph prove it? |
+| Reconciliation — the two graphs meeting | Does a reference resolve to the right node in the right direction, and what is left over? |
 | Views and projections | Does the graph render as an artefact without inventing or hiding structure? |
 | The web app | Does the UI behave over HTTP the way the domain layer promises? |
 | Background runs and progress | Can work outlive the request that started it, and say how it is going? |
 
 Each area's full intent — what it protects and why the failure would matter — is in
 the report and in `scripts/test_report.py`.
+
+**An area is a capability, not a layer.** Two areas were split out on 2026-09-30 for
+exactly that reason: the Design Assistant's tests were spread across *extraction* (its
+agent and digest) and *app* (its pages), and reconciliation sat inside *review* beside
+the gate it feeds. Both read as sub-concerns of somewhere else, so a reader asking "what
+protects the design proposal?" had three places to look and no name for the question.
+When a family's tests only make sense together, that is the signal to give it an area
+rather than to widen one.
+
+A new `tests/test_*.py` must be assigned to exactly one area —
+`tests/test_test_report.py` fails until it is, which is what stops the taxonomy drifting
+from the suite it describes.
 
 ## Adding a test file is a decision
 
