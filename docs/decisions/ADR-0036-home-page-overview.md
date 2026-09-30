@@ -97,3 +97,42 @@ found the subgraph-title clipping that the DOM could not.
 
 Four tests in `tests/test_app.py`; `test_app.py` is 78 passed / 1 failed, the failure
 being the pre-existing `test_the_two_lists_are_populated_from_the_same_report`.
+
+## Amendment — the Ingest step named a decision it was hiding
+
+The loop diagram drew `1 · Ingest — document → graph`, and the caption said "Ingest a
+document". Raised on review: a document could be requirements *or* architecture, and
+the diagram said neither.
+
+That is not a cosmetic omission, and the difference is the test to apply to a diagram
+like this:
+
+> Does it omit something whose **wrong answer fails silently**?
+
+`doc_type` is `request.form.get("type") or "requirements"` — a **mandatory** choice with
+no auto-detection, which selects one of two extraction profiles with non-overlapping
+vocabularies, and which is stored on the run because `node_sides` derives a node's side
+*from it*. So a wrong pick is not an error: it fills one side, leaves the other empty,
+and **mis-assigns sides** for reconciliation and the realization report. Exactly the
+failure class this repo keeps flagging as worse than a missing answer.
+
+The diagram now draws **two inputs into one Ingest step** — Requirements document and
+Architecture document, `the type picks the profile` — which also reinforces "One graph,
+two sides" instead of contradicting it. Caption and prose fallback both say that a wrong
+pick is silent.
+
+**The line drawn:** implementation detail a reader must *act on* belongs in the diagram;
+internal machinery does not. The four extractor pass names
+(`structure`/`connections`/`technology`/`traceability`) stay out — knowing them changes
+nothing a reader does.
+
+**Review stays monolithic** (option (a), chosen deliberately). It is genuinely per-side
+and incremental — the requirement side can be signed off with no architecture at all,
+and reviewed facts survive the later merge (`merge_graphs` routes through the fold rule
+so re-extraction cannot destroy a review decision). But that is a *capability*, not a
+different shape of flow, so it belongs in the caption rather than in three more nodes.
+
+Re-verified the same way: four canvases holding an `<svg>`, four fallbacks `hidden`, no
+"Syntax error in text", and the spec still reaching the browser unescaped. The
+screenshots are not decoration here — these diagrams fail silently into their prose
+fallback, so the DOM check is what proves they rendered at all.

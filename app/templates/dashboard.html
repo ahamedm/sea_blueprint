@@ -94,22 +94,31 @@
 
 <h2 style="font-size:16px; margin:24px 0 10px;">The loop</h2>
 {% set loop_spec %}flowchart LR
-  A["1 · Ingest<br/>document → graph"] --> B["2 · Review<br/>verify / correct"]
+  RQ["Requirements document"] --> ING["1 · Ingest<br/>the type picks the profile"]
+  AR["Architecture document"] --> ING
+  ING --> B["2 · Review<br/>verify / correct"]
   B --> C["3 · Baseline<br/>freeze a revision"]
   C --> D["4 · Reconcile<br/>REQ-G ↔ ARC-G"]
   D --> E["5 · Audit<br/>gaps and coverage"]
-  E -->|findings| A
+  E -->|findings| ING
   E -->|accepted| F["Promote<br/>initiative → system baseline"]{% endset %}
 {% call diagram(
   'loop',
   'From a document to an answer, and back',
-  'Every stage is a page in this tool. The loop closes on purpose: resolving a finding
-   changes the design or challenges the requirement, and the affected scope is
-   re-ingested rather than patched in place.',
+  'Every stage is a page in this tool. Ingest takes either document kind: the type
+   selects the extraction profile, both kinds land in the same graph, and a wrong pick
+   is not an error — it silently fills one side and leaves the other empty. Review
+   works on whatever exists, so the requirement side can be signed off long before any
+   architecture does. The loop closes on purpose: resolving a finding changes the design
+   or challenges the requirement, and the affected scope is re-ingested rather than
+   patched in place.',
   loop_spec) %}
-  <strong>Ingest</strong> a document and the extraction agents draft a graph →
+  <strong>Ingest</strong> a requirements or architecture document — the type selects
+  the extraction profile and both kinds land in the same graph, so a wrong pick silently
+  fills one side and leaves the other empty →
   <strong>Review</strong> it, verifying or correcting each fact (a human gate, not a
-  screen) → <strong>Baseline</strong> it by freezing a revision →
+  screen); review takes whatever exists, so the requirement side can be signed off
+  before any architecture does → <strong>Baseline</strong> it by freezing a revision →
   <strong>Reconcile</strong> so the requirement and architecture sides actually meet →
   <strong>Audit</strong> for gaps and coverage → then either resolve the findings by
   re-ingesting the affected scope, or promote the verified facts into the system
