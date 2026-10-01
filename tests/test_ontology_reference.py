@@ -337,8 +337,11 @@ def test_payload_is_complete_and_serialisable(ontology, req_extraction):
 
     payload = ontology_payload(ontology, req_extraction)
     assert set(payload) == {"overview", "classes", "enums", "subsets"}
+    # Exact, like `test_ontology.test_totals`: 49 enums is `ConceptAttributeDataType`
+    # (YB-055), an enum with no new class — `ConceptAttribute` was already declared
+    # and merely unreachable until it got a flat shape to arrive in.
     assert len(payload["classes"]) == 70
-    assert len(payload["enums"]) == 48
+    assert len(payload["enums"]) == 49
     assert len(payload["subsets"]) == 15
     json.dumps(payload)  # must not contain anything a JSON encoder refuses
 

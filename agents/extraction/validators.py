@@ -428,6 +428,121 @@ def check_enum_membership(elements: Sequence[Any]) -> List[Flag]:
 
 
 # ----------------------------------------------------------------------------
+# Domain concept attributes — the logical data model
+# ----------------------------------------------------------------------------
+
+_CONCEPT_ATTRIBUTE_KIND = "ConceptAttribute"
+
+
+def check_concept_attributes(entities: Sequence[Any], source: str = "") -> List[Flag]:
+    """A concept's fields must be named, owned, stated in the document, and logical.
+
+    `ConceptAttribute` was the class nothing could reach (YB-055): declared,
+    documented, and never populated, because the ontology nests it and the
+    extraction contract is flat. It now arrives in a flat, owned shape, and this is
+    the deterministic half — the reason the shape is worth having. Every rule here
+    is one a fluent output cannot be trusted to satisfy on its own:
+
+    1. **Owned.** A `ConceptAttribute` emitted as an entity of its own has no
+       owner, and a field name without its concept is not an identity. Measured on
+       the saved PRD run before the shape existed: five such nodes
+       ('Country of Transaction', 'Transaction Currency', …), each of which looked
+       exactly like a concept.
+    2. **Named**, and named ONCE per concept. A repeated field is a merge artefact
+       or a copy-paste, and the second one silently wins on the node.
+    3. **Anchored.** The name must appear in the document (reliability §3.6). An
+       invented field is invisible otherwise — `Settlement Date` reads like every
+       other field whether the document said it or the model supplied it.
+    4. **Logical, not physical.** `data_type` must come from
+       `ConceptAttributeDataType`. `VARCHAR(255)` classifies one store's
+       implementation, not the field, and the vocabulary is read from the ontology
+       rather than restated here so the two cannot drift.
+
+    Flags, never drops — the posture every check in this module takes, and the
+    reason `_resolve` already makes an unowned referent visible rather than
+    silently binding it to something plausible.
+
+    `source` is optional because a caller that has no document to check against
+    (a design assistant working from the graph) still gets rules 1, 2 and 4.
+    """
+    records = as_record_dicts(entities)
+    if not records:
+        return []
+
+    declared_kinds = ontology_classes()
+    concept_kinds = ontology_subclasses("DomainConcept")
+    allowed_types = ontology_enum("ConceptAttributeDataType")
+    source_norm = _norm(source)
+
+    flags: List[Flag] = []
+    for e in records:
+        name = str(e.get("name") or "").strip()
+        kind = str(e.get("ontology_class") or e.get("entity_type") or "").strip()
+
+        if kind == _CONCEPT_ATTRIBUTE_KIND:
+            flags.append(Flag(
+                "unowned_attribute", name,
+                [f"{name!r} is declared as a concept attribute but belongs to no "
+                 f"concept. An attribute's identity is (concept, name) — "
+                 f"'Customer.email' and 'Order.email' are different fields — so emit "
+                 f"it in the owning concept's `attributes`, not as an entity of its own"],
+            ))
+            continue
+
+        attributes = [a for a in (e.get("attributes") or []) if isinstance(a, dict)]
+        if not attributes:
+            continue
+
+        # The owner's kind, checked only when the base ontology knows the kind at
+        # all. A domain pack subclasses `DomainConcept` with names the base layers
+        # do not declare (`Card`, `Merchant`, …), and `ontology_classes()` cannot
+        # see them — flagging those would report the pack's own vocabulary as a
+        # defect, which is the false positive that makes a report unreadable.
+        if kind and kind in declared_kinds and kind not in concept_kinds:
+            flags.append(Flag(
+                "attribute_owner", name,
+                [f"{kind} is carrying `attributes`, but the ontology reserves them for "
+                 f"DomainConcept and its subclasses ({'/'.join(sorted(concept_kinds))}) — "
+                 f"a requirement, a stakeholder or a goal has no data model"],
+            ))
+
+        seen: set = set()
+        for a in attributes:
+            attr_name = str(a.get("name") or "").strip()
+            if not attr_name:
+                flags.append(Flag("concept_attribute", name,
+                                  ["an attribute record on this concept has no name"]))
+                continue
+            key = attr_name.lower()
+            if key in seen:
+                flags.append(Flag(
+                    "concept_attribute", attr_name,
+                    [f"declared twice on {name!r} — the node is keyed on the name, so "
+                     f"the two records collapse into one and one of them is lost"],
+                ))
+            seen.add(key)
+
+            if source_norm and _norm(attr_name) not in source_norm:
+                flags.append(Flag(
+                    "unanchored_attribute", attr_name,
+                    [f"the document never names this field of {name!r} — an invented "
+                     f"attribute is indistinguishable from a stated one, and the "
+                     f"whole difference between a data model and a plausible one is "
+                     f"which fields the source actually gives"],
+                ))
+
+            data_type = str(a.get("data_type") or "").strip()
+            if data_type and allowed_types and data_type not in allowed_types:
+                flags.append(Flag(
+                    "attribute_data_type", attr_name,
+                    [f"data_type {data_type!r} is not a logical type (allowed: "
+                     f"{', '.join(sorted(allowed_types))}). A physical type describes "
+                     f"one store's implementation and changes when that store does"],
+                ))
+    return flags
+
+
+# ----------------------------------------------------------------------------
 # Connections — integration mechanisms
 # ----------------------------------------------------------------------------
 

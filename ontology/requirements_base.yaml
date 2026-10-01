@@ -367,6 +367,48 @@ enums:
       DELIVERED: { description: Outcomes realised or handed over. }
       CANCELLED: { description: Abandoned; retain for traceability. }
 
+  ConceptAttributeDataType:
+    description: >-
+      The LOGICAL type of a `ConceptAttribute` — what the business means by the
+      field, not what a particular store does with it.
+
+      Deliberately logical and deliberately small. "VARCHAR(255)", "NUMBER(18,2)"
+      and "TIMESTAMP WITH TIME ZONE" are PHYSICAL types: they belong to the store
+      that implements the field, and they change when that store changes, so they
+      cannot classify something the business owns. A logical type is what survives
+      the migration, and it is the one a reviewer can check against the document.
+
+      The extraction schema keeps `data_type` a plain string rather than a
+      `Literal` on purpose (see `ExtractionRecord`'s policy on guessed
+      vocabularies): a model shown a strict enum that expects `STRING` and reads
+      "varchar" in the document fails at the SCHEMA level and the pass retries to
+      death. The vocabulary is enforced by a deterministic check instead, which
+      flags rather than refuses — the same posture `check_enum_membership` takes
+      for every other classification field.
+    permissible_values:
+      STRING:
+        description: "Free text of bounded length: a name, a code, a label."
+      TEXT:
+        description: Unbounded prose or a long description.
+      INTEGER:
+        description: Whole number.
+      DECIMAL:
+        description: "Exact decimal: money, rates, or a quantity with a scale."
+      BOOLEAN:
+        description: "True/false, yes/no, a flag."
+      DATE:
+        description: Calendar date without a time.
+      DATETIME:
+        description: A date with a time (or an instant).
+      DURATION:
+        description: "A length of time, not a point in it."
+      IDENTIFIER:
+        description: >-
+          A surrogate or natural key whose meaning is its identity rather than
+          its content — an account number, a payment request id.
+      BINARY:
+        description: "Bytes: a document, an image, a hash."
+
 # ============================================================================
 # SUBSETS (logical groupings for navigation)
 # ============================================================================
@@ -920,15 +962,48 @@ classes:
       - BusinessContext
 
   ConceptAttribute:
-    description: A property or field of a domain concept.
+    description: >-
+      A property or field of a domain concept — the LOGICAL data model.
+
+      It has always been declared, and it has never had an instance, because
+      `DomainConcept.key_attributes` is `inlined_as_list`: a nested object list,
+      while the extraction contract is flat (entity records plus triples). A
+      nested slot is a field the pipeline can describe and cannot populate —
+      YB-055.
+
+      The class now has a second, FLAT shape. Its owner is named by the
+      `concept` slot and it arrives as its own record, so the two shapes are:
+
+        nested  DomainConcept.key_attributes -> [ConceptAttribute]   (declared)
+        flat    ConceptAttribute.concept     -> DomainConcept        (emitted)
+
+      Both are kept on purpose. The nested slot is what a hand-written data model
+      looks like and it stays for that use; the flat slot is what extraction can
+      actually produce and what ingest materialises, and it is the one a query
+      walks. An attribute emitted flat is still an attribute of exactly one
+      concept — that is the identity rule, not a preference: the same field name
+      under two concepts ("Customer.email", "Order.email") is two different
+      fields, which is why ingest qualifies the node label with the owner rather
+      than trusting the bare name.
     attributes:
       name:
         range: string
         required: true
+      concept:
+        description: >-
+          The concept this attribute belongs to. Carried explicitly in the flat
+          form; implied by the parent in the nested form, where it is left empty
+          because restating it is how the two get to disagree.
+        range: DomainConcept
       description:
         range: string
       data_type:
-        description: Expected data type (string, number, date, etc.).
+        description: >-
+          The LOGICAL type of the field, from `ConceptAttributeDataType`. Free
+          text in the schema because a document often states a physical type
+          ("VARCHAR(255)") and a strict enum would reject the whole extraction
+          rather than flag one field; `check_concept_attributes` reports a value
+          outside this vocabulary as a finding.
         range: string
       is_required:
         description: Whether this attribute is mandatory.

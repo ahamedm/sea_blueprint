@@ -68,7 +68,7 @@ LEVEL_TITLES: Dict[str, str] = {
 
 #: The level an element states about itself, as a literal fact. Preferred over the
 #: node kind, because it is what the extraction recorded.
-_LEVEL_FROM_FACT = {
+LEVEL_FROM_FACT = {
     "CONTEXT": "context",
     "CONTAINER": "container",
     "COMPONENT": "component",
@@ -79,7 +79,7 @@ _LEVEL_FROM_FACT = {
 #: design was classified `Platform` and the storefronts `Application` — so without
 #: these the document's own system is reported as unrepresentable and the diagram is
 #: drawn around it rather than from it.
-_LEVEL_FROM_KIND = {
+LEVEL_FROM_KIND = {
     "SoftwareSystem": "context",
     "System": "context",
     "Platform": "context",
@@ -208,10 +208,10 @@ def c4_model(graph: Any) -> Dict[str, Any]:
             continue
 
         node_facts = facts.get(node_id, {})
-        level = _LEVEL_FROM_FACT.get(str(node_facts.get("c4_level") or "").upper())
+        level = LEVEL_FROM_FACT.get(str(node_facts.get("c4_level") or "").upper())
         source = "c4_level" if level else ""
         if level is None:
-            level = _LEVEL_FROM_KIND.get(record["kind"])
+            level = LEVEL_FROM_KIND.get(record["kind"])
             source = "kind" if level else ""
         if level is None:
             # Deliberately has no C4 level: deployment is a different view, not L1-L4
@@ -251,6 +251,57 @@ def c4_model(graph: Any) -> Dict[str, Any]:
                 holder["technology"].append(target["label"])
     for element in elements.values():
         element["technology"].sort()
+
+    # ---- one name, one box ----
+    #
+    # Structurizr refuses two elements with the same name in the same scope:
+    # "A top-level element named 'Payment Gateway Platform' already exists" is a hard
+    # error, not a warning, and it is exactly what a requirements-side `Platform` node
+    # plus an architecture-side `SoftwareSystem` node for one system produces (YB-053
+    # defect 2). The graph keeps both, because which is authoritative is a decision no
+    # view gets to make; the NOTATION declares one, because it cannot declare two. The
+    # other is reported here rather than drawn as a second box with the same label.
+    #
+    # Scope is the DRAWN parent: an element whose `part_of` names nothing in the model
+    # is top-level for drawing purposes whatever its level claims, which is the same
+    # reading `_roots` takes. Two components called "Validator" in two different
+    # containers are legitimate and both stay.
+    #
+    # Which one to keep is decided by what the diagram hangs off — most descendants,
+    # then most facts, then the lowest id, so the choice is stable across runs.
+    scopes: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
+    for element in elements.values():
+        scope = element["parent"] if element["parent"] in elements else ""
+        scopes.setdefault((scope, element["label"].strip().lower()), []).append(element)
+
+    duplicate_names: List[str] = []
+    for (_scope, _label), group in sorted(scopes.items()):
+        if len(group) < 2:
+            continue
+        keep = sorted(
+            group,
+            key=lambda e: (-len(_descendants(elements, e["id"])), -len(e["facts"]), e["id"]),
+        )[0]
+        for dropped in group:
+            if dropped["id"] == keep["id"]:
+                continue
+            duplicate_names.append(
+                f'{dropped["label"]} ({dropped["kind"]} dropped, {keep["kind"]} kept)'
+            )
+            gaps.append({
+                "kind": "duplicate-element",
+                "id": dropped["id"],
+                "label": dropped["label"],
+                "detail": (
+                    f'drawn once, from the {keep["kind"]} node {keep["id"]}; the '
+                    f'{dropped["kind"]} node {dropped["id"]} carries the same name in '
+                    f'the same scope, and Structurizr refuses two elements of one name '
+                    f'there ("already exists"). Connections or facts naming the dropped '
+                    f'node are reported as dangling rather than re-pointed: whether the '
+                    f'two ARE one thing is the identity question YB-053 leaves open.'
+                ),
+            })
+            del elements[dropped["id"]]
 
     # ---- the system under design ----
     #
@@ -422,7 +473,8 @@ def c4_model(graph: Any) -> Dict[str, Any]:
         element["parent_label"] = parent["label"] if parent else ""
 
     relationships = [pairs[pair] for pair in sorted(pairs)]
-    checks = _well_formed(elements, relationships, list(dangling.values()), system)
+    checks = _well_formed(elements, relationships, list(dangling.values()), system,
+                          duplicate_names)
     return {
         "system": system,
         "elements": ordered,
@@ -635,11 +687,20 @@ def to_structurizr(model: Dict[str, Any]) -> str:
         desc = _escape(element["description"] or element["kind"])
         tech = (f' "{_escape(", ".join(element["technology"]))}"'
                 if element["technology"] else "")
-        tags = ' { tags "External" }' if element["kind"] == "ExternalSystem" else ""
+        # `tags` CANNOT be written inline, whatever the language reference's
+        # `[tags]` suggests. The DSL parser terminates a statement at the newline, so
+        # `... { tags "External" }` is "Too many tokens, expected: softwareSystem
+        # <name> [description] [tags]" — and even `{ tags "External"` followed by `}`
+        # on the next line fails, because the `}` lands on the statement's line.
+        # Verified against structurizr-cli v2025.11.09: it has to be a statement on
+        # its own line, which means opening a block for it. See ISSUES.md ISS-7.
+        tag_lines = ([f'{indent}    tags "External"']
+                     if element["kind"] == "ExternalSystem" else [])
         head = (f'{indent}{ids[element["id"]]} = {keyword} '
-                f'"{_escape(element["label"])}" "{desc}"{tech}{tags}')
-        if children:
+                f'"{_escape(element["label"])}" "{desc}"{tech}')
+        if children or tag_lines:
             lines.append(head + " {")
+            lines.extend(tag_lines)
             for child in children:
                 emit(child, indent + "    ")
             lines.append(indent + "}")
@@ -673,8 +734,17 @@ def to_structurizr(model: Dict[str, Any]) -> str:
         for element in model["by_level"]["container"]:
             if not any(e["parent"] == element["id"] for e in model["elements"]):
                 continue
+            # The view KEY must be unique: Structurizr rejects a second
+            # `component ... "Components"` with "A view with the key Components
+            # already exists", which is what a graph with two containers that have
+            # components produces — one view per container, and they cannot all be
+            # called `Components`. The key is also restricted to `[a-zA-Z0-9_-]`, so
+            # it is built from the element's own identifier rather than its label:
+            # "Components - Payment Orchestrator" is rejected for its spaces.
+            # Verified against structurizr-cli v2025.11.09; see ISSUES.md ISS-9.
+            key = f'Components-{ids[element["id"]]}'
             lines += [
-                f'        component {ids[element["id"]]} "Components" {{',
+                f'        component {ids[element["id"]]} "{key}" {{',
                 "            include *", "            autolayout lr", "        }",
             ]
     lines += ["    }", "}"]
@@ -898,6 +968,7 @@ def _well_formed(
     relationships: List[Dict[str, Any]],
     dangling: List[str],
     system: Optional[Dict[str, Any]],
+    duplicate_names: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
     """The rules C4 states, checked against the graph rather than assumed.
 
@@ -1002,6 +1073,20 @@ def _well_formed(
         1,
         "Nothing to draw at the container level means the graph models no containers "
         "for this system; the notation is emitted anyway, empty rather than invented.",
+    )
+
+    # 6. One name, one box. Reported here as well as in `gaps`, because this is the
+    #    check that decides whether the emitted DSL LOADS: Structurizr rejects a
+    #    second element of the same name in the same scope outright, so the duplicate
+    #    was a parse error in someone else's tool rather than a cosmetic blemish.
+    #    Verified against structurizr-cli v2025.11.09 (ISS-8).
+    add(
+        "unique_names", "No two elements in one scope share a name",
+        list(duplicate_names or []), len(elements),
+        "Structurizr refuses two top-level elements of one name (\"already exists\") "
+        "and C4 has no way to tell the boxes apart. The view draws the one the diagram "
+        "hangs off and reports the other; the graph keeps both, because which node is "
+        "authoritative is an identity decision (YB-053 defect 2), not a view's.",
     )
 
     return checks

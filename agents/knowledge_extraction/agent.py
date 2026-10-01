@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field, field_validator
 from ..base_agent import SEABaseAgent, AgentConfig, AgentResult
 from ..extraction import (
+    check_concept_attributes,
     chunk_document,
     completeness,
     merge_records,
@@ -68,7 +69,7 @@ WRONG — clause objects, comma-joined list, headings as entities:
 }
 ```
 
-RIGHT — named concepts, one triple per item, no headings:
+RIGHT — named concepts, and the criteria as FIELDS of the concept that has them:
 ```json
 {
   "triples": [
@@ -77,23 +78,30 @@ RIGHT — named concepts, one triple per item, no headings:
       "ontology_class": "FunctionalRequirement"},
     {"subject": "Order", "predicate": "assigned_to",
       "object": "Stock Location", "confidence": 1.0,
-      "ontology_class": "DomainConcept"},
-    {"subject": "Dispatch Criteria", "predicate": "is_determined_by",
-      "object": "Destination", "confidence": 1.0,
-      "ontology_class": "ConceptAttribute"},
-    {"subject": "Dispatch Criteria", "predicate": "is_determined_by",
-      "object": "Service Level", "confidence": 1.0,
-      "ontology_class": "ConceptAttribute"},
-    {"subject": "Dispatch Criteria", "predicate": "is_determined_by",
-      "object": "Item Weight", "confidence": 1.0,
-      "ontology_class": "ConceptAttribute"}
+      "ontology_class": "DomainConcept"}
+  ],
+  "entities": [
+    {"name": "Order", "ontology_class": "DomainConcept",
+      "attributes": [
+        {"name": "Promised Window", "data_type": "DURATION"}
+      ]},
+    {"name": "Dispatch Criteria", "ontology_class": "DomainConcept",
+      "attributes": [
+        {"name": "Destination", "data_type": "STRING"},
+        {"name": "Service Level", "data_type": "STRING"},
+        {"name": "Item Weight", "data_type": "DECIMAL"}
+      ]}
   ]
 }
 ```
 
-Note the trade: the RIGHT version has **more** triples from the same source. Splitting
-lists into separate triples is not losing information — it is making each criterion
-independently queryable, which is the entire point of the graph.'''
+Note the trade. The three criteria are still three facts, each independently
+queryable — but each is stated as a FIELD of `Dispatch Criteria` rather than as one
+comma-joined object or as a node floating free of anything. An attribute apart from
+its concept has no identity: the owner is what makes `Item Weight` a field of a
+dispatch criterion rather than a thing in its own right. Note also what is NOT here —
+`Order` gets one field, the one the source states, and no plausible-looking extras,
+because an invented field is indistinguishable from a stated one.'''
 
 
 class ExtractedTriple(BaseModel):
@@ -183,6 +191,63 @@ class ExtractedTriple(BaseModel):
         return max(0.0, min(1.0, v))
 
 
+class ExtractedConceptAttribute(BaseModel):
+    """A field of a domain concept — the logical data model, one record per field.
+
+    This exists because `ConceptAttribute` was a class nothing could reach
+    (YB-055). The ontology declares it, and declares it NESTED
+    (`DomainConcept.key_attributes`, `inlined_as_list`), while the extraction
+    contract is flat. The class therefore had no emitted shape and no instances —
+    the one core aspect of an architecture with no ontology class that could be
+    populated, no pass rule and no guard.
+
+    Flat and owned, rather than a free-standing node: an attribute is emitted
+    INSIDE the concept that has it (`ExtractedEntity.attributes`), so the owning
+    concept is structural and cannot be got wrong by the model, and `ingest`
+    labels the node with it (`Customer.email`) because a field name alone is not
+    an identity — `Customer.email` and `Order.email` are two different fields.
+
+    `data_type` is a plain `str`, not a `Literal`, following this module's policy
+    for vocabularies the model guesses at (see `c4_level` in the architecture
+    profile): a document that says "VARCHAR(255)" must not fail the whole pass at
+    the schema level. The allowed logical types are listed here for guidance and
+    `check_concept_attributes` flags anything outside them.
+    """
+
+    name: str = Field(
+        ..., description=(
+            "Field name as the document states it: 'Customer ID', 'Settlement Date', "
+            "'PAN'. A short noun phrase (1-3 words), never a sentence and never a "
+            "value. Leave the concept out of it — the concept owns the field."
+        ),
+    )
+    description: str = Field(
+        default="", description="What this field holds, when the document says.",
+    )
+    data_type: str = Field(
+        default="", description=(
+            "LOGICAL type, one of: STRING, TEXT, INTEGER, DECIMAL, BOOLEAN, DATE, "
+            "DATETIME, DURATION, IDENTIFIER, BINARY. Empty when the document does not "
+            "say. A PHYSICAL type ('varchar(255)', 'NUMBER(18,2)', 'timestamptz') is "
+            "not a logical type — it describes one store's implementation, so record "
+            "the logical one or leave the field empty."
+        ),
+    )
+    is_required: bool = Field(
+        default=False, description=(
+            "True only when the document says this field is mandatory or non-null. "
+            "Left false when it is silent, which is not the same claim as optional."
+        ),
+    )
+    constraints: List[str] = Field(
+        default_factory=list, description=(
+            "Validation rules the document states for this field, one per entry "
+            "('must be unique', 'ISO 4217 currency code', 'masked at rest'). Empty "
+            "when none are stated."
+        ),
+    )
+
+
 class ExtractedEntity(BaseModel):
     """An extracted business entity with ontology mapping."""
     
@@ -213,6 +278,28 @@ class ExtractedEntity(BaseModel):
         description=(
             "Identifiers of any Initiative / business case / work item the source "
             "associates with this entity, e.g. 'INIT-2026-014'. Verbatim."
+        ),
+    )
+    # --- the concept's own fields (the logical data model) ---
+    #
+    # The nested shape is deliberate, and it is the shape the model can be held
+    # to. `ConceptAttribute` was previously offered as a class the model could
+    # map an ENTITY to, which produced unowned attribute nodes: measured in the
+    # saved PRD run, five `ConceptAttribute` entities ('Country of Transaction',
+    # 'Transaction Currency', …) belonging to no concept at all, under a name that
+    # nothing distinguished from a concept's. Listing it here instead makes the
+    # owner structural — the model cannot emit an attribute without saying which
+    # concept has it — and lets ingest qualify the node's identity by that owner.
+    attributes: List[ExtractedConceptAttribute] = Field(
+        default_factory=list,
+        description=(
+            "ONLY for a domain concept — `DomainConcept`, or whatever the active "
+            "domain pack subclasses it with. The fields this concept has, one record "
+            "per field: the concept 'Customer' -> Customer ID, Email, Date of Birth. "
+            "Empty for every other entity type (a requirement, a stakeholder, a goal "
+            "has no data model). Do NOT emit `ConceptAttribute` as an entity of its "
+            "own: an attribute apart from its concept has no identity, and ingest "
+            "derives it from this field."
         ),
     )
     # --- quality classification (only for non-functional requirements) ---
@@ -578,17 +665,35 @@ class KnowledgeExtractionAgent(SEABaseAgent):
             # Deterministic object-contract check (independent of model behaviour).
             # Flags for human review; never drops content.
             contract_flags = self._flag_contract_violations(triples)
-            
-            # Profile-specific structural checks (e.g. ARC-G containment).
-            profile_flags = self._profile_flags(triples, entities, relationships)
-            contract_flags.extend(profile_flags)
-            
             if contract_flags:
                 self.log(
                     f"  {len(contract_flags)}/{len(triples)} triples violate the object "
                     f"contract (clause-shaped or comma-listed nodes) — flagged for review",
                     level="warning",
                 )
+
+            # Profile-specific structural checks (e.g. ARC-G containment).
+            profile_flags = self._profile_flags(triples, entities, relationships)
+            contract_flags.extend(profile_flags)
+
+            # The concept's attributes, held to their own rules — owned, named once,
+            # anchored in the document, logical type.
+            #
+            # Its OWN key, not `contract_violations`. That list is read as a ratio
+            # over triples by the extraction harness (`contract violations < 20% of
+            # triples`), and an attribute finding is not a clause-shaped triple node:
+            # counting the two together would move a calibrated metric by an amount
+            # that has nothing to do with what it measures, and would make a run's
+            # data-model quality look like an object-contract regression.
+            attribute_findings = [
+                f.to_dict() for f in check_concept_attributes(entities, document)
+            ]
+            if attribute_findings:
+                self.log(
+                    f"  {len(attribute_findings)} concept attribute finding(s) — "
+                    f"flagged for review", level="warning",
+                )
+            
             
             self.log(
                 f"Extracted {len(triples)} triples, {len(entities)} entities, "
@@ -606,6 +711,7 @@ class KnowledgeExtractionAgent(SEABaseAgent):
                 keys["edges"]: [r.model_dump() for r in relationships],
                 "low_confidence_items": [t.model_dump() for t in low_confidence],
                 "contract_violations": contract_flags,
+                "attribute_findings": attribute_findings,
                 "statistics": statistics,
             }
             
@@ -865,8 +971,25 @@ This is an Enterprise Architecture extraction task. Focus on extracting:
 For each entity, map it to an ontology class:
 - BusinessRequirement, FunctionalRequirement, NonFunctionalRequirement, ConstraintRequirement
 - Stakeholder, BusinessGoal, BusinessCapability, BusinessProcess
-- DomainConcept, ConceptAttribute, ConceptRelationship
+- DomainConcept, ConceptRelationship
 - Product, System, Application, Platform (enterprise constructs)
+
+### 3a. A domain concept's ATTRIBUTES — the fields it has
+When the document describes what a business concept is made of, give that concept
+its `attributes`. This is the data model the platform reasons about, and a field
+left out is a field no question can be asked about.
+
+- **One record per field.** `{{"name": "Customer ID", "data_type": "IDENTIFIER"}}`
+- **`data_type` is LOGICAL** — one of STRING, TEXT, INTEGER, DECIMAL, BOOLEAN,
+  DATE, DATETIME, DURATION, IDENTIFIER, BINARY. A store's own spelling
+  (`varchar(255)`, `NUMBER(18,2)`) is physical: record the logical type, or leave
+  it empty when the document does not say.
+- **`is_required` only when the document says so.** False means "not stated",
+  which is not the same claim as optional.
+- **Attributes belong to concepts.** Never emit `ConceptAttribute` as an entity of
+  its own, and never invent fields a concept plausibly has — a field the document
+  never mentions is indistinguishable in the graph from one it states. Attributes
+  on a requirement, a stakeholder or a goal are noise: those are not data.
 
 ### 4. Relationships and traceability
 
@@ -1532,7 +1655,31 @@ If the source provides no identifier, leave the field empty. **Do not invent one
             if isinstance(initiative_refs, str):
                 initiative_refs = [initiative_refs] if initiative_refs.strip() else []
             initiative_refs = [str(x).strip() for x in initiative_refs if str(x).strip()]
-            
+
+            # Same reason as `requirement_id` above: this path rebuilds the record
+            # field by field, so anything not named here is silently dropped — and
+            # an attribute is the whole point of the field. A bare string is
+            # accepted as a name because models write both shapes.
+            attributes = []
+            for raw in e.get('attributes') or []:
+                if isinstance(raw, str):
+                    raw = {"name": raw}
+                if not isinstance(raw, dict):
+                    continue
+                attr_name = str(raw.get('name') or raw.get('attribute') or '').strip()
+                if not attr_name:
+                    continue
+                constraints = raw.get('constraints') or []
+                if isinstance(constraints, str):
+                    constraints = [constraints] if constraints.strip() else []
+                attributes.append(ExtractedConceptAttribute(
+                    name=attr_name,
+                    description=str(raw.get('description') or '').strip(),
+                    data_type=str(raw.get('data_type') or raw.get('type') or '').strip(),
+                    is_required=bool(raw.get('is_required')),
+                    constraints=[str(c).strip() for c in constraints if str(c).strip()],
+                ))
+
             if name:
                 return ExtractedEntity(
                     name=name,
@@ -1542,6 +1689,7 @@ If the source provides no identifier, leave the field empty. **Do not invent one
                     requirement_type=requirement_type,
                     requirement_id=requirement_id,
                     initiative_refs=initiative_refs,
+                    attributes=attributes,
                 )
         except (ValueError, TypeError, AttributeError):
             pass

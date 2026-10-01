@@ -45,6 +45,13 @@ def test_totals(ontology):
     `ConventionType`, `ConventionEnforcement`) and four new `PatternCategory`
     values, which do not change the enum count.
 
+    `ConceptAttributeDataType` is the newest enum (+1, no new class). It is the
+    logical data-type vocabulary for `ConceptAttribute`, added when that class
+    finally became reachable in the flat shape — see
+    `docs/todos/entries/YB-055-data-element-design.md`. It adds an enum and not a
+    class because the class was already declared and merely unreachable, and the
+    type axis is a closed list of ten rather than a hierarchy.
+
     `Regulation` and `Standard` are the newest two, and they add no enum: their
     slots are free text on purpose, because jurisdictions and issuing bodies are
     named by sources in more ways than a closed list can hold. Without them a
@@ -59,7 +66,7 @@ def test_totals(ontology):
     """
     stats = ontology.stats()
     assert stats["classes"] == 70
-    assert stats["enums"] == 48
+    assert stats["enums"] == 49
     assert stats["subsets"] == 15
     assert stats["layers"] == 5
     assert stats["abstract"] == 4
@@ -235,6 +242,32 @@ def test_slot_metadata_is_preserved(ontology):
 def test_identifier_slots_are_recognised(ontology):
     ids = [s.name for s in ontology.own_attributes("Requirement") if s.identifier]
     assert ids == ["id"]
+
+
+def test_a_concept_attribute_has_a_flat_owner_and_a_logical_type(ontology):
+    """YB-055: the class stops being reachable only through a nested slot.
+
+    `ConceptAttribute` was declared and unpopulatable — `DomainConcept.key_attributes`
+    is `inlined_as_list` and the extraction contract is flat, so nothing could ever
+    emit one. The flat shape is the `concept` back-link, and the type axis is a
+    closed logical vocabulary rather than free text, because the guard that checks
+    it reads the vocabulary from here (the single-source-of-truth rule in
+    `agents/extraction/validators.py`).
+
+    Both halves are asserted together on purpose: a `concept` slot with no
+    vocabulary would let `VARCHAR(255)` pass as a logical type, and a vocabulary
+    with no owner slot leaves the class exactly as unreachable as it was.
+    """
+    slots = {slot.name: slot.range for slot in ontology.own_attributes("ConceptAttribute")}
+    assert slots["concept"] == "DomainConcept"
+    assert set(ontology.children("DomainConcept")) >= {"Regulation", "Standard"}
+
+    data_types = ontology.enums["ConceptAttributeDataType"].values
+    assert "STRING" in data_types and "IDENTIFIER" in data_types
+    assert not any("(" in name or "VARCHAR" in name for name in data_types), (
+        "a physical type in the logical vocabulary would make the guard that reads "
+        "it enforce the wrong rule"
+    )
 
 
 def test_relationships_are_slots_whose_range_is_a_class(ontology):

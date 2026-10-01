@@ -6,7 +6,7 @@ status: open
 priority: high
 area: "`agents/architecture_extraction/passes.py` (structure rules), `agents/extraction/validators.py` (a name validator), `core/knowledge/ingest.py` (`_resolve` identity)"
 created: 2026-09-27
-updated: 2026-09-28
+updated: 2026-10-01
 design: docs/design/c4-specification-view.md
 record: null
 superseded_by: []
@@ -163,6 +163,27 @@ So, smallest first:
 
 Whatever is chosen, the review gate should see the merge, because merging two nodes is not
 reversible from the UI.
+
+**Re-measured 2026-10-01, in the Structurizr DSL — and it is a hard failure there, not a
+cosmetic one.** Scope `payments_v2` holds one architecture under three names from three
+runs: `Platform: Payment Gateway Platform` (`sample_requirements.md`),
+`SoftwareSystem: Payment Platform` (`simple_architecture_partial.md`), and
+`SoftwareSystem: Payment Gateway Platform` plus `Container: Payment Orchestrator` /
+`Component: Rule Engine` / `Component: State Machine`
+(`simple_architecture_increment_2.md`). The C4 view emitted both `Payment Gateway
+Platform` boxes as top-level `softwareSystem`s and structurizr-cli v2025.11.09 refused
+the file outright — *"A top-level element named 'Payment Gateway Platform' already
+exists"* — so the duplicate this item has always described also made the export
+unloadable in another tool.
+
+The view now draws one box for a repeated label and reports the drop as a
+`duplicate-element` gap plus a failed `unique_names` check
+(`app/viewpoints/c4.py`, pinned by `test_two_elements_of_one_name_are_drawn_once_and_reported`).
+That is a *view* reduction, not this item's fix, and it deliberately covers only the
+exact-label case: `Payment Platform` beside `Payment Gateway Platform`, and
+`Payment Orchestrator Service` beside `Payment Orchestrator`, are different labels and
+still drawn twice, because merging them by similarity is the confident-wrong-join
+failure this repo treats as worse than a missing one. See ISSUES.md ISS-10.
 
 ### Why the ontology lets them disagree
 

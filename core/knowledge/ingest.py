@@ -81,9 +81,27 @@ DOWNSTREAM_OUTPUT_KEYS = frozenset({"findings"})
 # requirements run or hiding every unrouted key alike.
 UNROUTED_OUTPUT_KEYS = {
     "relationships": "a predicate vocabulary with no endpoints; the triples carry it",
+    # Review findings about a concept's fields (YB-055). The FACTS they are about
+    # are ingested — the attributes and their `attribute_of` edges are in the
+    # graph — and a finding is a reviewer hint about one of them, not a fact of
+    # its own. No renderer routes them yet, which is exactly the gap
+    # `contract_violations` has had all along; recorded here rather than left
+    # unaccounted so the two keys are not confused for different kinds of loss.
+    "attribute_findings": "review hints about ingested attributes; no renderer reads them yet",
 }
 
 ROUTED_OUTPUT_KEYS = INGESTED_OUTPUT_KEYS | DOWNSTREAM_OUTPUT_KEYS
+
+# How an attribute node's label is qualified by the concept that owns it
+# ("Customer.email"). `slugify` maps every non-alphanumeric run to "_", so the dot
+# survives as the one mark of a QUALIFIED label — it tells a reader (and a grep)
+# which part is the owner. It is not what makes the identity unique: `make_node_id`
+# keys on (kind, label), so two fields named in different concepts, and even a
+# concept whose own name happens to read "Customer.Email", stay separate nodes.
+# `attributes` rides INSIDE the `entities` key and needs no entry above: the
+# per-key accounting already covers it, and a second top-level collection would
+# cost prompt budget for the same facts (YB-007).
+ATTRIBUTE_LABEL_SEPARATOR = "."
 
 
 def _run_id(document_ref: str, document_text: str, model_id: str) -> str:
@@ -785,6 +803,73 @@ def graph_from_extraction(
                 graph.add_assertion(nid, attr, value=part,
                                     confidence=1.0, provenance=p,
                                     scope=default_scope, initiative_id=initiative_id)
+
+        # ---- the concept's own fields: the logical data model ----
+        #
+        # `DomainConcept.key_attributes` has been declared since the ontology was
+        # written and has never had an instance: it is `inlined_as_list`, and the
+        # extraction contract is flat (entity records plus triples), so the class
+        # it ranges over — `ConceptAttribute` — was reachable from nowhere. That is
+        # YB-055: the one core aspect of an architecture with no ontology class
+        # that could be populated, no pass rule and no guard.
+        #
+        # It arrives now as a flat list on the entity that owns it, and is
+        # materialised here as a node, the same move `satisfies_attributes` and
+        # `realizes_attribute` make for quality attributes: `(subject, predicate,
+        # object|value)` has nowhere to put a field's own type and constraints.
+        #
+        # THE LABEL IS QUALIFIED BY THE OWNER, and that is the whole reason this is
+        # not a one-line append. `make_node_id` keys on (kind, label), so an
+        # attribute labelled by its bare name would fold `Customer.email` and
+        # `Order.email` into ONE node carrying two `attribute_of` edges — a wrong
+        # join that no later check could separate. An attribute's identity does not
+        # exist outside its concept, so the label says which one it is.
+        #
+        # Created with `add_node`, NOT `_resolve`, for the reason `Connection` above
+        # is: `_resolve` matches a label to whatever node already carries it and is
+        # blind to kind, so a document that names a concept `Customer.Email` would
+        # have handed that concept back as the FIELD — and the `attribute_of` edge
+        # would silently point at it. `add_node` keys on (kind, label) and is
+        # idempotent, so the same field seen in three chunks is one node, and a
+        # derived label can never capture a document's own referent.
+        for attr in e.get("attributes") or []:
+            if not isinstance(attr, dict):
+                continue
+            attr_name = str(attr.get("name") or "").strip()
+            owner_label = str(e.get("name") or "").strip()
+            if not (attr_name and owner_label):
+                continue
+            aid = graph.add_node(
+                "ConceptAttribute",
+                f"{owner_label}{ATTRIBUTE_LABEL_SEPARATOR}{attr_name}",
+            )
+            p = prov("concept_attributes")
+            graph.add_assertion(aid, "attribute_of", obj=nid, confidence=1.0,
+                                provenance=p, scope=default_scope,
+                                initiative_id=initiative_id)
+            if attr.get("description"):
+                graph.add_assertion(aid, "description", value=str(attr["description"]),
+                                    confidence=1.0, provenance=p, scope=default_scope,
+                                    initiative_id=initiative_id)
+            if attr.get("data_type"):
+                graph.add_assertion(aid, "data_type", value=str(attr["data_type"]),
+                                    confidence=1.0, provenance=p, scope=default_scope,
+                                    initiative_id=initiative_id)
+            # Emitted only when true, following `carries_sensitive_data`: `false` is
+            # the model's default and would assert "optional" for every field the
+            # document never characterised, which a reviewer cannot tell from a
+            # reviewed answer. Silence here means "not stated", and the guard
+            # reports the difference rather than letting false read as a decision.
+            if attr.get("is_required"):
+                graph.add_assertion(aid, "is_required", value="true",
+                                    confidence=1.0, provenance=p, scope=default_scope,
+                                    initiative_id=initiative_id)
+            for constraint in attr.get("constraints") or []:
+                text = str(constraint).strip()
+                if text:
+                    graph.add_assertion(aid, "constraint", value=text,
+                                        confidence=1.0, provenance=p,
+                                        scope=default_scope, initiative_id=initiative_id)
 
         # ---- requirement classification (BUSINESS / FUNCTIONAL / …) ----
         #

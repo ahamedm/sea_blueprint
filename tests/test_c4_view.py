@@ -19,6 +19,8 @@ carried three `X part_of X` facts that human review had passed as verified.
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from app.viewpoints import c4
@@ -334,7 +336,7 @@ def test_the_checks_are_the_model_not_the_page(arch_graph):
     payload = c4.to_payload(model, "container")
 
     assert {c["name"] for c in payload["checks"]} == {
-        "nesting", "reflexive", "acyclic", "connections", "populated",
+        "nesting", "reflexive", "acyclic", "connections", "populated", "unique_names",
     }
     assert payload["counts"]["checks_failed"] == sum(
         1 for c in payload["checks"] if not c["holds"]
@@ -368,6 +370,99 @@ def test_structurizr_emits_the_relationship_with_its_protocol(layered_output):
 
     assert 'orchestrator -> ledger "reads"' in text
     assert 'router -> ledger "writes" "JDBC"' in text
+
+
+def test_an_external_system_is_tagged_in_the_form_the_parser_accepts():
+    """`{ tags "External" }` is not valid DSL, however the language reference reads.
+
+    The DSL terminates a statement at the newline, so a statement with a closing brace
+    on its line is "Too many tokens, expected: softwareSystem <name> [description]
+    [tags]" — the whole workspace fails to load, on the first external system. Verified
+    against structurizr-cli v2025.11.09; the tag has to be its own line, which means
+    opening a block for it.
+    """
+    output = {"elements": [_element("PGSP", "ExternalSystem")]}
+    text = c4.to_structurizr(c4.c4_model(_graph(output)))
+
+    assert "{ tags" not in text, text
+    assert any(line.strip() == 'tags "External"' for line in text.splitlines()), text
+
+
+def test_every_closing_brace_is_alone_on_its_line(layered_output):
+    """The rule behind the tags defect, stated once for the whole notation.
+
+    A statement inside a block ends at the newline, so `}` may only appear where
+    nothing precedes it. Asserting the invariant rather than the one fixed line means
+    the next element-level block added here cannot reintroduce it.
+    """
+    text = c4.to_structurizr(c4.c4_model(_graph(layered_output)))
+
+    for line in text.splitlines():
+        if "}" in line:
+            assert line.strip() == "}", line
+
+
+def test_every_view_key_is_one_structurizr_accepts_and_only_once():
+    """Two containers with components produced two views both keyed `Components`.
+
+    Structurizr rejects that outright — "A view with the key Components already
+    exists" — and a key may only contain `[a-zA-Z0-9_-]`, so the readable fix
+    ("Components - Orchestrator") is rejected too, for its spaces. Both verified
+    against structurizr-cli v2025.11.09.
+    """
+    output = {
+        "elements": [
+            _element("Payments", "SoftwareSystem"),
+            _element("Orchestrator", "Container", "Payments"),
+            _element("Router", "Component", "Orchestrator"),
+            _element("Ledger", "Container", "Payments"),
+            _element("Store", "Component", "Ledger"),
+        ],
+    }
+    text = c4.to_structurizr(c4.c4_model(_graph(output)))
+
+    keys = re.findall(
+        r'^\s*(?:systemContext|container|component)\s+\w+\s+"([^"]+)"\s*\{', text, re.M
+    )
+    assert keys, text
+    assert len(keys) == len(set(keys)), keys
+    assert all(re.fullmatch(r"[a-zA-Z0-9_-]+", key) for key in keys), keys
+
+
+def test_two_elements_of_one_name_are_drawn_once_and_reported():
+    """Structurizr refuses a second element of one name in one scope.
+
+    `A top-level element named 'Payment Gateway Platform' already exists` is a hard
+    error, and a requirements-side `Platform` node beside an architecture-side
+    `SoftwareSystem` node for one system produces exactly it (YB-053 defect 2). The
+    graph keeps both — which is authoritative is an identity decision, not a view's —
+    so the view draws one box, draws the children inside it, and reports the drop.
+    """
+    output = {
+        "elements": [
+            _element("Payments", "Platform"),
+            _element("Payments", "SoftwareSystem"),
+            _element("Orchestrator", "Container", "Payments"),
+        ],
+    }
+    model = c4.c4_model(_graph(output))
+    text = c4.to_structurizr(model)
+    lines = text.splitlines()
+
+    declarations = [i for i, line in enumerate(lines) if '= softwareSystem "Payments"' in line]
+    assert len(declarations) == 1, lines
+    # The child is drawn inside the surviving box rather than orphaned beside it.
+    orchestrator = next(i for i, line in enumerate(lines) if '= container "Orchestrator"' in line)
+    assert declarations[0] < orchestrator
+    assert lines[declarations[0]].rstrip().endswith("{")
+
+    dropped = [g for g in model["gaps"] if g["kind"] == "duplicate-element"]
+    assert len(dropped) == 1, model["gaps"]
+    assert dropped[0]["label"] == "Payments"
+
+    unique = next(c for c in model["checks"] if c["name"] == "unique_names")
+    assert unique["holds"] is False
+    assert unique["violations"] == 1
 
 
 def test_the_same_graph_emits_the_same_text(arch_graph):

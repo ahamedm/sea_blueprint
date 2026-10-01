@@ -2,11 +2,11 @@
 id: YB-055
 legacy: null
 title: "Domain data elements and their exchanges — the architecture aspect with no model"
-status: open
+status: in-progress
 priority: high
 area: "`ontology/architecture_base.yaml` (a `DataElement`/`DataExchange` class), `agents/*/passes.py` (a pass or rules), `agents/extraction/validators.py` (guards), `core/knowledge/ingest.py` (the seam)"
 created: 2026-09-28
-updated: 2026-09-28
+updated: 2026-10-01
 design: docs/design/data-element-ontology.md
 record: null
 superseded_by: []
@@ -133,6 +133,44 @@ field.
 Option B is the honest minimum and should be the fallback if A is not scheduled.
 What is **not** acceptable is the current state: slots that read as capability,
 that nothing populates and nothing checks.
+
+### What has been prototyped so far (2026-10-01)
+
+**`ConceptAttribute` is reachable.** Not a `DataElement`, and not acceptance for
+Option A — the cheapest slice of the same absence, and the one that needed no new
+class. The logical data model already had a class and a vocabulary
+(`name`, `data_type`, `is_required`, `constraints`); what it did not have was a
+shape the pipeline could emit, so it had **0 instances in every graph**.
+
+What changed:
+
+| Layer | Change |
+|---|---|
+| `ontology/requirements_base.yaml` | `ConceptAttribute.concept -> DomainConcept` (the flat back-link; the nested `key_attributes` stays for hand-written models); new enum `ConceptAttributeDataType` — ten LOGICAL types, no physical ones |
+| `agents/knowledge_extraction/agent.py` | `ExtractedConceptAttribute` + `ExtractedEntity.attributes`. Nested on the owning entity, so the owner is structural and cannot be got wrong. Text fallback carries it too. The worked example no longer teaches an unowned `ConceptAttribute` triple object |
+| `core/knowledge/ingest.py` | Materialises the node, qualified by its owner (`Customer.Email`), plus `attribute_of`, `data_type`, `is_required` (true-only) and `constraint` facts. Created with `add_node`, **not** `_resolve`: `_resolve` is kind-blind, so a document naming a concept `Customer.Email` would have handed that concept back as the field |
+| `agents/extraction/validators.py` | `check_concept_attributes` — unowned, unnamed, duplicated, unanchored, physically-typed, or on a non-concept. Vocabulary read from the ontology; a domain pack's own subclasses are not flagged |
+| `tests/test_concept_attributes.py` | 16 tests, in the `ingest-seams` area |
+
+Measured, and why the shape is nested rather than a new top-level key: the fields
+ride inside `entities`, so ADR-0030's per-key accounting already covers them, and
+the prompt cost is **+1,350 characters of scaffolding (~337 tokens) per
+requirements chunk** — the worked example grew 292, the instruction block 1,058.
+That is a real cost against [YB-007](YB-007-prompt-scaffolding-instruction-dilution.md)
+and it is the kind of number that should be re-measured rather than assumed when
+the next section is added.
+
+Findings get their own `attribute_findings` key rather than joining
+`contract_violations`, because that list is read by the extraction harness as a
+ratio over triples ("clause-shaped nodes < 20%") and a field finding is not a
+clause-shaped node — counting them together would move a calibrated metric by an
+amount unrelated to what it measures.
+
+**Still open, and not implied by the above:** `DataElement`/`DataExchange` (the
+data that moves), the derived-classification walk, the physical binding of a
+logical entity to a `DataStore`, `DataEntity`/`DataClassification`, and any view
+that answers the PCI question. `ConceptRelationship` remains in the same shape
+`ConceptAttribute` was in: declared, nested, unpopulatable.
 
 ### Acceptance
 

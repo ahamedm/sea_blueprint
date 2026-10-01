@@ -17,6 +17,11 @@ This is a platform shrinked to a tool/app to prove the core idea of leveraging O
   fits, add an area rather than widening one — a file list that has to be read to be
   understood is the drift this taxonomy exists to catch. See [Reading the tests](docs/testing.md)
 - Documents under docs/ folder
+- **Issues are tracked separately from TODOs, in [ISSUES.md](ISSUES.md).** An issue is a
+  measured observation about the current state (`ISS-N`, hand-edited, no tooling); a TODO
+  entry is a decision or a piece of work. When an issue needs a decision, a design or an
+  estimate, promote it to a `docs/todos/entries/` item and leave the id pointing at it —
+  the two lists are different sizes of thing, and that is the whole reason for the split.
 - Configurations Externalized
 - Use uv instead of direct python for build/dependency management etc.
 - Agents under agents/ folder

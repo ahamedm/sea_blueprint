@@ -384,3 +384,175 @@ def test_without_a_focus_the_whole_graph_is_drawn(arch_extraction):
     assert view["focus_unknown"] is False
     assert view["focus_hidden_nodes"] == 0
 
+
+
+# ============================================================================
+# Colour and shape — two channels, and the axis is the reader's choice (ISS-11)
+# ============================================================================
+#
+# The map painted a whole layer one colour. Measured on the live payments scope that
+# was 30 distinct kinds and 176 nodes in three colours, with `Concept` — the graph's
+# own unclassified bucket — 28 of them. The fix is two channels: colour carries the
+# family, shape carries the C4 level, and which axis the colour is on is a control
+# rather than a decision baked into the view.
+
+
+def _level_graph():
+    """One element of each C4 level, plus one that states its level as a fact."""
+    from core.knowledge import graph_from_extraction
+
+    graph, _run = graph_from_extraction(
+        {
+            "elements": [
+                {"name": "Payments", "element_type": "SoftwareSystem"},
+                {"name": "Orchestrator", "element_type": "Container", "parent": "Payments"},
+                {"name": "Router", "element_type": "Component", "parent": "Orchestrator"},
+                # A Container that SAYS it is at component level. The stated level is
+                # what the extraction recorded, so it is what the shape must follow.
+                {"name": "Odd One", "element_type": "Container", "parent": "Payments",
+                 "c4_level": "COMPONENT"},
+            ],
+            "design_techniques": [
+                {"name": "Circuit Breaker", "applies_to": ["Orchestrator"]},
+            ],
+        },
+        metadata={"run_id": "run_shape_test", "document_type": "architecture"},
+        document_ref="arch.md",
+        document_text="the document body",
+    )
+    return graph
+
+
+def test_every_axis_is_available_and_the_key_matches_the_axis(arch_extraction):
+    """All three values ride on every node; `colour_key` is the chosen one.
+
+    Sending all three is what makes the payload self-describing — an API consumer can
+    re-colour without a second call — and what makes it impossible for the legend to
+    describe a colour the graph is not drawn in.
+    """
+    for axis in ("family", "layer", "kind"):
+        view = merged_view(arch_extraction, colour=axis)
+        assert view["colour"] == axis
+        # `layer` is the axis name; `group` is the field it reads. The two names differ
+        # because the payload predates the axis and every other assertion uses `group`.
+        field = "group" if axis == "layer" else axis
+        for node in view["nodes"]:
+            assert node["colour_key"] == node[field], (axis, node)
+    assert set(merged.COLOUR_AXES) == {"family", "layer", "kind"}
+
+
+def test_an_unknown_axis_falls_back_to_the_default_rather_than_raising(arch_extraction):
+    view = merged_view(arch_extraction, colour="nonsense")
+    assert view["colour"] == merged.DEFAULT_COLOUR
+    assert all(n["colour_key"] == n["family"] for n in view["nodes"])
+
+
+def test_the_family_is_read_from_the_ontologys_own_subsets():
+    """Not a second hand-written kind list.
+
+    The subsets are already the project's grouping of its vocabulary (the ontology
+    reference page renders them), so a parallel table here would be the drift
+    `validators.py` warns about, one layer over. Precedence is stated because a class
+    may declare several subsets.
+    """
+    assert merged.family_of("Container") == "C4Model"
+    assert merged.family_of("SoftwareSystem") == "C4Model"
+    assert merged.family_of("FunctionalRequirement") == "Requirements"
+    assert merged.family_of("QualityAttribute") == "QualityAttributes"
+    # Both subsets are declared; ArchitectureRationale wins, which is the split that
+    # separates a technique from the structure it runs on.
+    assert "ArchitectureRationale" in merged.FAMILY_ORDER
+    assert merged.FAMILY_ORDER.index("ArchitectureRationale") < merged.FAMILY_ORDER.index(
+        "ArchitectureStructure"
+    )
+    assert merged.family_of("DesignTechnique") == "ArchitectureRationale"
+    assert merged.family_of("Connection") == "ArchitectureStructure"
+    # The unclassified bucket is a name, not an accident: `Concept` is the graph's own
+    # fallback and a domain-pack class is an overlay this view is not given.
+    assert merged.family_of("Concept") == merged.UNCLASSIFIED_FAMILY
+    assert merged.family_of("Cardholder") == merged.UNCLASSIFIED_FAMILY
+
+
+def test_a_family_map_without_the_ontology_degrades_to_the_layer(arch_extraction):
+    """A map is still drawable when the vocabulary cannot be read.
+
+    Degrading to the layer is honest — those nodes are in a layer, and the page
+    already reports the kinds no lens names — where inventing a family would not be.
+    """
+    view = merged_view(arch_extraction, ontology_dir="/nonexistent-ontology")
+    assert view["nodes"]
+    for node in view["nodes"]:
+        assert node["family"] == node["group"], node
+
+
+def test_the_colour_legend_counts_exactly_what_the_colour_colours(arch_extraction):
+    """A swatch and a node are painted from one field, so they cannot disagree."""
+    view = merged_view(arch_extraction, colour="family")
+
+    assert sum(e["count"] for e in view["colour_legend"]) == len(view["nodes"])
+    assert {e["key"] for e in view["colour_legend"]} == {
+        n["colour_key"] for n in view["nodes"]
+    }
+    assert len({e["key"] for e in view["colour_legend"]}) == len(view["colour_legend"])
+    # Ordered by the vocabulary rather than by count, so a family does not change
+    # swatch because the graph grew.
+    order = [e["key"] for e in view["colour_legend"]]
+    assert order == sorted(order, key=lambda k: (
+        merged.FAMILY_ORDER.index(k) if k in merged.FAMILY_ORDER else len(merged.FAMILY_ORDER)
+    ))
+
+
+def test_a_colour_axis_cannot_take_more_swatches_than_a_legend_can_hold(arch_extraction):
+    """The bound is the reason `family` is the default rather than `kind`.
+
+    The fixture has a handful of kinds; the live graph has 30, which is the measured
+    case the entry records. `kind` stays available because it is sometimes the exact
+    question, and the entry says plainly that the palette cycles there.
+    """
+    family = merged_view(arch_extraction, colour="family")["colour_legend"]
+    assert len(family) <= len(merged.FAMILY_ORDER) + 1
+
+
+def test_shape_carries_the_c4_level_and_the_stated_level_wins():
+    view = merged_view(_level_graph(), colour="family")
+    shape = {n["label"]: n["shape"] for n in view["nodes"]}
+
+    assert shape["Payments"] == "system"
+    assert shape["Orchestrator"] == "container"
+    assert shape["Router"] == "component"
+    # The fact beats the kind, exactly as the C4 view reads it.
+    assert shape["Odd One"] == "component"
+    # A technique has no level, so it is a dot: colour is what tells it apart, and a
+    # second shape for it would spend the channel on the same answer twice.
+    assert shape["Circuit Breaker"] == "point"
+
+
+def test_the_shape_legend_names_only_shapes_the_graph_draws(req_extraction):
+    """An absent shape in the legend is a claim about the legend, not the graph."""
+    view = merged_view(req_extraction)
+
+    # The claim is "no swatch without a node", not "this fixture has one shape": the
+    # requirements fixture holds a `System` node, so it legitimately draws a square.
+    assert {e["key"] for e in view["shape_legend"]} == {n["shape"] for n in view["nodes"]}
+    assert "component" not in {e["key"] for e in view["shape_legend"]}
+
+    arch = merged_view(_level_graph())
+    assert {"system", "container", "component", "point"} == {
+        e["key"] for e in arch["shape_legend"]
+    }
+    assert sum(e["count"] for e in arch["shape_legend"]) == len(arch["nodes"])
+
+
+def test_the_layer_axis_still_answers_what_it_answered(arch_extraction):
+    """The new axes are additive: `group` and `group_counts` mean what they meant.
+
+    Every other assertion in this file reads `group`, and the C4 page, the concept
+    table and the API all consume this payload — a colour feature is not a reason to
+    change what the layer field says.
+    """
+    view = merged_view(arch_extraction, colour="family")
+
+    assert sum(view["group_counts"].values()) == len(view["nodes"])
+    for node in view["nodes"]:
+        assert node["group"] == layer_of(node["kind"])
+    assert {n["group"] for n in view["nodes"]} <= {"business", "requirements", "architecture"}

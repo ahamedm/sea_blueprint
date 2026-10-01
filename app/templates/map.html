@@ -16,19 +16,36 @@
   <div class="row">
     {% for lens, label in view.lens_labels.items() %}
       <a class="btn {{ 'btn-primary' if view.lens == lens else '' }}"
-         href="{{ url_for('map_view', lens=lens, concern=view.focus.value) if view.focus else url_for('map_view', lens=lens) }}">{{ label }}</a>
+         href="{{ url_for('map_view', lens=lens, colour=view.colour, concern=view.focus.value) if view.focus else url_for('map_view', lens=lens, colour=view.colour) }}">{{ label }}</a>
     {% endfor %}
   </div>
+</div>
+
+{#
+  The colour axis is a control rather than a decision made here, because "which
+  distinction do I want right now" has two good answers and the page cannot know
+  which one is being asked. Shape is not a control: it always carries the C4 level, so
+  a container stays separable from a component inside one colour (ISSUES.md ISS-11).
+#}
+<div class="row" style="flex-wrap:wrap; margin-bottom:12px;">
+  <span class="muted small" style="align-self:center;">Colour by</span>
+  {% for axis, label in view.colour_labels.items() %}
+    <a class="btn btn-sm {{ 'btn-primary' if view.colour == axis else '' }}"
+       href="{{ url_for('map_view', lens=view.lens, colour=axis, concern=view.focus.value) if view.focus else url_for('map_view', lens=view.lens, colour=axis) }}">{{ label }}</a>
+  {% endfor %}
+  <span class="muted small" style="align-self:center;">
+    — shape is always the C4 level
+  </span>
 </div>
 
 {% if view.focus_options.characteristics %}
   <div class="row" style="flex-wrap:wrap; margin-bottom:12px;">
     <span class="muted small" style="align-self:center;">Quality focus</span>
     <a class="btn {{ 'btn-primary' if not view.focus else '' }}"
-       href="{{ url_for('map_view', lens=view.lens) }}">Whole graph</a>
+       href="{{ url_for('map_view', lens=view.lens, colour=view.colour) }}">Whole graph</a>
     {% for option in view.focus_options.characteristics %}
       <a class="btn {{ 'btn-primary' if view.focus and view.focus.value|upper == option.value|upper else '' }}"
-         href="{{ url_for('map_view', lens=view.lens, concern=option.value) }}"
+         href="{{ url_for('map_view', lens=view.lens, colour=view.colour, concern=option.value) }}"
          title="{{ option.answered }} answered · {{ option.gaps }} gap(s) · {{ option.unasked }} unasked">
         {{ option.label }} <span class="muted">{{ option.concerns }}</span>
       </a>
@@ -47,7 +64,7 @@
         quality attributes in it.
       </p>
       <p>
-        <a class="btn btn-primary" href="{{ url_for('map_view', lens=view.lens) }}">Clear the filter</a>
+        <a class="btn btn-primary" href="{{ url_for('map_view', lens=view.lens, colour=view.colour) }}">Clear the filter</a>
         <a class="btn" href="{{ url_for('quality') }}">See what attributes exist</a>
       </p>
     {% else %}
@@ -96,15 +113,18 @@
         This filter hides {{ view.focus_hidden_nodes }} node(s) the lens would
         otherwise draw ({{ view.focus_hidden_kinds|join(', ') }}).
       {% endif %}
-      <a href="{{ url_for('map_view', lens=view.lens) }}">clear</a>
+      <a href="{{ url_for('map_view', lens=view.lens, colour=view.colour) }}">clear</a>
     </div>
   {% endif %}
 
   {% if view.unclassified_kinds %}
     <div class="banner banner-warn">
       <strong>{{ view.unclassified_kinds|length }} node kind(s) belong to no layer this view knows.</strong>
-      They are drawn, but grouped as requirements: {{ view.unclassified_kinds|join(', ') }}.
-      The vocabulary moved and this viewpoint has not been told where they belong.
+      They are drawn, and on the family axis they get their own swatch rather than a
+      borrowed one — {{ view.unclassified_kinds|join(', ') }} — because colouring them as
+      something they are not would hide the one signal this bucket exists to give. On the
+      layer axis they fall into requirements, which is where this viewpoint's fallback
+      puts them.
     </div>
   {% endif %}
 
@@ -143,7 +163,7 @@
     {% if view.excluded_kinds %}
       <p class="hint graph-footnote">
         Not shown by this lens: {{ view.excluded_kinds|join(', ') }}.
-        <a href="{{ url_for('map_view', lens='all') }}">All concepts</a> shows everything.
+        <a href="{{ url_for('map_view', lens='all', colour=view.colour) }}">All concepts</a> shows everything.
       </p>
     {% endif %}
   </div>
@@ -235,6 +255,9 @@
           label: l.target_label,
           kind: 'unresolved reference',
           group: 'reference',
+          family: 'reference',
+          colour_key: 'reference',
+          shape: 'point',
           external_refs: [],
           description: 'No node in this graph answers this reference. It is waiting for reconciliation.',
           placeholder: true
@@ -242,9 +265,59 @@
       });
       synthetic.forEach(function (n) { nodes.push(n); });
 
-      var groupColor = d3.scaleOrdinal()
-        .domain(['business', 'requirements', 'architecture', 'reference'])
-        .range(['#b45309', '#2563eb', '#15803d', '#94a3b8']);
+      // -- colour: the chosen axis, painted from the legend the server sent -------
+      //
+      // The domain IS `view.colour_legend`, so a swatch in the legend and a node on
+      // the canvas cannot disagree — including on the `kind` axis, where the palette
+      // has to cycle. The eight values are a colour-blind-safe set (Okabe-Ito plus two
+      // muted slates); cycling is deliberate rather than a silent wrap, because 30
+      // kinds cannot have 30 distinguishable hues and the shape channel is what
+      // carries the distinction colour cannot.
+      var palette = ['#0072b2', '#d55e00', '#009e73', '#cc79a7', '#e69f00',
+                     '#56b4e9', '#8c564b', '#5f6b7a'];
+      var colourDomain = {{ view.colour_legend | map(attribute='key') | list | tojson }};
+      var colourRange = colourDomain.map(function (_, i) { return palette[i % palette.length]; });
+      var colourOf = d3.scaleOrdinal().domain(colourDomain).range(colourRange);
+      var REFERENCE_COLOUR = '#ffffff';
+
+      function paint(d) {
+        if (d.placeholder) { return REFERENCE_COLOUR; }
+        var c = colourOf(d.colour_key);
+        return c === undefined ? palette[palette.length - 1] : c;
+      }
+
+      // -- shape: the C4 level, carried as the second channel --------------------
+      //
+      // One path per shape, so the node group stays uniform — drag, hover, labels and
+      // the neighbourhood logic all address one element. `point` is the default and is
+      // what every non-C4 node gets: a requirement, a concept, a technique, a
+      // technology. Those are told apart by colour, and giving them shapes too would
+      // spend the second channel on a second answer to the same question.
+      function radius(d) { return 9 + Math.min(11, (d.external_refs || []).length * 3); }
+
+      function shapePath(d) {
+        var r = radius(d), s = r, k = r * 1.35;
+        switch (d.shape) {
+          case 'system':                                       // square
+            return 'M' + (-s) + ',' + (-s) + 'h' + (2 * s) + 'v' + (2 * s) +
+                   'h' + (-2 * s) + 'z';
+          case 'container': {                                  // rounded square
+            var rr = s * 0.45, w = 2 * s - 2 * rr;
+            return 'M' + (-s + rr) + ',' + (-s) + 'h' + w +
+                   'a' + rr + ',' + rr + ' 0 0 1 ' + rr + ',' + rr +
+                   'v' + w + 'a' + rr + ',' + rr + ' 0 0 1 ' + (-rr) + ',' + rr +
+                   'h' + (-w) + 'a' + rr + ',' + rr + ' 0 0 1 ' + (-rr) + ',' + (-rr) +
+                   'v' + (-w) + 'a' + rr + ',' + rr + ' 0 0 1 ' + rr + ',' + (-rr) + 'z';
+          }
+          case 'component':                                    // diamond
+            return 'M0,' + (-k) + 'L' + k + ',0L0,' + k + 'L' + (-k) + ',0z';
+          case 'code':                                         // triangle
+            return 'M0,' + (-k) + 'L' + k + ',' + k + 'L' + (-k) + ',' + k + 'z';
+          default:                                             // circle
+            return 'M' + (-r) + ',0a' + r + ',' + r + ' 0 1 0 ' + (2 * r) +
+                   ',0a' + r + ',' + r + ' 0 1 0 ' + (-2 * r) + ',0z';
+        }
+      }
 
       var svg = d3.select(el).append('svg')
         .attr('viewBox', [0, 0, width, height]);
@@ -369,10 +442,10 @@
         .on('pointerenter', function (event, d) { hoveredNode = d; refresh(); })
         .on('pointerleave', function () { hoveredNode = null; refresh(); });
 
-      node.append('circle')
-        .attr('r', function (d) { return 9 + Math.min(11, (d.external_refs || []).length * 3); })
-        .attr('fill', function (d) { return d.placeholder ? '#fff' : groupColor(d.group); })
-        .attr('stroke', function (d) { return d.placeholder ? '#94a3b8' : '#fff'; })
+      node.append('path')
+        .attr('d', shapePath)
+        .attr('fill', paint)
+        .attr('stroke', function (d) { return d.placeholder ? '#94a3b8' : '#1f2937'; })
         .attr('stroke-dasharray', function (d) { return d.placeholder ? '3,3' : null; });
 
       node.append('title').text(function (d) {
@@ -399,18 +472,28 @@
         node.attr('transform', function (d) { return 'translate(' + d.x + ',' + d.y + ')'; });
       });
 
+      // -- the legend, from the same legend the canvas was painted from ---------
+      //
+      // Counts come from the server's `colour_legend` rather than from the client's
+      // node list, so the legend and the drawing are one answer. The placeholder is
+      // the exception: it is a client-side synthetic node, so it is counted here and
+      // styled apart from every colour the vocabulary can produce.
       var legend = d3.select('#legend');
-      ['business', 'requirements', 'architecture'].forEach(function (group) {
-        var count = nodes.filter(function (n) { return n.group === group; }).length;
-        if (!count) { return; }
+      {{ view.colour_legend | tojson }}.forEach(function (entry) {
         legend.append('span')
-          .html('<span class="swatch" style="background:' + groupColor(group) + '"></span>' + group + ' (' + count + ')');
+          .html('<span class="swatch" style="background:' + colourOf(entry.key) +
+                '"></span>' + entry.label + ' (' + entry.count + ')');
       });
       var unresolved = nodes.filter(function (n) { return n.placeholder; }).length;
       if (unresolved) {
         legend.append('span')
           .html('<span class="swatch" style="background:#fff;border:1px dashed #94a3b8"></span>unresolved reference (' + unresolved + ')');
       }
+      legend.append('span').attr('class', 'muted').text('shape');
+      {{ view.shape_legend | tojson }}.forEach(function (entry) {
+        legend.append('span')
+          .html('<span class="swatch shape-' + entry.key + '"></span>' + entry.label + ' (' + entry.count + ')');
+      });
 
       // -- the graph's own real estate ---------------------------------------
       var card = el.closest('.graph-card');

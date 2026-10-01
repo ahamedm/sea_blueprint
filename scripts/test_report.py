@@ -150,6 +150,7 @@ AREAS: Tuple[Area, ...] = (
         ),
         files=(
             "test_connections_ingest",
+            "test_concept_attributes",
             "test_output_consumption",
             "test_post_extraction_failure",
             "test_irreflexive_guard",

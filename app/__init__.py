@@ -71,7 +71,7 @@ from app.projections import (
     project_review_rows,
     project_review_summary,
 )
-from app.viewpoints.merged import DEFAULT_LENS, merged_view
+from app.viewpoints.merged import DEFAULT_COLOUR, DEFAULT_LENS, merged_view
 from app.viewpoints import c4 as c4_viewpoint
 from core.knowledge import (
     ACTION_VERIFY,
@@ -1536,7 +1536,13 @@ def create_app(
         index = project_node_index(snapshot.graph)
         return render_template(
             "map.html",
-            view=merged_view(snapshot.graph, lens, request.args.get("concern", "")),
+            view=merged_view(
+                snapshot.graph, lens, request.args.get("concern", ""),
+                colour=request.args.get("colour", DEFAULT_COLOUR),
+                # The family vocabulary is the ontology's own subsets; a map without
+                # it still draws, grouped by layer (see `family_of`).
+                ontology_dir=current_app.config["ONTOLOGY_DIR"],
+            ),
             elements=index[:MAP_CONCEPT_ROWS],
             element_total=len(index),
             gaps=project_gap_report(snapshot.graph),
@@ -1638,6 +1644,8 @@ def create_app(
                 snapshot.graph,
                 request.args.get("lens", DEFAULT_LENS),
                 request.args.get("concern", ""),
+                request.args.get("colour", DEFAULT_COLOUR),
+                current_app.config["ONTOLOGY_DIR"],
             )
         )
 

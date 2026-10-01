@@ -50,11 +50,14 @@ assertions — see `app/viewpoints/__init__.py` for why the layers are split.
 
 from __future__ import annotations
 
-from typing import Any, Dict, FrozenSet, List, Optional
+from functools import lru_cache
+from typing import Any, Dict, FrozenSet, List, Optional, Tuple
 
 from app.projections import edge_records, literal_facts, node_records
+from app.viewpoints.c4 import LEVEL_FROM_FACT, LEVEL_FROM_KIND
 from core.knowledge.model import CROSS_GRAPH_PREDICATES, reference_targets_a_node
 from core.knowledge.quality import quality_state
+from core.ontology import load_ontology
 from core.quality import CHARACTERISTIC_ORDER, enum_name, humanise
 
 # ============================================================================
@@ -203,6 +206,136 @@ def layer_of(kind: str) -> str:
         if kind in kinds:
             return layer
     return "requirements"
+
+
+# ============================================================================
+# Colour: three axes over the same nodes, one at a time
+# ============================================================================
+#
+# The map used to paint a whole LAYER one colour, which was legible while the graph
+# was small and stopped being legible the moment it was not: measured on the live
+# payments scope, 30 distinct kinds and 176 nodes were drawn in three colours, and
+# `Concept` alone — the graph's own unclassified bucket — was 28 of them.
+#
+# The fix is two channels rather than one, because one cannot carry it: COLOUR is the
+# family (a bounded set), SHAPE is the C4 level (so a container is still separable
+# from a component inside one colour). And because "which distinction do I want right
+# now?" is a real question with two good answers, the axis is a control rather than a
+# decision baked into the page (ISSUES.md ISS-11).
+
+#: The axes a reader may colour by. `family` is the default: bounded, ontology-derived,
+#: and more informative than the layer without needing 30 colours.
+COLOUR_AXES: Tuple[str, ...] = ("family", "layer", "kind")
+
+DEFAULT_COLOUR = "family"
+
+COLOUR_LABELS: Dict[str, str] = {
+    "family": "Family",
+    "layer": "Layer",
+    "kind": "Kind",
+}
+
+#: Ontology subsets, in precedence order, become the families. Precedence exists
+#: because a class may declare SEVERAL subsets — `DesignTechnique` is in both
+#: `ArchitectureStructure` and `ArchitectureRationale`, and `NonFunctionalRequirement`
+#: in both `Requirements` and `QualityAttributes` — so "the family" needs a rule rather
+#: than a guess. First match wins, and the order below is the one that separates the
+#: things a reader is actually trying to tell apart: rationale from the structure it
+#: runs on, and requirements from the quality attributes they are about.
+FAMILY_ORDER: Tuple[str, ...] = (
+    "BusinessContext", "Requirements", "QualityAttributes", "C4Model",
+    "ArchitectureRationale", "ArchitectureStructure", "EnterpriseStructure",
+    "PlatformModel", "Traceability", "ArchitectureTraceability", "Specification",
+)
+
+#: The family for a kind the vocabulary does not declare — `Concept`, the graph's own
+#: fallback, and every domain-pack class, because a pack is an overlay this view is not
+#: given. Deliberately named for what it is: colouring those nodes as something they
+#: are not would hide the one signal the bucket exists to give.
+UNCLASSIFIED_FAMILY = "unclassified"
+
+FAMILY_LABELS: Dict[str, str] = {
+    "BusinessContext": "Business context",
+    "Requirements": "Requirements",
+    "QualityAttributes": "Quality attributes",
+    "C4Model": "C4 elements",
+    "ArchitectureRationale": "Architecture rationale",
+    "ArchitectureStructure": "Architecture structure",
+    "EnterpriseStructure": "Enterprise structure",
+    "PlatformModel": "Platform model",
+    "Traceability": "Traceability",
+    "ArchitectureTraceability": "Architecture traceability",
+    "Specification": "Specification",
+    UNCLASSIFIED_FAMILY: "Unclassified",
+}
+
+#: The second channel. Shape carries the C4 level where the node has one — the
+#: distinction colour cannot make inside a family — and a plain dot otherwise, so
+#: "shape means something" is true rather than decorative.
+SHAPE_FROM_LEVEL: Dict[str, str] = {
+    "context": "system",
+    "container": "container",
+    "component": "component",
+    "code": "code",
+}
+
+DEFAULT_SHAPE = "point"
+
+SHAPE_LABELS: Dict[str, str] = {
+    "system": "System",
+    "container": "Container",
+    "component": "Component",
+    "code": "Code",
+    DEFAULT_SHAPE: "Everything else",
+}
+
+
+@lru_cache(maxsize=None)
+def family_map(ontology_dir: str) -> Dict[str, str]:
+    """kind -> family, compiled from the ontology's own subsets.
+
+    Empty when the ontology cannot be read at all, which `family_of` handles by
+    degrading to the layer rather than by inventing a family.
+    """
+    try:
+        model = load_ontology(ontology_dir)
+    except Exception:  # noqa: BLE001 - a map without the vocabulary still draws
+        return {}
+    out: Dict[str, str] = {}
+    for name, spec in model.classes.items():
+        for subset in FAMILY_ORDER:
+            if subset in (spec.subsets or ()):
+                out[name] = subset
+                break
+    return out
+
+
+def family_of(kind: str, ontology_dir: str = "ontology") -> str:
+    """The family a kind belongs to, for colour.
+
+    Read from the ontology rather than restated here, because the subsets are already
+    the project's own grouping of its vocabulary — a second hand-written list would be
+    the drift `validators.py` warns about, one layer over. A kind the base layers do
+    not declare reports `unclassified`: that is the pack case (`Cardholder`) and the
+    fallback case (`Concept`), and both are things the page already reports by name.
+    """
+    families = family_map(ontology_dir)
+    if not families:
+        return layer_of(kind)
+    return families.get(kind, UNCLASSIFIED_FAMILY)
+
+
+def shape_of(kind: str, facts: Dict[str, str]) -> str:
+    """The shape a node is drawn as: its C4 level, when it states one.
+
+    The level vocabulary lives in `c4.py` for the same reason the families live in the
+    ontology: the C4 view owns "what level is this", and a second copy here would be a
+    second answer. This is the map borrowing the vocabulary, not the projection.
+    """
+    level = LEVEL_FROM_FACT.get(str(facts.get("c4_level") or "").upper())
+    if level is None:
+        level = LEVEL_FROM_KIND.get(kind)
+    return SHAPE_FROM_LEVEL.get(level or "", DEFAULT_SHAPE)
 
 
 def _reference_edges(graph, node_ids: set) -> List[Dict[str, Any]]:
@@ -435,13 +568,81 @@ def quality_focus_options(graph) -> Dict[str, Any]:
     }
 
 
-def merged_view(graph, lens: str = DEFAULT_LENS, concern: str = "") -> Dict[str, Any]:
+def _colour_key(node: Dict[str, Any], colour: str) -> str:
+    """The value the renderer paints this node by, for the chosen axis."""
+    if colour == "kind":
+        return node["kind"]
+    if colour == "layer":
+        return node["group"]
+    return node["family"]
+
+
+def _colour_legend(nodes: List[Dict[str, Any]], colour: str) -> List[Dict[str, Any]]:
+    """The swatches the renderer must draw, in a stable order, with their counts.
+
+    Ordered by the axis's own vocabulary rather than by count, so a colour does not
+    move to a different family because the graph grew: `family` follows
+    `FAMILY_ORDER` with the unclassified bucket last, `layer` follows `LAYER_ORDER`,
+    and `kind` is alphabetical. Counts are on the entry because "which of these am I
+    actually looking at" is the question a legend is asked.
+    """
+    seen: Dict[str, int] = {}
+    for node in nodes:
+        key = _colour_key(node, colour)
+        seen[key] = seen.get(key, 0) + 1
+
+    if colour == "family":
+        order = [f for f in FAMILY_ORDER if f in seen]
+        order += [UNCLASSIFIED_FAMILY] if UNCLASSIFIED_FAMILY in seen else []
+        # Anything `family_of` fell back to (the layer names, when the ontology could
+        # not be read) still gets a swatch rather than being drawn in a colour the
+        # legend does not name.
+        order += [k for k in sorted(seen) if k not in order]
+        label = lambda k: FAMILY_LABELS.get(k, k)
+    elif colour == "layer":
+        order = [l for l in LAYER_ORDER if l in seen]
+        order += [k for k in sorted(seen) if k not in order]
+        label = lambda k: k
+    else:
+        order = sorted(seen)
+        label = lambda k: k
+
+    return [{"key": k, "label": label(k), "count": seen[k]} for k in order]
+
+
+def _shape_legend(nodes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """The shapes actually drawn, so the legend never claims an absent one."""
+    seen: Dict[str, int] = {}
+    for node in nodes:
+        seen[node["shape"]] = seen.get(node["shape"], 0) + 1
+    order = [s for s in ("system", "container", "component", "code", DEFAULT_SHAPE)
+             if s in seen]
+    return [{"key": s, "label": SHAPE_LABELS.get(s, s), "count": seen[s]} for s in order]
+
+
+def merged_view(
+    graph,
+    lens: str = DEFAULT_LENS,
+    concern: str = "",
+    colour: str = DEFAULT_COLOUR,
+    ontology_dir: str = "ontology",
+) -> Dict[str, Any]:
     """Select the nodes a lens shows and shape them for the map.
 
-    Node shape is what `node_records` and `literal_facts` already produce, plus
-    `group` (the layer the renderer colours by) and the tooltip's detail facts.
-    Inventing a second node shape would mean two definitions of "a node for a
-    diagram", which is how the projection/viewpoint split gets undone.
+    Node shape is what `node_records` and `literal_facts` already produce, plus the
+    three things the renderer needs to encode: `group` (the layer), `family` (the
+    ontology subset) and `shape` (the C4 level). Inventing a second node shape would
+    mean two definitions of "a node for a diagram", which is how the
+    projection/viewpoint split gets undone.
+
+    `colour` picks which of the three axes `colour_key` carries — the reader's choice,
+    not the view's (ISS-11). All three values are on every node regardless, so the
+    payload is self-describing and the legend and the circles cannot disagree: the
+    legend is built from the same field the renderer paints.
+
+    `ontology_dir` is where the family vocabulary comes from. Defaulted rather than
+    required so a CLI or a test gets the repo's own layout without configuration, and
+    `family_of` degrades to the layer when it cannot be read.
 
     `concern` is the quality filter — an ISO characteristic (`RELIABILITY`) or a
     sub-characteristic (`AVAILABILITY`). It narrows the map to the attribute
@@ -451,6 +652,7 @@ def merged_view(graph, lens: str = DEFAULT_LENS, concern: str = "") -> Dict[str,
     silently drops nodes is the failure every other lens here exists to avoid.
     """
     resolved_lens = lens if lens in LENSES else DEFAULT_LENS
+    resolved_colour = colour if colour in COLOUR_AXES else DEFAULT_COLOUR
     kinds = LENSES[resolved_lens]
 
     requested = (concern or "").strip()
@@ -494,22 +696,26 @@ def merged_view(graph, lens: str = DEFAULT_LENS, concern: str = "") -> Dict[str,
     nodes: List[Dict[str, Any]] = []
     for record in sorted(records, key=lambda r: r["id"]):
         detail = facts.get(record["id"], {})
-        nodes.append(
-            {
-                **record,
-                "group": layer_of(record["kind"]),
-                "description": detail.get("description", ""),
-                "technology": detail.get("technology") or detail.get("technology_stack", ""),
-                "system_class": detail.get("system_class", ""),
-                # Whether anything links to or from this node as a *concept*. The
-                # alternative — leaving the reader to trace edges by eye — is what
-                # makes an unanswered requirement invisible.
-                "referenced": any(
-                    e.get("reference") and (e["source"] == record["id"] or e["target"] == record["id"])
-                    for e in links
-                ),
-            }
-        )
+        family = family_of(record["kind"], ontology_dir)
+        shape = shape_of(record["kind"], detail)
+        node = {
+            **record,
+            "group": layer_of(record["kind"]),
+            "family": family,
+            "shape": shape,
+            "description": detail.get("description", ""),
+            "technology": detail.get("technology") or detail.get("technology_stack", ""),
+            "system_class": detail.get("system_class", ""),
+            # Whether anything links to or from this node as a *concept*. The
+            # alternative — leaving the reader to trace edges by eye — is what
+            # makes an unanswered requirement invisible.
+            "referenced": any(
+                e.get("reference") and (e["source"] == record["id"] or e["target"] == record["id"])
+                for e in links
+            ),
+        }
+        node["colour_key"] = _colour_key(node, resolved_colour)
+        nodes.append(node)
 
     counts: Dict[str, int] = {}
     for node in nodes:
@@ -549,4 +755,15 @@ def merged_view(graph, lens: str = DEFAULT_LENS, concern: str = "") -> Dict[str,
         # A kind no lens names. Empty on the current schema; non-empty means the
         # vocabulary moved and this viewpoint has not been told where it belongs.
         "unclassified_kinds": sorted(all_kinds - classified),
+        # The reader's colour axis, and the legend that necessarily goes with it: the
+        # renderer paints from `colour_key`, and this is the same field counted, so a
+        # swatch cannot describe a colour the graph is not drawn in.
+        "colour": resolved_colour,
+        "colour_labels": COLOUR_LABELS,
+        "colour_legend": _colour_legend(nodes, resolved_colour),
+        # The second channel's own legend, only for the shapes actually drawn — an
+        # empty "Component" swatch on a graph with no components is a claim about the
+        # legend, not about the graph.
+        "shape_legend": _shape_legend(nodes),
+        "shape_labels": SHAPE_LABELS,
     }

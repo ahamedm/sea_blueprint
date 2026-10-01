@@ -85,6 +85,6 @@
 | None | Reflexive `part_of` and concepts extracted twice — the two defects the C4 view found | [YB-052](entries/YB-052-reflexive-and-duplicate-extraction.md) | entry (done) |
 | None | Category elements, one system named twice, and a hub that is really a document gap | [YB-053](entries/YB-053-category-elements-and-duplicate-system.md) | entry (open) |
 | None | The requirements profile computes contract violations and low-confidence items that no consumer reads | [YB-054](entries/YB-054-unrouted-requirements-output-keys.md) | entry (open) |
-| None | Domain data elements and their exchanges — the architecture aspect with no model | [YB-055](entries/YB-055-data-element-design.md) | entry (open) |
+| None | Domain data elements and their exchanges — the architecture aspect with no model | [YB-055](entries/YB-055-data-element-design.md) | entry (in-progress) |
 | None | A second representation for the knowledge map — hierarchy over force, and real filtering | [YB-056](entries/YB-056-map-representation-modes.md) | entry (open) |
 | None | Machine-checked is not human-verified — the review queue asks 486 questions to get 175 answers | [YB-057](entries/YB-057-machine-checked-is-not-human-verified.md) | entry (open) |

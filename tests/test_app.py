@@ -925,8 +925,12 @@ def test_ontology_focus_on_an_unknown_class_is_graceful(client):
 
 def test_api_ontology_returns_the_schema(client):
     payload = client.get("/api/ontology").get_json()
+    # Deliberately exact, like `test_ontology.test_totals`: a schema change has to be
+    # acknowledged here rather than flowing through to whatever reads the payload.
+    # 49 enums is `ConceptAttributeDataType`, the logical data-type vocabulary of
+    # YB-055 (an enum and no new class — the class was already declared).
     assert len(payload["classes"]) == 70
-    assert len(payload["enums"]) == 48
+    assert len(payload["enums"]) == 49
     assert payload["overview"]["stats"]["classes"] == 70
     assert payload["overview"]["diagnostics"]["is_clean"] is True
 
