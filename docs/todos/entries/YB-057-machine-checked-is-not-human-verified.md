@@ -6,7 +6,7 @@ status: open
 priority: high
 area: "`core/knowledge/review.py` (the states and `review_progress`), `core/knowledge/model.py` (assertion status/provenance), `agents/extraction/validators.py` (the check list), `app/projections.py` + `app/templates/review.html` (what the queue shows and how it is ranked)"
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-10-01
 design: docs/design/graph-interaction.md
 record: null
 superseded_by: []
@@ -36,6 +36,35 @@ awaiting a decision**, and **399 of those 486 carry confidence `1.0`** (only 7 a
 | Literal quotations (`description` 29, `description_text` 13) | 42 | No — span-anchoring checks a quotation against its source |
 | **Relational** — points at another node | **175** | **Yes** — the architectural call |
 | Other literals (`mechanism` prose, `style`, `requirement_type`, …) | ~113 | Mixed |
+
+## Re-measured 2026-10-01, from the other end: what the gate recorded as vouching
+
+Scope `payments_v2`, fully reviewed (695 assertions, 0 outstanding, `is_auditable` true).
+The decision log holds **735 entries**, and this is what they are:
+
+| Entry | Count |
+|---|---|
+| `verify` with the note "bulk verify (selected)" | **696** |
+| No note at all | 29 |
+| `retire` "bulk retire (selected)" | 6 |
+| `resolve` "bulk resolve (threshold 0.75)" | 2 |
+| **Carrying a substantive human note** | **2** ("CIA Triad", "Incremental Arch Applied") |
+
+So the scope reads 100% reviewed, and 696 of the 735 acts that produced that reading were
+one click on a selection. That is the same defect as the 486-item queue seen from the far
+side: the gate cannot tell "a person considered this" from "a person selected a page", and
+it is the *bulk* path that has already been caught granting authority to facts that cannot
+be true — four `X part_of X` assertions acquired human provenance through a bulk verify
+(YB-052).
+
+Two consequences for whatever comes next. A queue projection that ranks judgement is only
+as good as the judgement it can be calibrated against, and a corpus of clicks is not one —
+the useful labelled examples here number in the tens, not hundreds. And the audit claim
+("the graph can prove who vouched for what") is thinner than the percentage suggests: the
+provenance is real, the *consideration* is mostly absent. Cheap first steps, no model
+required: make the note per-row rather than per-batch where a batch is heterogeneous, count
+and show "considered" beside "reviewed", and keep "bulk accepted" visible in the audit view
+rather than indistinguishable from a person's verdict.
 
 ## The defect, stated
 

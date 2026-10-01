@@ -88,3 +88,4 @@
 | None | Domain data elements and their exchanges — the architecture aspect with no model | [YB-055](entries/YB-055-data-element-design.md) | entry (in-progress) |
 | None | A second representation for the knowledge map — hierarchy over force, and real filtering | [YB-056](entries/YB-056-map-representation-modes.md) | entry (open) |
 | None | Machine-checked is not human-verified — the review queue asks 486 questions to get 175 answers | [YB-057](entries/YB-057-machine-checked-is-not-human-verified.md) | entry (open) |
+| None | Decision models (Jev, Clef) as assistance in Review and Reconcile — ranking without authority | [YB-058](entries/YB-058-decision-models-for-review-and-reconcile.md) | entry (open) |

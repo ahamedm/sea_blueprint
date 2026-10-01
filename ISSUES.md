@@ -192,6 +192,76 @@ ways, and no guard reaches it.
 
 ---
 
+## ISS-12 — The two platform lenses are named in two namespaces, and neither is complete
+
+**Open — likely TODO-sized: closing it needs an ontology decision, not a patch.**
+
+- **Question asked.** "A Platform can be viewed through two lenses: Business (a Payment
+  Platform supporting Payment Products like Card, APM) and Technical (OpenShift, Airflow,
+  n8n). Does the ontology support both?"
+- **Answer: both are named, asymmetrically, and nothing joins them.** The ontology says so
+  itself — `Platform`'s naming note reads *"this is the COMMERCIAL sense of platform…
+  It is NOT the same as an 'Enterprise Technology Platform' (OpenShift, Splunk, Grafana) —
+  that concept lives in `architecture_base.SoftwareSystem.system_class`, deliberately under
+  a different name so the two do not blur."*
+
+  | Lens | Where | Shape |
+  |---|---|---|
+  | Business / commercial | `enterprise_structure.Platform` | A class: Product **and** System, `value_proposition`, `target_extenders`, `contracts -> PlatformContract`, `extended_by_products -> Product`, `hosted_systems -> System`, `multi_tenancy_model`, `backward_compatibility_policy`, plus free-text `platform_type` |
+  | Management scope (covers both) | `architecture_base.SoftwareSystem.system_class` | `SoftwareSystemClass`: ENTERPRISE_TECHNOLOGY_PLATFORM, BUSINESS_TECHNOLOGY_PLATFORM, BUSINESS_APPLICATION, SHARED_TECHNICAL_SERVICE, INTEGRATION_PLATFORM |
+  | Supporting flags | `SoftwareSystem` | `shared_across_enterprise`, `managed_by` (free text), `origin`, `deployment_model`, `vendor` |
+- **What works.** The architecture lens is real and in use: live scope `payments_v2` holds
+  **2 verified `system_class` facts**, both `BUSINESS_TECHNOLOGY_PLATFORM` (Payment Platform,
+  Payment Gateway Platform), and the harness gates that every `SoftwareSystem` carries one
+  (`inv_software_systems_classified`). `repair.system_under_design` reads it to refuse an
+  enterprise technology platform as the anchor for an unplaced element — the one place the
+  enum's own auditor note is implemented.
+- **Gap 1 — a technology platform can only be a `SoftwareSystem`.** `system_class` is
+  declared on `SoftwareSystem` alone (checked across the layer), and in the live scope
+  OpenShift is a `DeploymentNode` plus a `TechnologyStack`, so **it carries no lens at
+  all**. Airflow and n8n would land the same way. A technology platform is a thing with an
+  owner, a lifecycle and consumers; today the ontology can only say where it *runs* or what
+  something *uses*.
+- **Gap 2 — two vocabularies for one axis, unreconciled.** `Platform.platform_type` is free
+  text whose own examples include "infrastructure" and "integration platform", overlapping
+  `SoftwareSystemClass.ENTERPRISE_TECHNOLOGY_PLATFORM` and `INTEGRATION_PLATFORM`. "Is this
+  an infrastructure platform?" has two answers and no rule relating them.
+- **Gap 3 — no join between the lenses.** `System.is_part_of_platform`,
+  `Product.extends_platform` and `Application.consumes_platform_contracts` all sit on the
+  enterprise side and all have **0 instances** in the live scope; nothing on the architecture
+  side points at a `Platform`. So the commercial platform and the architecture element
+  implementing it are two nodes joined only by label — the YB-053 defect 2 mechanism, which
+  is also why `Payment Gateway Platform` exists twice (ISS-10).
+- **Gap 4 — the commercial half is declared but unreachable, exactly like
+  `ConceptAttribute` was.** `Platform.contracts -> PlatformContract` is `inlined_as_list`,
+  the nested shape no pass can emit (YB-055's defect), so a platform's contracts,
+  multi-tenancy and extenders cannot reach the graph. Live: 0 `Product`, 0 `SubProduct`,
+  0 `PlatformContract` nodes. Ownership (`managed_by`) is free text pending YB-008.
+- **On the payment-products half of the example.** The pack models methods, not products:
+  `PaymentMethod` = CARD, DIRECT_DEBIT, BANK_TRANSFER, WALLET, INVOICE, OPEN_BANKING, with
+  instruments as concepts (`Card`, `BankAccount`). "APM" as a category is not named — the
+  pack lists the individual methods instead, consistent with its "a state is a value, not a
+  concept" reasoning. And a platform does not state what it supports: `payment_method` is
+  declared on the pack's root `PaymentDomainConcept`, so a domain concept carries it, not the
+  `Platform`. `Product`/`SubProduct` exist for "the products a platform is extended by" and
+  are empty.
+- **Options, cheapest first.** (a) Make the capability-coverage audit honour the auditor note
+  the enum already states (exclude ENTERPRISE_TECHNOLOGY_PLATFORM from business coverage) —
+  no ontology change; today nothing in `app/` reads `system_class` except a tooltip, so the
+  false-gap risk the enum warns about is still live. (b) Retire the duplicate vocabulary:
+  `platform_type` as an enum, or a pointer to `SoftwareSystemClass`. (c) Declare the
+  architecture→enterprise binding (`SoftwareSystem.realizes_platform -> Platform`, a binding
+  class in the higher layer per the import rule) — which would also give ISS-10 a mechanical
+  answer: two nodes realizing one platform ARE one thing. (d) A `TechnologyPlatform` entity
+  in `enterprise_structure` (owner, criticality, consumers) realized by architecture
+  elements, Pattern B — the shape `Container -> Application` already uses. Every one of these
+  must name its check, and (c)/(d) cost prompt budget (YB-007).
+- **Related.** YB-053 defect 2 and [ISS-10](#iss-10--one-system-three-names-the-notation-draws-the-same-architecture-twice)
+  (the identity half), YB-055 and [ISS-1](#iss-1--category-nouns-enter-the-graph-as-concept-nodes-through-attribution-endpoints)
+  (the nested-slot half), YB-008 (ownership).
+
+---
+
 ## Fixed
 
 Kept rather than deleted, because each was reported from using the tool and each now

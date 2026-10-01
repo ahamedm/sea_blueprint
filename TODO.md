@@ -3,7 +3,7 @@
 
 Open work only. Each item is one file under `docs/todos/entries/` — that file is the source of truth and this index is generated from it.
 
-**30 active · 1 parked · 2 superseded · 38 closed records**
+**31 active · 1 parked · 2 superseded · 38 closed records**
 
 | Where | What |
 |---|---|
@@ -57,6 +57,7 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [YB-050](docs/todos/entries/YB-050-artifact-retention-and-quota.md) | Artifact retention and quota — the document store grows without a bound nobody chose | open | `core/artifacts.py`, `app/worker.py` (sweep), `core/workspace.py` |
 | [YB-054](docs/todos/entries/YB-054-unrouted-requirements-output-keys.md) | The requirements profile computes contract violations and low-confidence items that no consumer reads | open | `agents/knowledge_extraction/agent.py` (emits them), `core/knowledge/ingest.py` or the run pipeline (must read them), `app/templates/` (where a reviewer would see them) |
 | [YB-056](docs/todos/entries/YB-056-map-representation-modes.md) | A second representation for the knowledge map — hierarchy over force, and real filtering | open | `app/templates/map.html`, `app/viewpoints/merged.py` (the projection a layout reads), `app/static/js/` (a layout module), `app/__init__.py` (a `/?mode=` route parameter), `app/static/css/sea.css` |
+| [YB-058](docs/todos/entries/YB-058-decision-models-for-review-and-reconcile.md) | Decision models (Jev, Clef) as assistance in Review and Reconcile — ranking without authority | open | `core/knowledge/review.py` (the decision log and what a recommendation would be), `core/knowledge/reconcile.py` (candidate scoring and `bulk_resolve`), `app/projections.py` (the queue and the candidate list), `agents/base_agent.py` (a provider path for a decision endpoint) |
 
 ## Low
 
