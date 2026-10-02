@@ -87,15 +87,16 @@ AREAS: Tuple[Area, ...] = (
             "The rules that hold the codebase together rather than any one feature: "
             "core/ must not import agents/ or app/, a workspace has an address and a "
             "guarded save, agent configuration resolves to the endpoint and model it "
-            "claims, and the project's own records (TODO entries, decisions) stay "
-            "valid. Failures here are not feature bugs — they are the reasons other "
-            "failures would be untrustworthy."
+            "claims, and the project's own records (TODO entries, decisions, license "
+            "and attribution notices) stay valid. Failures here are not feature bugs — "
+            "they are the reasons other failures would be untrustworthy."
         ),
         files=(
             "test_layering",
             "test_workspace",
             "test_agent_config",
             "test_todo",
+            "test_licensing",
             "test_test_report",
         ),
     ),
