@@ -69,7 +69,7 @@ description: >-
   are stated in terms of. Extends DomainConcept, so instances are ordinary graph
   nodes and the coverage audit can count them.
 
-license: MIT
+license: Apache-2.0
 default_curi_maps:
   - semweb_context
 

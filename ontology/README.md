@@ -525,4 +525,5 @@ genjsonschema ontology/requirements_base.yaml > ontology/schema.json
 
 ## License
 
-MIT
+Licensed under the Apache License, Version 2.0. See the repository's [LICENSE](../LICENSE)
+for the full text.

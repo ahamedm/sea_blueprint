@@ -449,7 +449,14 @@ pip install -e . --force-reinstall
 
 ## License
 
-MIT
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for the full
+text, [NOTICE](NOTICE) for attribution, and [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES)
+for the components vendored into the web UI.
+
+Copyright 2025 SEA Platform Team.
+
+Contributions are accepted under the same license, with a DCO sign-off on every
+commit — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 

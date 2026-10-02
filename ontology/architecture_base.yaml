@@ -31,7 +31,7 @@ description: >-
   requirements ontology for traceability, so architecture and requirements
   graphs share a vocabulary and can be cross-verified.
 
-license: MIT
+license: Apache-2.0
 default_curi_maps:
   - semweb_context
 

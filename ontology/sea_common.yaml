@@ -40,7 +40,7 @@ description: >-
   identifier references into enterprise systems of record, and provenance for
   each assertion made in the graph.
 
-license: MIT
+license: Apache-2.0
 default_curi_maps:
   - semweb_context
 

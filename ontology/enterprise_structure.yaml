@@ -18,7 +18,7 @@ description: >-
   Defines Product, SubProduct, System, Application, Platform, and their
   relationships. Supports both standalone and platform-centric topologies.
 
-license: MIT
+license: Apache-2.0
 default_curi_maps:
   - semweb_context
 

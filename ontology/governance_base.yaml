@@ -42,7 +42,7 @@ description: >-
   to. Distinct from the external referents (`Regulation`, `Standard`) declared
   in the requirements layer.
 
-license: MIT
+license: Apache-2.0
 default_curi_maps:
   - semweb_context
 

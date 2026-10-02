@@ -1,5 +1,7 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+# setuptools>=77 is where PEP 639 license expressions (`license = "Apache-2.0"`,
+# `license-files`) are understood as the modern spelling.
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,7 +10,9 @@ version = "0.1.0"
 description = "Semantic Enterprise Architect (SEA) Platform - Agent Development Framework"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "MIT"}
+# SPDX license expression (PEP 639), not the legacy `license = {text = "..."}` table.
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE", "THIRD-PARTY-NOTICES"]
 authors = [
     {name = "SEA Platform Team", email = "team@sea-platform.dev"}
 ]
@@ -16,7 +20,6 @@ keywords = ["agents", "enterprise-architecture", "knowledge-graph", "linkml", "s
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
