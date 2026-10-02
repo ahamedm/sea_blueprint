@@ -14,12 +14,16 @@ usable, and each is a test here:
 
 from __future__ import annotations
 
-from core.knowledge import graph_from_extraction, merge_graphs
+from types import SimpleNamespace
+
+from app.runner import resolve_design_baseline
+from core.knowledge import KnowledgeGraph, graph_from_extraction, merge_graphs
 from core.knowledge.digest import (
     architecture_digest,
     design_input,
     requirements_digest,
 )
+from core.knowledge.model import SCOPE_BASELINE
 
 
 def requirement_graph() -> object:
@@ -271,3 +275,188 @@ def test_the_quality_section_reports_coverage_not_just_names():
     text = design_input(merged()).text
     assert "Quality attributes and their coverage" in text
     assert "Stated and delivered" in text or "stated" in text.lower()
+
+
+# ============================================================================
+# What the design is told already exists
+#
+# An element the model cannot see is an element it will propose again. These are
+# the two ways that happened: a kind the renderer did not know, and a baseline
+# the run was never handed.
+# ============================================================================
+
+
+def _node_graph(*pairs) -> object:
+    """A graph of bare nodes, for the renderer — which walks nodes, not assertions."""
+    graph = KnowledgeGraph()
+    for kind, label in pairs:
+        graph.add_node(kind, label)
+    return graph
+
+
+def test_an_enterprise_platform_is_shown_as_an_element_to_extend():
+    """`Platform` is how an O365 subscription arrives from a requirements document.
+
+    Leaving the kind out of the architecture sections made every such element
+    invisible: the design was asked to integrate with a platform it could not see,
+    so it proposed a new external system instead of linking the one that existed.
+    """
+    section = architecture_digest(
+        _node_graph(("Platform", "Enterprise Microsoft O365 Subscription"))
+    )
+
+    assert "Enterprise Microsoft O365 Subscription" in section.text
+
+
+def test_a_platform_does_not_repeat_a_system_that_shares_its_name():
+    """The same element often arrives under both kinds.
+
+    "Payment Gateway Platform" and "Storefront" each exist as a Platform and as a
+    C4-shaped node. Rendering the pair would show one element twice in a prompt
+    whose whole purpose is to stop the model proposing a duplicate, so the
+    C4-shaped kind keeps the name.
+    """
+    section = architecture_digest(
+        _node_graph(("SoftwareSystem", "Payment Gateway Platform"),
+                    ("Platform", "Payment Gateway Platform"))
+    )
+
+    assert section.text.count("Payment Gateway Platform") == 1
+
+
+def test_the_dedupe_has_something_to_dedupe():
+    """Two nodes in, one line out — otherwise the assertion above proves nothing."""
+    graph = _node_graph(("SoftwareSystem", "Payment Gateway Platform"),
+                        ("Platform", "Payment Gateway Platform"))
+
+    assert len([n for n in graph.nodes.values()
+                if n.label == "Payment Gateway Platform"]) == 2
+
+
+def test_a_platform_that_shares_no_name_is_still_rendered():
+    """The dedupe must not become a blanket exclusion — that was the original bug."""
+    section = architecture_digest(
+        _node_graph(("SoftwareSystem", "Payment Gateway Platform"),
+                    ("Platform", "Enterprise Microsoft O365 Subscription"))
+    )
+
+    assert "Payment Gateway Platform" in section.text
+    assert "Enterprise Microsoft O365 Subscription" in section.text
+
+
+def _partly_promoted() -> object:
+    """One element review has promoted, one still only proposed."""
+    graph, _run = graph_from_extraction(
+        {
+            "elements": [
+                {"name": "Accepted Service", "element_type": "Container",
+                 "parent": "Payment Platform"},
+                {"name": "Proposed Service", "element_type": "Container",
+                 "parent": "Payment Platform"},
+            ]
+        },
+        {"model_id": "fake", "document_type": "architecture"},
+        document_ref="arch.md",
+        document_text="arch body",
+        initiative_id="INIT-1",
+    )
+    for assertion in graph.assertions.values():
+        if "accepted" in str(assertion.subject):
+            assertion.scope = SCOPE_BASELINE
+    return graph
+
+
+def test_the_promoted_scope_is_a_projection_not_a_copy_of_everything():
+    """What review accepted, and only that."""
+    projected = _partly_promoted().scoped(SCOPE_BASELINE)
+    labels = {n.label for n in projected.nodes.values()}
+
+    assert "Accepted Service" in labels
+    assert "Proposed Service" not in labels, (
+        "an unpromoted element must not be offered as something the design already "
+        "covers — that is how a proposal claims to extend what it cannot see"
+    )
+    assert projected.assertions
+    assert all(a.scope == SCOPE_BASELINE for a in projected.assertions.values())
+
+
+class _StubStore:
+    """Just enough store for the resolution order, which is the thing under test."""
+
+    def __init__(self, revision=None, graph=None):
+        self._revision = revision
+        self._graph = graph or KnowledgeGraph()
+
+    def baselines(self):
+        return [self._revision] if self._revision else []
+
+    def load_revision(self, revision_id):
+        return SimpleNamespace(graph=self._graph)
+
+
+def test_the_promoted_baseline_is_used_when_no_revision_was_frozen():
+    """A promoted baseline is a baseline even though nothing was frozen.
+
+    Before this, a design was handed the working set instead — extending a draft
+    nobody had signed off, with facts still under review mixed into the
+    architecture it was told already existed.
+    """
+    resolved = resolve_design_baseline(_StubStore(), _partly_promoted())
+
+    assert resolved.promoted is True
+    assert resolved.ref == SCOPE_BASELINE
+    assert resolved.graph is not None
+    labels = {n.label for n in resolved.graph.nodes.values()}
+    assert "Accepted Service" in labels
+    assert "Proposed Service" not in labels
+
+
+def test_a_frozen_revision_outranks_the_promoted_baseline():
+    """A snapshot with a frozen-at guarantee beats the live accepted set."""
+    frozen = _node_graph(("Container", "Frozen Container"))
+    store = _StubStore(revision=SimpleNamespace(id="rev_arc_v1", label="ARC-G v1"),
+                       graph=frozen)
+
+    resolved = resolve_design_baseline(store, _partly_promoted())
+
+    assert resolved.ref == "rev_arc_v1"
+    assert resolved.label == "ARC-G v1"
+    assert resolved.promoted is False
+    assert {n.label for n in resolved.graph.nodes.values()} == {"Frozen Container"}
+
+
+def test_nothing_promoted_and_nothing_frozen_resolves_to_no_baseline():
+    """Rather than quietly presenting the working set as if it were accepted."""
+    graph, _run = graph_from_extraction(
+        {"elements": [{"name": "Draft Service", "element_type": "Container"}]},
+        {"model_id": "fake", "document_type": "architecture"},
+        document_ref="arch.md",
+        document_text="arch body",
+        initiative_id="INIT-1",
+    )
+
+    resolved = resolve_design_baseline(_StubStore(), graph)
+
+    assert resolved.graph is None
+    assert resolved.ref == ""
+    assert resolved.promoted is False
+
+
+def test_a_promoted_baseline_is_named_as_promoted_rather_than_frozen():
+    """The two promise different things, so the prompt may not blur them."""
+    graph = _partly_promoted()
+    digest = design_input(graph, baseline=graph.scoped(SCOPE_BASELINE),
+                          base_ref=SCOPE_BASELINE, promoted_baseline=True)
+
+    assert digest.base_ref == SCOPE_BASELINE
+    assert any("PROMOTED baseline" in c for c in digest.caveats), digest.caveats
+    assert "PROMOTED baseline" in digest.text, "the caveat must reach the prompt"
+
+
+def test_a_frozen_baseline_gets_no_promoted_caveat():
+    """Or every frozen run would carry a warning that does not apply to it."""
+    baseline = architecture_graph()
+    digest = design_input(requirement_graph(), baseline=baseline,
+                          base_ref="rev_arc_v1")
+
+    assert not any("PROMOTED baseline" in c for c in digest.caveats), digest.caveats

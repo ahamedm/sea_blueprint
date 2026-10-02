@@ -42,7 +42,14 @@ from .realization import realization_report
 # designer reads it: the system, what it is made of, what it talks to, then the
 # cross-cutting decisions.
 _ARCHITECTURE_SECTIONS: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
-    ("Systems", ("SoftwareSystem", "ExternalSystem", "Person")),
+    # `Platform` is an enterprise construct from `enterprise_structure.yaml`, not a
+    # C4 kind — but it is how the estate's shared platforms arrive. An O365
+    # subscription read out of a requirement is a `Platform`, and leaving the kind
+    # out of this table made every such element invisible to the design: it could
+    # not extend, or even name, an existing platform it was asked to integrate
+    # with. See `_render_architecture` for how a Platform that duplicates a
+    # system's label is handled.
+    ("Systems", ("SoftwareSystem", "ExternalSystem", "Person", "Platform")),
     ("Containers", ("Container", "DataStore")),
     ("Components", ("Component", "CodeElement")),
     ("Deployment", ("DeploymentNode",)),
@@ -256,10 +263,23 @@ def _render_architecture(
 ) -> None:
     facts = _literal_facts(graph)
     out = _outgoing(graph)
+    # A Platform is frequently the enterprise-side name for a system that also
+    # arrives as a SoftwareSystem or ExternalSystem: "Payment Gateway Platform" is
+    # both, and so is "Storefront". Rendering the pair would show one element twice
+    # in a prompt whose whole purpose is to stop the model proposing a duplicate,
+    # so the C4-shaped kind keeps the label and a Platform is rendered only where
+    # no other architecture node already claims its name.
+    claimed = {
+        n.label.strip().lower() for n in graph.nodes.values()
+        if n.kind in _ARCHITECTURE_KINDS and n.kind != "Platform"
+    }
     lines: List[str] = [f"Existing architecture ({base_ref})"]
 
     for title, kinds in _ARCHITECTURE_SECTIONS:
-        nodes = _sorted_nodes(graph, kinds)
+        nodes = [
+            n for n in _sorted_nodes(graph, kinds)
+            if n.kind != "Platform" or n.label.strip().lower() not in claimed
+        ]
         if not nodes:
             continue
         lines.append("")
@@ -444,11 +464,18 @@ def design_input(
     base_ref: str = "",
     requirements_budget: int = 12000,
     architecture_budget: int = 8000,
+    promoted_baseline: bool = False,
 ) -> DesignInput:
     """REQ-G + the baseline ARC-G, as one document for the Design Assistant.
 
-    `baseline` is the frozen architecture this design should extend. When none is
-    given the working set's own architecture is used and the caveat says so — the
+    `baseline` is the architecture this design should extend. A frozen revision is
+    the strongest form of it. When no revision has been frozen the caller may pass
+    the PROMOTED baseline — the facts review has moved into `SYSTEM_BASELINE` — and
+    flag it with `promoted_baseline`: that baseline is the architecture the
+    enterprise has accepted, but unlike a frozen revision it has no snapshot
+    guarantee and it grows whenever review promotes again, and the prompt has to
+    say which of the two it is looking at. When no baseline is given at all the
+    working set's own architecture is used and the caveat says so — the
     alternative, silently designing against nothing, is how a proposal ends up
     duplicating containers that already exist.
     """
@@ -461,6 +488,13 @@ def design_input(
                                        budget_chars=architecture_budget)
 
     caveats = list(requirements.caveats) + list(architecture.caveats)
+    if baseline is not None and promoted_baseline:
+        caveats.append(
+            "the baseline in force is the PROMOTED baseline — the facts review has "
+            "moved into SYSTEM_BASELINE. No revision has been frozen, so this is the "
+            "accepted architecture rather than a snapshot, and it grows as review "
+            "promotes again"
+        )
     if baseline is None:
         caveats.append(
             "no frozen baseline ARC-G exists; the existing architecture shown is the "

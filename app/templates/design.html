@@ -51,11 +51,15 @@
       </div>
       <div class="stat">
         <div class="value small">
-          {% if preconditions.baseline %}{{ preconditions.baseline.id }}{% else %}none{% endif %}
+          {% if preconditions.baseline %}{{ preconditions.baseline.id }}
+          {% elif preconditions.baseline_promoted %}{{ preconditions.baseline_ref }}
+          {% else %}none{% endif %}
         </div>
         <div class="label">Baseline ARC-G</div>
         <div class="foot">
           {% if preconditions.baseline %}{{ preconditions.baseline.label or 'frozen' }}
+          {% elif preconditions.baseline_promoted %}{{ preconditions.baseline_label }} — not
+          frozen, so it grows as review promotes
           {% else %}designing against the working set{% endif %}
         </div>
       </div>

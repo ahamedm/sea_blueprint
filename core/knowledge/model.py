@@ -949,6 +949,39 @@ class KnowledgeGraph:
     def human_assertions(self) -> List[Assertion]:
         return [a for a in self.active() if a.is_human]
 
+    def scoped(self, scope: str) -> "KnowledgeGraph":
+        """This graph restricted to one scope's active facts, and the nodes they name.
+
+        An assertion's scope is what the enterprise has ACCEPTED: facts promoted into
+        `SYSTEM_BASELINE` are established system truth, while the rest are what an
+        initiative has proposed and nobody has signed off. Reading the baseline scope
+        is therefore how a caller gets the architecture it is meant to extend rather
+        than the draft in progress — the distinction `promote_to_baseline` creates.
+
+        A node travels only when an included assertion names it. A node whose every
+        fact lives outside the scope is deliberately absent: offering its label as
+        something already covered is how a proposal ends up claiming to extend
+        architecture it cannot see.
+
+        `refusals` are dropped: they are this write boundary's diagnostics, not
+        knowledge, and a view of accepted facts has no refusals of its own.
+        """
+        keep = {a.id: a for a in self.active() if a.scope == scope}
+        named: Set[str] = set()
+        for a in keep.values():
+            named.add(a.subject)
+            if a.object:
+                named.add(a.object)
+        return KnowledgeGraph(
+            nodes={i: n for i, n in self.nodes.items() if i in named},
+            assertions=keep,
+            runs=dict(self.runs),
+            declared_by={i: d for i, d in self.declared_by.items() if i in named},
+            version_id=self.version_id,
+            parent_version_id=self.parent_version_id,
+            label=self.label,
+        )
+
     # -- integrity ---------------------------------------------------------
 
     def dangling_assertions(self) -> List[Assertion]:

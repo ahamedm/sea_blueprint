@@ -105,6 +105,10 @@ class DesignAssistantAgent(ArchitectureExtractionAgent):
             baseline: Optional[KnowledgeGraph] = input_data.get("baseline")
             initiative_id = str(input_data.get("initiative_id") or "")
             base_ref = str(input_data.get("base_ref") or "")
+            # A frozen revision and the promoted baseline are both "the architecture
+            # to extend", and they promise different things. The prompt says which
+            # one this run was handed rather than letting the reader assume.
+            baseline_promoted = bool(input_data.get("baseline_promoted"))
 
             catalogue = self._catalogue()
             model = self._ontology_model()
@@ -114,7 +118,8 @@ class DesignAssistantAgent(ArchitectureExtractionAgent):
 
             # ---- 1. the input document: REQ-G + the baseline ARC-G ----
             digest = design_input(
-                graph, baseline=baseline, initiative_id=initiative_id, base_ref=base_ref
+                graph, baseline=baseline, initiative_id=initiative_id,
+                base_ref=base_ref, promoted_baseline=baseline_promoted,
             )
             for caveat in digest.caveats:
                 self.log(f"  digest caveat: {caveat}", level="warning")

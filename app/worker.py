@@ -298,7 +298,7 @@ class Worker:
         )
 
     def _run_design(self, job: Job) -> None:
-        from app.runner import run_design
+        from app.runner import resolve_design_baseline, run_design
         from core.knowledge import DesignDraftStore
 
         if job.input_kind != GRAPH:
@@ -308,8 +308,11 @@ class Worker:
         scope = self.workspace.scope(job.scope_id)
         store = self.graph_store(job.scope_id)
         snapshot = store.load_working()
-        baselines = store.baselines()
-        baseline = store.load_revision(baselines[0].id).graph if baselines else None
+        # Resolved here rather than trusted from the job input: the queue is a
+        # hand-off across time, and a baseline frozen or promoted while the job
+        # waited is the baseline the design should extend. The stored ref survives
+        # only as the label for the no-baseline case.
+        resolved = resolve_design_baseline(store, snapshot.graph)
         params = job.parameters or {}
         run_design(
             store=store,
@@ -318,8 +321,9 @@ class Worker:
             snapshot=snapshot,
             design_factory=self.app.config["DESIGN_FACTORY"],
             drafts=DesignDraftStore(scope_drafts_dir(self.workspace, scope)).ensure(),
-            baseline=baseline,
-            base_ref=str(job.input.get("base_ref") or (baselines[0].id if baselines else "")),
+            baseline=resolved.graph,
+            base_ref=resolved.ref or str(job.input.get("base_ref") or ""),
+            baseline_promoted=resolved.promoted,
             initiative_id=str(params.get("initiative_id") or ""),
             domain_pack=str(params.get("domain_pack") or ""),
             run_id=job.run_id,

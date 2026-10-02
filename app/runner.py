@@ -39,6 +39,7 @@ from core.knowledge import (
     new_run_id,
 )
 from core.knowledge.model import (
+    SCOPE_BASELINE,
     SOURCE_DESIGN_ASSISTANT,
     ExtractionRun,
     GraphDelta,
@@ -52,6 +53,8 @@ __all__ = [
     "DomainPackFailed",
     "IngestOutcome",
     "DesignOutcome",
+    "DesignBaseline",
+    "resolve_design_baseline",
     "run_ingest",
     "run_design",
 ]
@@ -255,6 +258,63 @@ def run_ingest(
 # ============================================================================
 
 
+@dataclass
+class DesignBaseline:
+    """Which architecture a design extends, and what to call it.
+
+    `promoted` distinguishes the two kinds of baseline the prompt can be given: a
+    frozen revision (`False`) is a snapshot with a frozen-at guarantee, while the
+    promoted baseline (`True`) is the live set of facts review has moved into
+    `SYSTEM_BASELINE`, which keeps growing. The design says which one it read, so a
+    reviewer can tell "extend what we froze" from "extend what we have accepted so
+    far".
+    """
+
+    graph: Optional[KnowledgeGraph] = None
+    ref: str = ""
+    label: str = ""
+    promoted: bool = False
+
+
+def resolve_design_baseline(store: Any, graph: KnowledgeGraph) -> DesignBaseline:
+    """The architecture a design run should extend, in order of authority.
+
+    Three states, and the middle one is the reason this function exists:
+
+      1. A frozen revision, when one exists. It is a snapshot; nothing else in the
+         store carries a frozen-at guarantee.
+      2. Otherwise the PROMOTED baseline — the facts review has moved into
+         `SYSTEM_BASELINE`. That is the architecture the enterprise has accepted,
+         and it is a genuine baseline even though no revision was ever frozen.
+         Before this existed the design was handed the working set instead, which
+         meant extending a draft nobody had signed off, mixed in with facts still
+         under review.
+      3. Otherwise nothing, and `design_input` says so rather than pretending the
+         working set is a baseline.
+
+    The two callers (the route and the worker) share this so they cannot disagree
+    about which graph a submitted job actually reads.
+    """
+    baselines = store.baselines()
+    if baselines:
+        revision = baselines[0]
+        return DesignBaseline(
+            graph=store.load_revision(revision.id).graph,
+            ref=revision.id,
+            label=revision.label or revision.id,
+            promoted=False,
+        )
+    promoted = graph.scoped(SCOPE_BASELINE)
+    if promoted.assertions:
+        return DesignBaseline(
+            graph=promoted,
+            ref=SCOPE_BASELINE,
+            label="Promoted baseline (SYSTEM_BASELINE)",
+            promoted=True,
+        )
+    return DesignBaseline()
+
+
 def run_design(
     *,
     store: Any,
@@ -265,6 +325,7 @@ def run_design(
     drafts: Any,
     baseline: Optional[KnowledgeGraph] = None,
     base_ref: str = "",
+    baseline_promoted: bool = False,
     initiative_id: str = "",
     domain_pack: str = "",
     run_id: Optional[str] = None,
@@ -272,7 +333,9 @@ def run_design(
     """Draft an architecture proposal. Writes a DRAFT; never touches the working set.
 
     The input is the graph, not a document (`input_kind=graph`), which is why this
-    takes a snapshot rather than bytes.
+    takes a snapshot rather than bytes. `baseline_promoted` says whether `baseline`
+    is a frozen revision or the promoted set of accepted facts; the prompt states
+    which, because only one of the two is a snapshot.
     """
     run_id = run_id or new_run_id()
     progress = _progress(journal, run_id, scope_id)
@@ -293,6 +356,7 @@ def run_design(
             "graph": snapshot.graph,
             "baseline": baseline,
             "base_ref": base_ref,
+            "baseline_promoted": baseline_promoted,
             "initiative_id": initiative_id,
             "domain_pack": active_pack,
             "progress": progress,

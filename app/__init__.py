@@ -116,6 +116,7 @@ from app.runner import (
     DomainPackFailed,
     ExtractorLoadFailed,
     RunFailed,
+    resolve_design_baseline,
     run_design,
     run_ingest,
 )
@@ -1108,14 +1109,16 @@ def create_app(
     def _design_inputs() -> Dict[str, Any]:
         """Which graph a design run reads, and what it should be grounded on."""
         snapshot = state()
-        baselines = current_store().baselines()
+        resolved = resolve_design_baseline(current_store(), snapshot.graph)
         return {
             "snapshot": snapshot,
-            # The frozen baseline when one exists: a design should extend the
-            # architecture the enterprise has accepted, not the draft in progress.
-            "baseline": current_store().load_revision(baselines[0].id).graph if baselines else None,
-            "base_ref": baselines[0].id if baselines else "",
-            "baseline_label": baselines[0].label if baselines else "",
+            # A frozen baseline when one exists; otherwise the promoted baseline.
+            # Either way a design extends the architecture the enterprise has
+            # accepted rather than the draft in progress.
+            "baseline": resolved.graph,
+            "base_ref": resolved.ref,
+            "baseline_label": resolved.label,
+            "baseline_promoted": resolved.promoted,
         }
 
     def _design_preconditions(snapshot: Snapshot) -> Dict[str, Any]:
@@ -1124,6 +1127,7 @@ def create_app(
         gaps = project_gap_report(graph)
         quality = project_quality_report(graph)["summary"]
         baselines = current_store().baselines()
+        resolved = resolve_design_baseline(current_store(), graph)
         return {
             "requirements": gaps["realization"]["summary"]["requirements"],
             "unrealized": gaps["unrealized_count"],
@@ -1133,6 +1137,12 @@ def create_app(
             "completeness_note": gaps["completeness_note"],
             "is_auditable": gaps["is_auditable"],
             "baseline": baselines[0] if baselines else None,
+            # What the design will actually extend. The page says which kind of
+            # baseline that is, because "frozen" and "promoted so far" promise
+            # different things and only one of them is a snapshot.
+            "baseline_ref": resolved.ref,
+            "baseline_label": resolved.label,
+            "baseline_promoted": resolved.promoted,
             "blocking": (
                 []
                 if graph.nodes
@@ -1244,6 +1254,7 @@ def create_app(
                 drafts=current_drafts(),
                 baseline=inputs["baseline"],
                 base_ref=inputs["base_ref"],
+                baseline_promoted=inputs["baseline_promoted"],
                 initiative_id=initiative_id,
                 domain_pack=domain_pack,
             )
