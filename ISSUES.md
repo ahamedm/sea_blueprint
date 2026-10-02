@@ -288,37 +288,57 @@ Applied to a design's reference to a requirement, it flags the requirement's own
   or exempt an endpoint whose string resolves to an existing node label — a name the
   graph already holds cannot be a clause "nothing can link to". The 40-char cap is the
   wrong instrument for that check in either form.
-- **Related.** [ISS-14](#iss-14--every-unresolved-design-reference-names-an-existing-node-by-exact-label)
-  is the other half: the links that should have bound and did not.
+- **Related.** [ISS-14](#iss-14--a-design-draft-counts-every-cross-graph-link-as-unresolved-and-39-in-the-live-graph-can-never-bind)
+  is the same family one step further on: references that pass this check unremarked and
+  still cannot be joined to anything.
 
-## ISS-14 — Every unresolved design reference names an existing node by exact label
+## ISS-14 — A design draft counts every cross-graph link as unresolved, and 39 in the live graph can never bind
 
-**Open — likely TODO-sized: the fix is in reference resolution, not in a call site.**
+**Open.** Corrected after checking: the 109 was expected, not a failure. What is real is
+a smaller set that no matcher can ever bind.
 
-- **Evidence.** `draft_20261002T183436_1143` records `unresolved_references: 109`, and
-  `KnowledgeGraph.unresolved_references()` ([model.py:1002](core/knowledge/model.py#L1002))
-  over that draft's own graph returns the same 109. **All 109 carry a `value` whose
-  string is the exact label of a node in the working set.** The link did not fail to
-  find a target; it was stored as a literal instead of bound to the target that was
-  there:
-  `container:payment_orchestrator implements_requirement 'Fallback Routing Strategy'`
-  → `functionalrequirement:fallback_routing_strategy`;
-  `architecturepattern:cache_aside realizes_quality_attribute 'Authorization Latency
-  (<=500ms)'` → `nonfunctionalrequirement:authorization_latency_500ms`.
-- **By predicate.** `supports_capability` 25, `satisfies_quality_attribute` 22,
-  `implements_requirement` 21, `traces_to_goal` 12, `delivers_initiative` 11,
-  `realizes_quality_attribute` 6, `traces_to_capability` 6,
-  `realizes_quality_attributes` 3, `mandated_by` 2, `addresses_goal` 1.
-- **Worth checking first, not established.** Singular and plural spellings of the same
-  predicate both appear, in the code and in the draft (`realizes_quality_attribute` /
-  `realizes_quality_attributes`, `traces_to_capability` / `traces_to_capabilities`). If
-  resolution keys on one spelling, the other fails silently.
-- **Why it matters more than any single element.** These 109 are most of what the
-  proposal has to say about how it answers REQ-G, and each unresolved one is invisible
-  to the realization report, the coverage audit and the grounding check. The assertion
-  usually carries `ontology_class`, so the target KIND is already known at write time.
-- **Fix goes.** Resolve the value against the graph's labels at ingest, or report the
-  near-miss rather than storing a literal that reads as a fact.
+- **Correction first, because this entry was wrong.** It claimed 109 links "should have
+  bound and did not", reading `draft_20261002T183436_1143`'s `unresolved_references: 109`
+  as a resolution failure. It is not one. `unresolved_references()`
+  ([model.py:1002](core/knowledge/model.py#L1002)) is scoped to the graph it is called
+  on, and it resolves a reference by looking for a node **in that graph**
+  ([reference_targets_a_node](core/knowledge/model.py#L743)). A design proposal is its
+  own graph and REQ-G is correctly absent from it, so every cross-graph link it makes is
+  unresolved by construction — the state that method's own docstring calls expected.
+- **Measured, which is what settles it.** Proposal alone: **109** unresolved. REQ-G
+  alone: **39**. Proposal merged into REQ-G, which is what applying the draft produces
+  (`merge_graphs`, [runner.py](app/runner.py)): **39** — exactly REQ-G's own count. So all
+  109 bind on apply, by exact label, and none of them was broken. The misleading part is
+  a number: the draft's `counts` reports 109 as though it were a defect count, and the
+  design page renders it.
+- **The residue that is real.** The 39 never bind, all in `SYSTEM_BASELINE`: by predicate
+  `supports_capability` 9, `satisfies_quality_attribute` 8, `implements_requirement` 6,
+  `governed_by_rules` 4, `traces_to_process` 4, `governed_by_rule` 3,
+  `realizes_quality_attribute` 3, `traces_to_capability` 2. They name capabilities
+  ("Storefront Management", "Payment Routing Decisioning"), quality attributes written as
+  descriptions ("Data Confidentiality (AES-256)", "Availability (Redundancy and
+  Replicas)"), rule sets and processes — none of which was ever extracted as a node, so
+  no matcher can bind them. Only 5 are near-misses at 0.75 similarity
+  ("Storefront Management" ~ "StoreFront Management Service", "Payment Request
+  Processing" ~ "Payment Request processing services"). This is the ISS-13 family — a
+  descriptive phrase where the predicate's range expects a node — but the consequence
+  here is real rather than a false positive: the claim cannot count as an answer, so
+  whatever it points at reads as unanswered.
+- **Also found, latent, and not the cause here.** `REALIZATION_PREDICATES`
+  ([realization.py:68](core/knowledge/realization.py#L68)) and `CROSS_GRAPH_PREDICATES`
+  ([model.py:161](core/knowledge/model.py#L161)) disagree in both directions:
+  `addresses_goals`, `satisfies_quality_attributes` and `supports_capabilities` are
+  counted by the coverage report but never offered for reconciliation, while
+  `delivers_initiative` and `mandated_by` are offered but not counted. None of the 39
+  uses an asymmetric predicate, so nothing here changed — which is the point: it is the
+  "two rules would eventually disagree" hazard that docstring warns about, sitting one
+  plural away from mattering.
+- **Fix goes.** Two separate things. Report a draft's unresolved count against the graph
+  it will be merged into, or label it as references awaiting reconciliation rather than
+  as defects. And decide what a link naming a capability, quality attribute, rule or
+  process should bind TO — either those kinds get extracted as nodes, or the predicate's
+  range is narrowed so the model is not asked for something nothing can join.
+
 
 ---
 
