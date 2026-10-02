@@ -142,6 +142,73 @@ def test_an_unplaced_element_is_reported_rather_than_dropped(arch_graph):
 
 
 # ============================================================================
+# One thing, two names (ISS-3, ISS-10)
+# ============================================================================
+
+
+def test_a_second_name_for_one_thing_is_reported_not_merged():
+    """The defect is the silence, not the duplicate.
+
+    These are different strings and different kinds, so Structurizr accepts both: the
+    file loads and the reader sees one architecture twice with nothing on the page
+    saying so. `Payment Platform` beside `Payment Gateway Platform` is the measured
+    live case.
+    """
+    output = {
+        "elements": [
+            _element("Payment Platform", "SoftwareSystem"),
+            _element("Payment Gateway Platform", "SoftwareSystem"),
+            _element("Payment Orchestrator", "Container", parent="Payment Platform"),
+            _element("Payment Orchestrator Service", "Container",
+                     parent="Payment Platform"),
+        ],
+    }
+    model = c4.c4_model(_graph(output))
+
+    near = [g for g in model["gaps"] if g["kind"] == "near-duplicate-element"]
+    assert {(g["label"], g["counterpart"]) for g in near} == {
+        ("Payment Gateway Platform", "Payment Platform"),
+        ("Payment Orchestrator", "Payment Orchestrator Service"),
+    }
+
+    # Reported, not resolved: both boxes are still drawn, because deciding they ARE
+    # one thing is a confident wrong join — worse here than a missing join.
+    drawn = {e["label"] for e in model["elements"]}
+    assert {"Payment Platform", "Payment Gateway Platform"} <= drawn
+
+    check = next(c for c in model["checks"]
+                 if c["name"] == "distinct_names_are_distinct_things")
+    assert check["holds"] is False
+    assert check["violations"] == 2
+
+
+def test_names_that_share_only_a_word_are_not_reported():
+    """The guard has to stay quiet on correct output, or it is noise.
+
+    A similarity RATIO was measured and rejected for flooding — at 0.70 it reported
+    141 pairs on the live graph, because `Adaptability`/`Availability` are close
+    strings naming different things and every connection label reads `A → B`. Token
+    containment reports 5 there, all of them real.
+    """
+    output = {
+        "elements": [
+            _element("Adaptability", "Container"),
+            _element("Availability", "Container"),
+            _element("Administration Service", "Container"),
+        ],
+        "connections": [
+            {"source": "Administration Service", "target": "Adaptability"},
+        ],
+    }
+    model = c4.c4_model(_graph(output))
+
+    assert [g for g in model["gaps"] if g["kind"] == "near-duplicate-element"] == []
+    check = next(c for c in model["checks"]
+                 if c["name"] == "distinct_names_are_distinct_things")
+    assert check["holds"] is True
+
+
+# ============================================================================
 # Relationships
 # ============================================================================
 
@@ -337,6 +404,9 @@ def test_the_checks_are_the_model_not_the_page(arch_graph):
 
     assert {c["name"] for c in payload["checks"]} == {
         "nesting", "reflexive", "acyclic", "connections", "populated", "unique_names",
+        # Added with ISS-10: the near-duplicate case the exact-name check cannot see,
+        # because Structurizr loads it happily and the reader is the one misled.
+        "distinct_names_are_distinct_things",
     }
     assert payload["counts"]["checks_failed"] == sum(
         1 for c in payload["checks"] if not c["holds"]

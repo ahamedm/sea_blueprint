@@ -187,6 +187,40 @@ def inv_elements_present(res, out):
     return _ok(n > 0, f"elements={n}")
 
 
+def _element_reference_occurrences(out):
+    """Every place a pass names an ELEMENT, and which list it named it in.
+
+    ISS-2: the guards below read `elements` alone, so the same word arriving through
+    `connections` or an attribution list (`used_by`, `adopted_by`, `applies_to`) was
+    unmeasured — and the attribution lists are exactly where `concept:all_microservices`
+    came from, one node per phrasing, on a run reporting COMPLETE.
+
+    Triples are deliberately NOT scanned. A triple such as `X uses_technology Docker`
+    legitimately names a technology, so running a rule about ELEMENTS over triple
+    endpoints would flag correct output — `_TECH_LEAK` contains `docker`, `grpc` and
+    `aes-256` precisely because those are used, not run. The rule is "a name in an
+    element position", and these are the element positions.
+    """
+    for element in out.get("elements") or []:
+        name = str(element.get("name") or "").strip()
+        if name:
+            yield "elements", name
+    for connection in out.get("connections") or []:
+        for field in ("source", "target"):
+            value = str(connection.get(field) or "").strip()
+            if value:
+                yield f"connections.{field}", value
+    for collection, field in (("technology_stacks", "used_by"),
+                              ("architecture_styles", "adopted_by"),
+                              ("design_techniques", "applies_to"),
+                              ("engineering_conventions", "applies_to")):
+        for record in out.get(collection) or []:
+            for value in record.get(field) or []:
+                text = str(value).strip()
+                if text:
+                    yield f"{collection}.{field}", text
+
+
 # Things that are USED, never RUN. These must never appear as elements.
 # Deliberately excludes PostgreSQL/Valkey (a datastore engine named as the
 # running store IS an element) and monitoring servers (they run too). The
@@ -217,10 +251,16 @@ _TECHNIQUE_OR_CONVENTION_LEAK = {
 
 
 def inv_no_tech_leak(res, out):
-    """Item 7 regression: things that are USED must not become elements."""
-    leaked = [e["name"] for e in out.get("elements", [])
-              if e["name"].strip().lower() in _TECH_LEAK]
-    return _ok(not leaked, f"{len(leaked)} used-not-run items became elements: {leaked or 'none'}")
+    """Item 7 regression: things that are USED must not become elements.
+
+    ISS-2: every element POSITION, not just `elements` — a leak through an
+    attribution list becomes a node of its own just as surely.
+    """
+    leaked = [(where, name) for where, name in _element_reference_occurrences(out)
+              if name.strip().lower() in _TECH_LEAK]
+    return _ok(not leaked,
+               f"{len(leaked)} used-not-run items named in an element position: "
+               f"{leaked or 'none'}")
 
 
 def inv_no_style_as_element(res, out):
@@ -231,11 +271,18 @@ def inv_no_style_as_element(res, out):
     collects technology and technique edges that describe no deployable thing,
     and it is the one containment defect the parent-repair does NOT fix: the
     element gets placed, but it should not have been an element at all.
+
+    ISS-2: the rule is fed the names from every element position, so a style
+    arriving through `applies_to` is caught by the same vocabulary check rather
+    than by a second copy of it.
     """
     from agents.architecture_extraction.repair import style_as_element
 
     flagged = [f.subject for f in style_as_element(out.get("elements") or [])]
-    return _ok(not flagged, f"styles emitted as elements: {flagged or 'none'}")
+    elsewhere = [{"name": name} for where, name in _element_reference_occurrences(out)
+                 if where != "elements"]
+    flagged += [f.subject for f in style_as_element(elsewhere)]
+    return _ok(not flagged, f"styles in an element position: {sorted(set(flagged)) or 'none'}")
 
 
 def inv_software_systems_classified(res, out):

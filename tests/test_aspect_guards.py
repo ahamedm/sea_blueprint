@@ -37,6 +37,7 @@ from agents.knowledge_extraction.agent import ExtractedTriple
 from agents.extraction import (
     CONNECTION_FIELD_ENUMS,
     allowed_parent_kinds,
+    check_attribution_endpoints,
     check_connection_endpoints,
     check_containment,
     check_containment_kinds,
@@ -287,6 +288,56 @@ def test_a_connection_to_something_undeclared_is_flagged():
     assert len(flags) == 1
     assert flags[0].kind == "connection_endpoint"
     assert "'External Services' is not an element this run declared" in flags[0].reasons[0]
+
+
+def test_an_attribution_list_naming_an_undeclared_element_is_flagged():
+    """The channel no guard reached, and how a category word became a node.
+
+    `used_by` / `adopted_by` / `applies_to` name elements by hand, the prompt invites
+    a group label outright ("statelessness and redundancy are platform-wide
+    decisions"), and ingest resolves the name through `_resolve`, whose fallback kind
+    is `Concept`. On a run that reports COMPLETE, that is one node per phrasing of one
+    idea — `All Microservices`, `Microservices`, `Microservice Communications` (ISS-1).
+    """
+    collections = {"design_techniques": [
+        {"name": "Statelessness", "applies_to": ["Orchestrator", "All Microservices"]},
+    ]}
+
+    flags = check_attribution_endpoints(collections, _tree())
+
+    assert len(flags) == 1, [f.to_dict() for f in flags]
+    assert flags[0].kind == "attribution_endpoint"
+    assert flags[0].subject == "Statelessness"
+    assert flags[0].object == "All Microservices"
+    assert "is not an element this run declared" in flags[0].reasons[0]
+
+
+def test_every_attribution_field_is_covered():
+    """One list checked and the others not is how this gap opened in the first place."""
+    collections = {
+        "technology_stacks": [{"name": "Docker", "used_by": ["Nope"]}],
+        "architecture_styles": [{"name": "Microservices", "adopted_by": ["Nope"]}],
+        "design_techniques": [{"name": "Statelessness", "applies_to": ["Nope"]}],
+        "engineering_conventions": [{"name": "Naming", "applies_to": ["Nope"]}],
+    }
+
+    flagged = {f.predicate for f in check_attribution_endpoints(collections, _tree())}
+
+    assert flagged == {"used_by", "adopted_by", "applies_to"}
+
+
+def test_a_declared_attribution_is_not_flagged():
+    collections = {"technology_stacks": [{"name": "Docker", "used_by": ["Orchestrator"]}]}
+
+    assert check_attribution_endpoints(collections, _tree()) == []
+
+
+def test_attribution_endpoints_are_not_judged_without_declarations():
+    """Same posture as the connection check: with nothing declared, every value would
+    be flagged, which measures the run rather than the graph."""
+    collections = {"design_techniques": [{"name": "S", "applies_to": ["Anything"]}]}
+
+    assert check_attribution_endpoints(collections, []) == []
 
 
 def test_a_connection_with_a_missing_end_is_flagged():

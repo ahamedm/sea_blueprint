@@ -23,7 +23,7 @@ import typing
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import yaml
 
@@ -573,12 +573,7 @@ def check_connection_endpoints(
     never introduced, which is what a reviewer needs to see, and it is the same gap
     `_resolve` already makes visible as an unresolved reference.
     """
-    declared = {
-        str(e.get("name") or "").strip().lower()
-        for e in as_record_dicts(elements)
-        if str(e.get("name") or "").strip()
-    }
-    declared |= {str(n).strip().lower() for n in known_labels if str(n).strip()}
+    declared = _declared_names(elements, known_labels)
     # Nothing to judge against: an empty declaration set would flag every endpoint
     # of every connection, which is a measurement of this run rather than of the
     # graph. Same posture as `check_element_types` when the ontology is unavailable.
@@ -603,6 +598,81 @@ def check_connection_endpoints(
                 f"{c.get('source') or '?'} → {c.get('target') or '?'}",
                 reasons, "connects_to", str(c.get("target") or ""),
             ))
+    return flags
+
+
+def _declared_names(elements: Sequence[Any], known_labels: Sequence[str] = ()) -> set:
+    """The names something in this run actually declared, lowercased.
+
+    Shared by the connection and attribution endpoint checks so the two cannot
+    disagree about what counts as declared — two rules would drift, and the drift
+    would read as one reference being fine to one check and invented to the other.
+    """
+    declared = {
+        str(e.get("name") or "").strip().lower()
+        for e in as_record_dicts(elements)
+        if str(e.get("name") or "").strip()
+    }
+    declared |= {str(n).strip().lower() for n in known_labels if str(n).strip()}
+    return declared
+
+
+# The attribution lists a pass fills with ELEMENT NAMES. Each is a cross-reference by
+# name, so each can name something no pass declared — and nothing checked them, which
+# is how a category word became a node (ISS-1).
+_ATTRIBUTION_FIELDS: Tuple[Tuple[str, str], ...] = (
+    ("technology_stacks", "used_by"),
+    ("architecture_styles", "adopted_by"),
+    ("design_techniques", "applies_to"),
+    ("engineering_conventions", "applies_to"),
+)
+
+
+def check_attribution_endpoints(
+    collections: Mapping[str, Sequence[Any]],
+    elements: Sequence[Any] = (),
+    known_labels: Sequence[str] = (),
+) -> List[Flag]:
+    """An attribution list may only name an element something actually declared.
+
+    `check_connection_endpoints` enforced this for connections and NOTHING enforced
+    it for `used_by` / `adopted_by` / `applies_to`. That gap is measured: in
+    `simple_architecture_partial.md`, "All Microservices are Stateless and
+    Containerized with Docker" produced `concept:all_microservices`, reachable only
+    by attribution edges, plus one node per phrasing of the same idea — and the run
+    reported COMPLETE with 0 refusals (ISS-1).
+
+    The prompt invites it, which is why a check is the fix rather than a wording
+    change: the technique schema says *"Elements the technique is applied to.
+    Usually several — statelessness and redundancy are platform-wide decisions"*.
+    Ingest then resolves the name through `_resolve`, whose fallback kind is
+    `Concept`.
+
+    Flags rather than drops, and for the reason the other validators give: this is
+    legitimate CONTENT in the wrong SHAPE. "All Microservices" is a real claim; the
+    place for it is the platform or the `ArchitectureStyle`, not a node invented to
+    stand for all of them. Naming the mis-shape is what gives a reviewer the
+    decision, and a drop would silently lose the claim.
+    """
+    declared = _declared_names(elements, known_labels)
+    if not declared:
+        return []
+
+    flags: List[Flag] = []
+    for collection, fieldname in _ATTRIBUTION_FIELDS:
+        for record in as_record_dicts(collections.get(collection) or []):
+            for value in record.get(fieldname) or []:
+                text = str(value).strip()
+                if not text or text.lower() in declared:
+                    continue
+                flags.append(Flag(
+                    "attribution_endpoint",
+                    str(record.get("name") or "?"),
+                    [f"{fieldname} {text!r} is not an element this run declared, and no "
+                     f"known element carries that name — a group label becomes a node "
+                     f"of its own kind rather than pointing at what it describes"],
+                    fieldname, text,
+                ))
     return flags
 
 

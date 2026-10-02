@@ -89,6 +89,69 @@ def test_validate_only_never_reaches_an_extraction(harness, monkeypatch):
 def test_update_baseline_implies_validate_only(harness):
     """Recording numbers must never be the reason a model is called."""
     assert "update_baseline" in HARNESS_PATH.read_text(), "flag renamed; update this test"
+
+
+# ============================================================================
+# The category guards read every ELEMENT POSITION, not just `elements` (ISS-2)
+# ============================================================================
+
+
+def test_a_leak_through_an_attribution_list_is_caught(harness):
+    """The guards read `elements` alone, so the same word arriving through `used_by`
+    or `applies_to` was unmeasured — and that is where `concept:all_microservices`
+    came from, one node per phrasing, on a run reporting COMPLETE.
+    """
+    out = {
+        "elements": [{"name": "Payment Platform"}],
+        "design_techniques": [{"name": "Statelessness",
+                               "applies_to": ["Payment Platform", "Docker"]}],
+    }
+
+    ok, detail = harness.inv_no_tech_leak(None, out)
+
+    assert not ok, detail
+    assert "design_techniques.applies_to" in detail
+
+
+def test_a_leak_through_a_connection_endpoint_is_caught(harness):
+    out = {
+        "elements": [{"name": "Payment Platform"}],
+        "connections": [{"source": "Payment Platform", "target": "Docker"}],
+    }
+
+    ok, detail = harness.inv_no_tech_leak(None, out)
+
+    assert not ok and "connections.target" in detail
+
+
+def test_a_style_named_in_an_attribution_list_is_caught(harness):
+    """Reuses the ontology's own `ArchitectureStyleName` vocabulary rather than a
+    second copy of the list, so the two cannot drift."""
+    out = {
+        "elements": [{"name": "Payment Platform"}],
+        "architecture_styles": [{"name": "Microservices",
+                                 "adopted_by": ["Stateless Modular Microservices"]}],
+    }
+
+    ok, detail = harness.inv_no_style_as_element(None, out)
+
+    assert not ok and "Stateless Modular Microservices" in detail
+
+
+def test_the_category_guards_stay_quiet_on_a_clean_run(harness):
+    """A guard that fires on correct output is worse than none — the whole reason
+    triple endpoints are excluded is that `uses_technology Docker` is CORRECT."""
+    out = {
+        "elements": [{"name": "Payment Platform"}],
+        "triples": [{"subject": "Payment Platform", "predicate": "uses_technology",
+                     "object": "Docker"}],
+        "connections": [{"source": "Payment Platform", "target": "Payment Platform"}],
+        "design_techniques": [{"name": "Statelessness",
+                               "applies_to": ["Payment Platform"]}],
+    }
+
+    assert harness.inv_no_tech_leak(None, out)[0]
+    assert harness.inv_no_style_as_element(None, out)[0]
     source = HARNESS_PATH.read_text()
     marker = "args.update_baseline:"
     assert marker in source

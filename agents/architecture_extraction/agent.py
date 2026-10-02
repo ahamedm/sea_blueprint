@@ -37,6 +37,7 @@ from ..extraction import (
     merge_triples,
     named_key,
     summarise_chunks,
+    check_attribution_endpoints,
     check_connection_endpoints,
     check_containment,
     check_containment_kinds,
@@ -271,6 +272,20 @@ class ArchitectureExtractionAgent(KnowledgeExtractionAgent):
                 flags += check_nonempty_field(elements, "container_type",
                                               applies_to=("Container", "DataStore"))
                 flags += check_connection_endpoints(connections, elements)
+                # The same rule for the attribution lists, which had no backstop at
+                # all: `used_by` / `adopted_by` / `applies_to` name elements by hand,
+                # so a group label there ("All Microservices") became a node of its
+                # own through `_resolve`'s `Concept` fallback — one per phrasing, on
+                # a run that reports COMPLETE. See ISS-1.
+                flags += check_attribution_endpoints(
+                    {
+                        "technology_stacks": technology,
+                        "architecture_styles": styles,
+                        "design_techniques": techniques,
+                        "engineering_conventions": conventions,
+                    },
+                    elements,
+                )
                 # Span anchoring (§3.6). Extraction only — a design is allowed to
                 # invent, an extractor is not — and against the WHOLE document rather
                 # than the chunk, because `merge_records` has already merged across

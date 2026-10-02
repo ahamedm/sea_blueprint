@@ -397,20 +397,42 @@ def test_the_two_lists_are_populated_from_the_same_report(seed_both_documents):
     A count and a label list are different promises: the earlier fixture produced
     the numbers while the page rendered the empty branch, which is exactly the kind
     of gap a summary-only assertion misses.
+
+    The counts are not pinned to a number. The fixtures it reads are gitignored and
+    regenerable, so an absolute count is a measurement of that artefact rather than
+    of this code — and it breaks whenever the artefact is regenerated, which is
+    ISS-5. What must hold is that the summary, the lists and the page all describe
+    the same report.
     """
     payload = seed_both_documents.get("/api/gaps").get_json()
     realization = payload["realization"]
+    summary = realization["summary"]
 
-    assert payload["unresolved_count"] == realization["summary"]["unbound_claims"]
-    assert payload["unrealized_count"] == 20
-    assert len(realization["unrealized"]) == 20
-    assert len(realization["obligations"]) == 13
-    assert realization["summary"]["requirements"] == 22
+    assert payload["unresolved_count"] == summary["unbound_claims"]
+    assert payload["unrealized_count"] == summary["unrealized"]
+    assert len(realization["unrealized"]) == summary["unrealized"]
+    assert len(realization["obligations"]) == summary["unbound_claims"]
+
+    # Non-vacuity: both directions populated, or the agreement above is empty.
+    assert summary["unrealized"] > 0 and summary["unbound_claims"] > 0
 
     page = seed_both_documents.get("/gaps").get_data(as_text=True)
     assert "no architecture references it" in page
-    assert "AlpineJS UI Framework" in page
-    assert "PAN-Card Encryption Service" in page
+
+    # The page must render the POPULATED branch with names, and the names are read
+    # back off the API rather than written here: a hardcoded label is a measurement
+    # of a regenerable fixture, which is how this test went red (ISS-5). Labels
+    # containing characters Jinja escapes are skipped so this compares like text.
+    def jinja_safe(text: str) -> bool:
+        return not any(ch in text for ch in "&<>\"'")
+
+    unrealized_label = next(r["label"] for r in realization["unrealized"]
+                            if jinja_safe(r["label"]))
+    obligation_label = next(o["source_label"] for o in realization["obligations"]
+                            if jinja_safe(o["source_label"]))
+
+    assert unrealized_label in page, "the unanswered-requirements list is not rendered"
+    assert obligation_label in page, "the unbound-claims list is not rendered"
 
 
 def test_gap_report_page_lists_an_unanswered_requirement(reconcile_client):

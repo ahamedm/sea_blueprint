@@ -32,7 +32,7 @@ from core.knowledge import (
     unmet_obligations,
     unrealized_requirements,
 )
-from core.knowledge.model import SOURCE_EXTRACTION
+from core.knowledge.model import REQUIREMENT_KINDS, SOURCE_EXTRACTION
 
 
 @pytest.fixture
@@ -449,23 +449,39 @@ def test_the_real_fixture_reports_both_directions():
     report = realization_report(merged)
     summary = report["summary"]
 
-    assert summary["requirements"] == 22
-    assert summary["unrealized"] == 20
-    assert summary["coverage"][COVERAGE_FULL] == 2
-    assert summary["coverage"][COVERAGE_NONE] == 20
-    assert summary["unbound_claims"] == 13
-    assert summary["proposed_claims"] == 4
-    assert summary["unproposed_claims"] == 9
-    assert len(report["obligations"]) == 13
-    assert len(report["unrealized"]) == 20
+    # The one number derived from the fixture rather than from the report: the
+    # requirements it declares. That is an independent count, so ingest dropping
+    # or inventing a requirement fails here rather than agreeing with itself.
+    declared = [e for e in req.get("entities", [])
+                if e.get("ontology_class") in REQUIREMENT_KINDS]
+    assert summary["requirements"] == len(declared)
+
+    # The rest are identities the report must satisfy whatever the fixture says.
+    # Absolute counts are deliberately NOT pinned: `data/output/` is gitignored
+    # and regenerable, so pinning a measurement of it is a test that breaks when
+    # the artefact is regenerated and says nothing about the code. See ISS-5.
+    assert summary["realized"] + summary["unrealized"] == summary["requirements"]
+    assert sum(summary["coverage"].values()) == summary["requirements"]
+    assert summary["unrealized"] == (summary["coverage"][COVERAGE_NONE]
+                                     + summary["coverage"][COVERAGE_UNRESOLVED])
+    assert len(report["unrealized"]) == summary["unrealized"]
+    assert len(report["requirements"]) == summary["requirements"]
+    assert len(report["claims"]) == summary["unbound_claims"]
+    assert len(report["obligations"]) == summary["unbound_claims"]
+    assert (summary["proposed_claims"] + summary["unproposed_claims"]
+            == summary["unbound_claims"])
+
+    # Non-vacuity: the fixture has to exercise both directions, or the identities
+    # above hold trivially on an empty graph.
+    assert summary["realized"] > 0 and summary["unrealized"] > 0
+    assert summary["bound_edges"] > 0 and summary["unbound_claims"] > 0
 
     # Both directions are stated, not inferred from each other: a requirement
     # with nothing claiming it, and an architecture reference with nothing to
     # bind to, in one report.
     assert any(not r["bound"] and not r["unbound"] for r in report["unrealized"])
     assert all(o["bound"] is False for o in report["obligations"])
-    # The fixture still carries no requirement identifiers (it predates capture),
-    # so every requirement node's reference list is empty and every binding has
-    # to be lexical — which is exactly why 9 of the 13 references cannot even be
-    # proposed.
-    assert all(not r["external_refs"] for r in report["requirements"])
+    assert summary["unproposed_claims"] > 0, (
+        "the fixture exists to exercise the matcher's blind spot; if every claim "
+        "is now proposable, this test no longer covers it"
+    )

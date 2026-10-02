@@ -188,6 +188,41 @@ def _descendants(elements: Dict[str, Dict[str, Any]], root: str) -> List[str]:
     return [nid for nid in elements if root in _ancestors(elements, nid)[1:]]
 
 
+def _label_tokens(label: str) -> frozenset:
+    """The words of a label, lowercased. Punctuation is not a word."""
+    return frozenset(t for t in re.split(r"[^a-z0-9]+", str(label).lower()) if t)
+
+
+def _near_duplicate_elements(
+    elements: Dict[str, Dict[str, Any]],
+) -> List[Tuple[Dict[str, Any], Dict[str, Any]]]:
+    """Drawn elements whose names may be one thing under two labels.
+
+    Token containment with at least two words shared, which is what separates
+    "`Payment Orchestrator` is `Payment Orchestrator Service`" from
+    "`Adaptability` is not `Availability`". Both directions are checked, because
+    the longer name is not always the later one — `Rule Engine Service` is a
+    Container and `Rule Engine` a Component in the same graph.
+
+    Deliberately compares only what the view DRAWS. Connection labels are of the
+    form `A → B`, so half of them contain an element's name and every one of them
+    would pair with it; excluding them is what keeps the rule quiet.
+    """
+    ordered = sorted(elements.values(), key=lambda e: (e["label"].lower(), e["id"]))
+    pairs: List[Tuple[Dict[str, Any], Dict[str, Any]]] = []
+    for index, first in enumerate(ordered):
+        tokens = _label_tokens(first["label"])
+        if not tokens:
+            continue
+        for second in ordered[index + 1:]:
+            other = _label_tokens(second["label"])
+            if not other or first["label"].lower() == second["label"].lower():
+                continue
+            if (tokens <= other or other <= tokens) and len(tokens & other) >= 2:
+                pairs.append((first, second))
+    return pairs
+
+
 def c4_model(graph: Any) -> Dict[str, Any]:
     """Reduce a knowledge graph to a C4 model, with its gaps stated.
 
@@ -302,6 +337,42 @@ def c4_model(graph: Any) -> Dict[str, Any]:
                 ),
             })
             del elements[dropped["id"]]
+
+    # ---- one thing, two names (ISS-3, ISS-10) ----
+    #
+    # The exact-name case above is reported and drawn once. These are the pairs that
+    # are NOT the same string, so both were drawn with nothing said: `Payment Platform`
+    # beside `Payment Gateway Platform`, `Payment Orchestrator` beside `Payment
+    # Orchestrator Service`. Structurizr accepts both names, so the file loads and the
+    # reader sees one architecture twice with no way to tell.
+    #
+    # REPORTED, never merged. Deciding that two labels ARE one thing is a
+    # confident-wrong-join — the failure this repo treats as worse than a missing join
+    # — so the view states the suspicion and leaves the decision to review.
+    #
+    # The rule is token containment, and a similarity RATIO was measured and rejected:
+    # at 0.70 it reported 141 pairs on this graph, because `Administration Service →
+    # Oracle 19C` and its siblings are similar strings naming genuinely different
+    # nodes, and `Adaptability`/`Availability` are different attributes. Containment
+    # over drawn elements reports 5 on the same graph, every one of them the real
+    # thing. A rule that reports a correct graph is worse than no rule.
+    near_duplicate_names: List[str] = []
+    for first, second in _near_duplicate_elements(elements):
+        near_duplicate_names.append(f"{first['label']} / {second['label']}")
+        gaps.append({
+            "kind": "near-duplicate-element",
+            "id": first["id"],
+            "label": first["label"],
+            "counterpart_id": second["id"],
+            "counterpart": second["label"],
+            "detail": (
+                f"may be the same thing as {second['kind']} {second['id']} "
+                f"({second['label']!r}): every word of one name appears in the other. "
+                f"Both are drawn, because whether they ARE one thing is an identity "
+                f"decision (YB-053 defect 2) and merging on a name is how a confident "
+                f"wrong join happens."
+            ),
+        })
 
     # ---- the system under design ----
     #
@@ -474,7 +545,7 @@ def c4_model(graph: Any) -> Dict[str, Any]:
 
     relationships = [pairs[pair] for pair in sorted(pairs)]
     checks = _well_formed(elements, relationships, list(dangling.values()), system,
-                          duplicate_names)
+                          duplicate_names, near_duplicate_names)
     return {
         "system": system,
         "elements": ordered,
@@ -969,6 +1040,7 @@ def _well_formed(
     dangling: List[str],
     system: Optional[Dict[str, Any]],
     duplicate_names: Optional[List[str]] = None,
+    near_duplicate_names: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
     """The rules C4 states, checked against the graph rather than assumed.
 
@@ -1087,6 +1159,21 @@ def _well_formed(
         "and C4 has no way to tell the boxes apart. The view draws the one the diagram "
         "hangs off and reports the other; the graph keeps both, because which node is "
         "authoritative is an identity decision (YB-053 defect 2), not a view's.",
+    )
+
+    # 7. Distinct names, distinct things. NOT a load error — Structurizr accepts both
+    #    names, which is exactly why it has to be said: the file loads and the reader
+    #    sees one architecture twice. Reported as a suspicion, never resolved here.
+    add(
+        "distinct_names_are_distinct_things",
+        "Names that may be one thing under two labels",
+        list(near_duplicate_names or []), len(elements),
+        "Every word of one element's name appears in another's, which is what a second "
+        "extraction of the same thing looks like (`Payment Platform` beside `Payment "
+        "Gateway Platform`). The view draws both and says so, because deciding they ARE "
+        "one thing is a confident wrong join — worse here than a missing join — and "
+        "resolving it is YB-053 defect 2. Measured before choosing the rule: a string "
+        "similarity ratio reported 141 pairs on this graph, token containment reports 5.",
     )
 
     return checks

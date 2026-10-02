@@ -34,59 +34,7 @@ the workspace can actually be rendered.
 
 ---
 
-## ISS-1 — Category nouns enter the graph as `Concept` nodes through attribution endpoints
 
-**Open.** The largest single node kind in the live payment scope is the graph's own
-fallback bucket.
-
-- **Evidence.** `data/sea_home_x/payment_sys_v2.sqlite`, scope `payments_v2`, run
-  `run_55151484a7f2`, document [simple_architecture_partial.md](test_data/arch/simple_architecture_partial.md)
-  ("All Microservices are Stateless and Containerized with Docker."). **25 of 85 nodes
-  are `Concept`**, including `All Microservices`, `Microservices`,
-  `Microservice Communications`, `Microservice-to-microservice communication`, `PSPs`,
-  `PGSPs`, `Financial Data`. `concept:all_microservices` is referenced only by
-  attribution edges — `uses_technology`, `applies_technique`, `conforms_to` (pass
-  `technology`) and `deploys_on` (pass `triples`). The run reports **COMPLETE, 0
-  refusals, 0 unconsumed keys, 4/4 passes ok**.
-- **Mechanism.** The architecture pass schema takes free-text element lists for
-  attribution — `used_by` ([passes.py:438](agents/architecture_extraction/passes.py#L438)),
-  `adopted_by` ([:448](agents/architecture_extraction/passes.py#L448)), `applies_to`
-  ([:473](agents/architecture_extraction/passes.py#L473), [:552](agents/architecture_extraction/passes.py#L552))
-  — with no requirement that the value be an element the structure pass declared. The
-  technique description and the pass prompt invite a group label outright: *"Elements
-  the technique is applied to. Usually several — statelessness and redundancy are
-  platform-wide decisions"* ([:611](agents/architecture_extraction/passes.py#L611)).
-  Ingest then resolves each label through `_resolve`
-  ([ingest.py:367](core/knowledge/ingest.py#L367)), whose fallback kind is `Concept`,
-  at [ingest.py:576](core/knowledge/ingest.py#L576), [:590](core/knowledge/ingest.py#L590),
-  [:626](core/knowledge/ingest.py#L626), [:728](core/knowledge/ingest.py#L728) — one
-  node per phrasing.
-- **Why it is not caught.** `check_connection_endpoints`
-  ([validators.py:550](agents/extraction/validators.py#L550)) enforces "both ends were
-  declared" for `connections` only. Anchoring
-  ([validators.py:646](agents/extraction/validators.py#L646)) passes because the phrase
-  IS in the document; it catches invention, not category words. See ISS-2.
-- **Expected behaviour.** A platform-wide claim belongs on the platform or the
-  `ArchitectureStyle` node (`Payment Platform --follows_style--> Microservices
-  Architecture` already exists), never on a node invented to stand for "all of them".
-- **Fix goes.** A generalised endpoint check in `agents/extraction/validators.py`,
-  wired in the architecture agent's validation step.
-- **Related.** [YB-053](docs/todos/entries/YB-053-category-elements-and-duplicate-system.md) defect 1
-  (same defect, measured on a different axis).
-
-## ISS-2 — Every category guard reads `elements`, so the attribution axis is unmeasured
-
-**Open.** This is why ISS-1 can exist while every existing check is green.
-
-- **Evidence.** `inv_no_tech_leak` ([run_extraction_tests.py:219](scripts/run_extraction_tests.py#L219))
-  and `inv_no_style_as_element` ([:226](scripts/run_extraction_tests.py#L226)) both
-  inspect `out["elements"]` — see the call at
-  [:237](scripts/run_extraction_tests.py#L237). `All Microservices` never appears in
-  `elements`; it arrives through `design_techniques[].applies_to`. YB-053's proposed
-  `check_category_names` is specified against elements too, so implementing it as
-  written would report zero on the run above.
-- **Fix goes.** Any category check must run over every endpoint list a pass emits, not
-  only the structure pass's element list.
 
 ## ISS-3 — One document, two nodes for one container
 
@@ -102,6 +50,13 @@ fallback bucket.
   within a single document rather than across REQ-G and ARC-G.
 - **Fix goes.** Whatever YB-053 defect 2 decides for cross-document identity, applied
   to intra-document variants as well; or a duplicate-name finding at ingest.
+- **Progress (2026-10-03).** The finding half is done for the drawn view: the C4 model
+  reports pairs whose names are one thing under two labels as a `near-duplicate-element`
+  gap and a `distinct_names_are_distinct_things` check
+  ([c4.py](app/viewpoints/c4.py)) — six on the live scope, measured, with no false
+  positives. It reports rather than merges, so the identity decision above is still
+  open. Pinned by `test_a_second_name_for_one_thing_is_reported_not_merged` and
+  `test_names_that_share_only_a_word_are_not_reported` (`tests/test_c4_view.py`).
 - **Related.** [YB-053](docs/todos/entries/YB-053-category-elements-and-duplicate-system.md) defect 2,
   [YB-004](docs/todos/entries/YB-004-model-output-not-structurally-stable.md).
 
@@ -121,23 +76,6 @@ fallback bucket.
 - **Fix goes.** Route the findings channel to the review queue (or to the run page)
   rather than registering keys as explained-unrouted. See ISS-6.
 
-## ISS-5 — Two regression tests assert counts against fixtures that were regenerated
-
-**Open.** A full regression is red for an environmental reason, which is how a real
-failure hides.
-
-- **Evidence.** `test_the_real_fixture_reports_both_directions`
-  ([test_realization.py:452](tests/test_realization.py#L452), expects 22 requirements /
-  20 unrealized / 13 obligations) and `test_the_two_lists_are_populated_from_the_same_report`
-  ([test_app.py:405](tests/test_app.py#L405), expects `unrealized_count == 20`) read
-  `data/output/test_req_prd.json` + `test_arch.json` (gitignored, regenerated
-  2026-09-26; `.deepseek-pre-*` siblings show the regeneration history). They now yield
-  20 / 17. Reports show 2 failed / 1033 passed.
-- **Checked, so nobody has to re-check.** Both fail with the ConceptAttribute ingest
-  change reverted to HEAD, so they are fixture drift and not that change.
-- **Fix goes.** Regenerate the fixtures with the harness and re-record the numbers, or
-  have the assertions derive the expected counts from the fixture instead of hardcoding
-  a measurement from ADR-0006.
 
 ## ISS-6 — `attribute_findings` is an explained-unrouted key while its sibling is not
 
@@ -187,6 +125,18 @@ ways, and no guard reaches it.
   (exact mechanism written up there) and [ISS-3](#iss-3--one-document-two-nodes-for-one-container)
   is the single-document version of it. A label-similarity merge is explicitly NOT the
   fix.
+- **Progress (2026-10-03).** "Says nothing" is no longer true. The C4 model reports the
+  pairs as a `near-duplicate-element` gap and a `distinct_names_are_distinct_things`
+  check ([c4.py](app/viewpoints/c4.py)): on the live scope it names
+  `Payment Gateway Platform` / `Payment Platform`, `Payment Orchestrator` /
+  `Payment Orchestrator Service`, `Rule Engine` / `Rule Engine Service`,
+  `Payment UI` / `Payment-UI Service` and two more — six, all real. The rule is token
+  containment over drawn elements, chosen after measuring the alternative: a string
+  similarity ratio reported 141 pairs on the same graph, because `Adaptability` and
+  `Availability` are close strings naming different things and every connection label
+  reads `A → B`. Reported, never merged — the identity decision above is untouched.
+  Pinned by `test_a_second_name_for_one_thing_is_reported_not_merged` and
+  `test_names_that_share_only_a_word_are_not_reported` (`tests/test_c4_view.py`).
 
 ---
 
@@ -257,7 +207,7 @@ ways, and no guard reaches it.
   elements, Pattern B — the shape `Container -> Application` already uses. Every one of these
   must name its check, and (c)/(d) cost prompt budget (YB-007).
 - **Related.** YB-053 defect 2 and [ISS-10](#iss-10--one-system-three-names-the-notation-draws-the-same-architecture-twice)
-  (the identity half), YB-055 and [ISS-1](#iss-1--category-nouns-enter-the-graph-as-concept-nodes-through-attribution-endpoints)
+  (the identity half), YB-055 and [ISS-1](#iss-1--category-nouns-enter-the-graph-as-concept-nodes-through-attribution-endpoints-fixed-2026-10-03)
   (the nested-slot half), YB-008 (ownership).
 
 ## ISS-13 — The node-naming rule runs over design traceability links, and rejects names the graph already holds
@@ -346,6 +296,86 @@ a smaller set that no matcher can ever bind.
 
 Kept rather than deleted, because each was reported from using the tool and each now
 has a test that fails if it comes back.
+
+### ISS-1 — Category nouns enter the graph as `Concept` nodes through attribution endpoints (fixed 2026-10-03)
+
+- **Reported as.** The largest single node kind in the live scope was the graph's own
+  fallback bucket: 25 of 85 nodes in `run_55151484a7f2` were `Concept`, including
+  `All Microservices`, `Microservices`, `Microservice Communications` and `PSPs` —
+  one node per phrasing of one idea, on a run reporting COMPLETE with 0 refusals.
+- **Cause.** The architecture pass schemas take free-text element lists for attribution
+  (`used_by`, `adopted_by`, `applies_to`) with no requirement that the value be an
+  element the structure pass declared, and the prompt invites a group label outright:
+  *"Elements the technique is applied to. Usually several — statelessness and
+  redundancy are platform-wide decisions."* Ingest then resolves each label through
+  `_resolve`, whose fallback kind is `Concept`.
+- **Fixed.** `check_attribution_endpoints` ([validators.py](agents/extraction/validators.py))
+  applies the rule `check_connection_endpoints` already enforced for connections to
+  every attribution list, and is wired into the architecture profile's validation step
+  ([agent.py](agents/architecture_extraction/agent.py)). It FLAGS rather than drops: a
+  platform-wide claim is legitimate content in the wrong shape — it belongs on the
+  platform or the `ArchitectureStyle`, not on a node standing in for all of them — and
+  a drop would silently lose the claim. The declared-name set is now computed once by
+  `_declared_names` and shared with the connection check, so the two cannot drift into
+  disagreeing about what was declared.
+- **Still true.** A flag reports; it does not stop the node being created, and the
+  triples channel (`deploys_on` was the other measured path) is not covered by this
+  check. Both belong to
+  [YB-053](docs/todos/entries/YB-053-category-elements-and-duplicate-system.md).
+- **Pinned by** `test_an_attribution_list_naming_an_undeclared_element_is_flagged`,
+  `test_every_attribution_field_is_covered`, `test_a_declared_attribution_is_not_flagged`
+  and `test_attribution_endpoints_are_not_judged_without_declarations`
+  (`tests/test_aspect_guards.py`).
+
+### ISS-2 — Every category guard read `elements`, so the attribution axis was unmeasured (fixed 2026-10-03)
+
+- **Reported as.** The reason ISS-1 could exist while every existing check was green:
+  `inv_no_tech_leak` and `inv_no_style_as_element` both inspected `out["elements"]`.
+- **Fixed.** `_element_reference_occurrences`
+  ([run_extraction_tests.py](scripts/run_extraction_tests.py)) yields every place a
+  pass names an element and which list it named it in — `elements`, both connection
+  endpoints, and the four attribution lists — and both invariants read it. The style
+  rule is fed those names rather than restating the vocabulary, so there is still one
+  copy of it.
+- **Boundary, deliberate.** Triples are NOT scanned. `X uses_technology Docker` names a
+  technology legitimately, and `_TECH_LEAK` contains `docker`, `grpc` and `aes-256`
+  precisely because those are used rather than run; running an element rule over triple
+  endpoints would flag correct output, and a guard that reports a correct graph is
+  worse than none.
+- **Pinned by** `test_a_leak_through_an_attribution_list_is_caught`,
+  `test_a_leak_through_a_connection_endpoint_is_caught`,
+  `test_a_style_named_in_an_attribution_list_is_caught` and
+  `test_the_category_guards_stay_quiet_on_a_clean_run`
+  (`tests/test_extraction_harness.py`).
+
+### ISS-5 — Two regression tests assert counts against fixtures that were regenerated (fixed 2026-10-03)
+
+- **Reported as.** A full regression was red for an environmental reason, which is how a
+  real failure hides: `test_the_real_fixture_reports_both_directions`
+  ([test_realization.py](tests/test_realization.py)) expected 22 requirements / 20
+  unrealized / 13 obligations, and `test_the_two_lists_are_populated_from_the_same_report`
+  ([test_app.py](tests/test_app.py)) expected `unrealized_count == 20`; the fixtures
+  yielded 20 / 17.
+- **Cause.** Both pinned absolute counts — and one pinned two element labels — measured
+  from `data/output/test_req_prd.json` + `test_arch.json`, which are gitignored and
+  regenerable. The assertions were measurements of an artefact rather than of the code,
+  so regenerating the fixtures reddened the suite; the same test also asserted
+  `"AlpineJS UI Framework"`, a label the graph now carries as `AlpineJS`.
+- **Fixed.** Both tests derive what they can and relate what they cannot. The requirement
+  count is derived independently from the fixture's own entities, and the rest are
+  identities the report must satisfy whatever the fixture says
+  (`requirements == realized + unrealized`, `unrealized == none + unresolved`,
+  `claims == obligations == unbound_claims`, `proposed + unproposed == unbound`), with
+  non-vacuity assertions so they cannot hold trivially on an empty graph. The page
+  assertion reads its labels back off the API instead of naming them, which makes
+  page/API agreement the thing tested rather than two hardcoded strings.
+- **What was lost.** The absolute numbers were a cross-check against ADR-0006's original
+  measurement. Restoring that needs the fixtures either tracked — they are extraction
+  OUTPUTS, and `data/` is excluded wholesale by design — or regenerated and re-recorded.
+  That is a decision, not a patch.
+- **Pinned by** `test_the_real_fixture_reports_both_directions`
+  (`tests/test_realization.py`) and
+  `test_the_two_lists_are_populated_from_the_same_report` (`tests/test_app.py`).
 
 ### ISS-7 — `{ tags "External" }` is not valid DSL (fixed 2026-10-01)
 
