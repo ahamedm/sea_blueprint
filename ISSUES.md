@@ -260,6 +260,66 @@ ways, and no guard reaches it.
   (the identity half), YB-055 and [ISS-1](#iss-1--category-nouns-enter-the-graph-as-concept-nodes-through-attribution-endpoints)
   (the nested-slot half), YB-008 (ownership).
 
+## ISS-13 — The node-naming rule runs over design traceability links, and rejects names the graph already holds
+
+**Open.** `check_object_contract` exists to stop a behavioural clause becoming a node.
+Applied to a design's reference to a requirement, it flags the requirement's own name.
+
+- **Evidence.** `_MAX_NODE_CHARS = 40` ([validators.py:193](agents/extraction/validators.py#L193))
+  and `check_object_contract` ([:196](agents/extraction/validators.py#L196)) run over the
+  design profile's merged triples at
+  [agent.py:188](agents/design_assistant/agent.py#L188). In `draft_20261002T183436_1143`
+  (`run_eca47b9187ea`) it produced 13 pure "clause-shaped" findings, and **7 of the 13
+  flagged strings are labels of nodes that already exist** in the same scope —
+  `Email Frequency Limit (Normal Operations)` (41 chars),
+  `Email Frequency Limit (Marketing Campaign)` (42),
+  `OpenShift Container Orchestrator Platform` (41). None is a clause; each is the name
+  REQ-G or the architecture already uses.
+- **Consequence, measured.** The same draft reports the three email elements —
+  `Email Delivery Service`, `Email Template Manager`, `Email Frequency Governor` —
+  as `ungrounded`, so the part of the proposal that answers the email requirements is
+  exactly the part the review page marks unsupported. Two things worth separating: the
+  flag does not itself drop the link (this profile runs no repair,
+  [agent.py:190](agents/design_assistant/agent.py#L190)), and the traceability pass
+  emitted no `references` entry for those three names at all. The false positives are
+  the confirmed defect; whether they also obscure the missing reference is not
+  established by this draft.
+- **Fix goes.** Either stop running the node-naming contract over traceability records,
+  or exempt an endpoint whose string resolves to an existing node label — a name the
+  graph already holds cannot be a clause "nothing can link to". The 40-char cap is the
+  wrong instrument for that check in either form.
+- **Related.** [ISS-14](#iss-14--every-unresolved-design-reference-names-an-existing-node-by-exact-label)
+  is the other half: the links that should have bound and did not.
+
+## ISS-14 — Every unresolved design reference names an existing node by exact label
+
+**Open — likely TODO-sized: the fix is in reference resolution, not in a call site.**
+
+- **Evidence.** `draft_20261002T183436_1143` records `unresolved_references: 109`, and
+  `KnowledgeGraph.unresolved_references()` ([model.py:1002](core/knowledge/model.py#L1002))
+  over that draft's own graph returns the same 109. **All 109 carry a `value` whose
+  string is the exact label of a node in the working set.** The link did not fail to
+  find a target; it was stored as a literal instead of bound to the target that was
+  there:
+  `container:payment_orchestrator implements_requirement 'Fallback Routing Strategy'`
+  → `functionalrequirement:fallback_routing_strategy`;
+  `architecturepattern:cache_aside realizes_quality_attribute 'Authorization Latency
+  (<=500ms)'` → `nonfunctionalrequirement:authorization_latency_500ms`.
+- **By predicate.** `supports_capability` 25, `satisfies_quality_attribute` 22,
+  `implements_requirement` 21, `traces_to_goal` 12, `delivers_initiative` 11,
+  `realizes_quality_attribute` 6, `traces_to_capability` 6,
+  `realizes_quality_attributes` 3, `mandated_by` 2, `addresses_goal` 1.
+- **Worth checking first, not established.** Singular and plural spellings of the same
+  predicate both appear, in the code and in the draft (`realizes_quality_attribute` /
+  `realizes_quality_attributes`, `traces_to_capability` / `traces_to_capabilities`). If
+  resolution keys on one spelling, the other fails silently.
+- **Why it matters more than any single element.** These 109 are most of what the
+  proposal has to say about how it answers REQ-G, and each unresolved one is invisible
+  to the realization report, the coverage audit and the grounding check. The assertion
+  usually carries `ontology_class`, so the target KIND is already known at write time.
+- **Fix goes.** Resolve the value against the graph's labels at ingest, or report the
+  near-miss rather than storing a literal that reads as a fact.
+
 ---
 
 ## Fixed
