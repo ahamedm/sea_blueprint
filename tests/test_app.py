@@ -7,6 +7,7 @@ handoff from agent result to canonical graph, which is where the MVP was broken.
 """
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -553,6 +554,100 @@ def test_ingest_honours_the_document_type(client, load_working):
     kinds = {n.kind for n in load_working().nodes.values()}
     assert "SoftwareSystem" in kinds
     assert "Container" in kinds, f"architecture extractor did not run: {kinds}"
+
+
+# ============================================================================
+# Which extractor — the page must state it, not the browser (ISS-20)
+# ============================================================================
+
+_TYPE_SELECT = re.compile(r'<select name="type">(.*?)</select>', re.S)
+
+
+def _selected_type(html: str) -> str:
+    """The document type the rendered form will submit, read off the page.
+
+    The point of these tests is that the page ALWAYS carries exactly one
+    `selected` option: the scope's stored choice on a used scope, requirements on
+    a fresh one. A select with no `selected` at all is the defect — the browser
+    then restores whatever was last submitted, invisibly, which is how
+    `sample_requirements.md` was extracted by the architecture profile (ISS-20).
+    """
+    block = _TYPE_SELECT.search(html)
+    assert block, "the ingest page has no document-type select"
+    options = re.findall(r'<option value="([^"]+)"([^>]*)>', block.group(1), re.S)
+    chosen = [value for value, attrs in options if "selected" in attrs]
+    assert len(chosen) == 1, f"expected exactly one selected option, got {chosen}"
+    return chosen[0]
+
+
+def test_a_fresh_scope_defaults_the_page_to_requirements(client):
+    """Nothing stored yet: the server states requirements rather than leaving it
+    to the browser's form-state restoration."""
+    html = client.get("/ingest").get_data(as_text=True)
+    assert 'autocomplete="off"' in html, "the form must not let the browser restore a choice"
+    assert _selected_type(html) == "requirements"
+
+
+def test_the_page_offers_the_scope_s_last_document_type_as_its_default(client):
+    """The select is rendered from stored state, the way the domain pack already is.
+
+    Before this, `document_type` was recorded on the run and nowhere else, so the
+    page had nothing to render from and a reload could silently re-submit the
+    previous extractor.
+    """
+    assert _selected_type(client.get("/ingest").get_data(as_text=True)) == "requirements"
+
+    client.post("/ingest", data={"text": "architecture body", "type": "architecture"})
+
+    html = client.get("/ingest").get_data(as_text=True)
+    assert _selected_type(html) == "architecture"
+    # Visible, not merely selected: the hint names the profile this scope last ran.
+    assert "ARC-G" in html
+
+
+def test_ingest_remembers_the_document_type_on_the_scope(app):
+    """Stored next to `domain_pack`, because that is what the page reads."""
+    from core.knowledge import RevisionStore
+
+    client = app.test_client()
+    client.post("/ingest", data={"text": "architecture body", "type": "architecture"})
+    meta = RevisionStore(app.config["STORE_ROOT"]).ensure().load_working().meta
+    assert meta["document_type"] == "architecture"
+
+
+def test_a_scope_ingested_before_the_key_existed_still_states_its_type(app):
+    """The migration case, and the scope this issue was reported from.
+
+    `sample_requirements.md` in `payments_v2` was extracted as architecture BEFORE
+    `meta["document_type"]` was ever written, so that key is absent and only
+    `last_ingest.doc_type` carries the fact. Reading one key and not the other would
+    default the page to requirements — and announce that nothing had been extracted in
+    a scope holding 86 architecture nodes.
+    """
+    from core.knowledge import RevisionStore
+
+    store = RevisionStore(app.config["STORE_ROOT"]).ensure()
+    snapshot = store.load_working()
+    snapshot.meta["last_ingest"] = {"doc_type": "architecture", "document": "old.md"}
+    snapshot.meta.pop("document_type", None)
+    store.save_working(snapshot.graph, snapshot.log, snapshot.meta)
+
+    html = app.test_client().get("/ingest").get_data(as_text=True)
+    assert _selected_type(html) == "architecture"
+    assert "Nothing has been extracted in this scope yet" not in html
+
+
+def test_a_missing_type_field_falls_back_to_the_scopes_last_choice(client, load_working):
+    """A submit that carries no `type` must not silently switch profiles.
+
+    The form always sends one, so this covers the paths that do not — a direct
+    POST, a stripped field. Falling back to the hard-coded default would swap the
+    extractor behind a page that had stated the other one.
+    """
+    client.post("/ingest", data={"text": "architecture body", "type": "architecture"})
+    client.post("/ingest", data={"text": "more architecture body"})
+    kinds = {n.kind for n in load_working().nodes.values()}
+    assert "Container" in kinds, f"the fallback did not keep the architecture profile: {kinds}"
 
 
 def test_ingest_requires_input(client, load_working):

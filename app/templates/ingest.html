@@ -16,7 +16,7 @@
   </div>
 </div>
 
-<form method="post" action="{{ url_for('ingest') }}" enctype="multipart/form-data">
+<form method="post" action="{{ url_for('ingest') }}" enctype="multipart/form-data" autocomplete="off">
   <div class="card">
     <div class="card-head"><h2>Source</h2></div>
 
@@ -46,9 +46,19 @@
     <div class="inline">
       <label class="field" style="min-width:260px;">
         <span>Document type</span>
+        {# exactly one option is always `selected`, from the scope's stored choice.
+           A select with no server-rendered selection lets the browser restore a
+           previous submission invisibly, which is how a requirements document was
+           extracted by the architecture profile (ISS-20). #}
         <select name="type">
-          <option value="requirements">Business requirements (PRD) → REQ-G</option>
-          <option value="architecture">Architecture outline → ARC-G</option>
+          <option value="requirements"
+                  {% if active_document_type != 'architecture' %}selected{% endif %}>
+            Business requirements (PRD) → REQ-G
+          </option>
+          <option value="architecture"
+                  {% if active_document_type == 'architecture' %}selected{% endif %}>
+            Architecture outline → ARC-G
+          </option>
         </select>
       </label>
       <label class="field" style="min-width:220px;">
@@ -64,6 +74,20 @@
       Document type selects the extractor: requirements use the REQ-G profile, architecture
       uses the ARC-G profile (structure / connection / technology / traceability passes).
       The old form accepted the type and then ignored it.
+      {# Deliberately says what the SCOPE last ran, not "what is selected above": form-state
+         restoration can change the control after the server rendered it, so a hint that
+         asserted the live selection could contradict the visible choice. The stored fact is
+         true either way, and it is the fact the operator needs to check against. #}
+      {% if active_document_type %}
+        This scope was last extracted as
+        <strong>{{ 'architecture (ARC-G)' if active_document_type == 'architecture' else 'requirements (REQ-G)' }}</strong>.
+        Check the type above matches the document you are queueing — the profile it names is
+        the one that will run, and a requirements document sent to ARC-G yields architecture
+        and no requirements at all.
+      {% else %}
+        Nothing has been extracted in this scope yet, so the type above defaults to
+        requirements (REQ-G).
+      {% endif %}
     </p>
 
     <div class="inline" style="margin-top:10px;">

@@ -80,6 +80,7 @@ from core.knowledge import (
     DEFAULT_MATCH_THRESHOLD,
     BaselineNotReady,
     DesignDraftStore,
+    ExtractionRun,
     KnowledgeGraph,
     ReconcileError,
     ReviewError,
@@ -743,6 +744,15 @@ def create_app(
             "event_rows": event_rows,
             "terminal": terminal,
             "completeness": completeness,
+            # From the run RECORD, not the progress channel. The journal payload is a
+            # closed set of counters that deliberately carries no extracted content,
+            # and the per-pass `triples_produced` in it cannot report a pass that
+            # emits records instead of triples (ISS-21). The record already knows
+            # what each key emitted and whether anything read it, so the page shows
+            # that beside the event log.
+            "run_output": _run_output_rows(record),
+            "run_stored_facts": int(getattr(record, "stored_facts", 0) or 0),
+            "run_unconsumed": list(getattr(record, "unconsumed_keys", None) or []),
             "journal_error": journal_error,
             "position": store.queue_position(job.job_id) if hasattr(store, "queue_position") else 0,
             "queue_depth": store.queue_depth() if hasattr(store, "queue_depth") else 0,
@@ -974,6 +984,10 @@ def create_app(
                 # pack cannot take the whole form down with it.
                 domain_packs=discover_domain_packs(current_app.config["ONTOLOGY_DIR"]),
                 active_domain_pack=state().meta.get("domain_pack", ""),
+                # Which extractor this scope last ran, so the select states its
+                # choice instead of leaving it to the browser. See `run_ingest`,
+                # which records it, and ISS-20 for what its absence cost.
+                active_document_type=_remembered_document_type(state()),
                 # Queued and recent runs, plus whether this scope runs them in the
                 # background at all.
                 **jobs_panel(),
@@ -1001,7 +1015,16 @@ def create_app(
             # A paste has no bytes of its own; UTF-8 is the honest encoding of it.
             raw_bytes = text.encode("utf-8")
 
-        doc_type = (request.form.get("type") or "requirements").strip()
+        # WHICH EXTRACTOR. The form's `type` is authoritative; the scope's last
+        # choice is the fallback when the field is absent, and exactly one of the
+        # two must be stated on the page (see `ingest.html`) — a select that leaves
+        # the decision to the browser is how a requirements document was extracted
+        # by the architecture profile (ISS-20).
+        doc_type = (
+            request.form.get("type")
+            or _remembered_document_type(state())
+            or "requirements"
+        ).strip()
         initiative_id = (
             request.form.get("initiative_id") or current_app.config["INITIATIVE_ID"]
         ).strip()
@@ -2115,3 +2138,49 @@ def _run_summaries(graph: KnowledgeGraph):
         }
         for r in graph.runs.values()
     ]
+
+
+def _run_output_rows(run: Optional[ExtractionRun]) -> List[Dict[str, Any]]:
+    """A run's per-output-key accounting, in a stable order.
+
+    `output_counts` is per KEY — the records a profile EMITTED and whether a consumer
+    read them — and it is the only thing on a run that can answer "did this pass
+    produce anything?" for a pass that emits records instead of triples. The per-pass
+    `triples_produced` counter cannot answer it: the architecture decisions pass emits
+    `architecture_decisions` and deliberately NO triples, so its counter is
+    structurally zero and reads as "found nothing" while the run stored ten decisions
+    (ISS-21). Showing the emitted counts is what makes the two reconcilable.
+    """
+    counts = getattr(run, "output_counts", None) or {}
+    rows = []
+    for key in sorted(counts):
+        entry = counts[key] or {}
+        emitted = int(entry.get("emitted") or 0)
+        consumed = int(entry.get("consumed") or 0)
+        rows.append({
+            "key": key,
+            "emitted": emitted,
+            "consumed": consumed,
+            # `consumed` is per key and a boolean in practice, but it is stored as a
+            # count; an emitted-but-unconsumed key is the loss YB-051 was, so it is
+            # the flag the page warns on.
+            "read": bool(consumed) or emitted == 0,
+        })
+    return rows
+
+
+def _remembered_document_type(snapshot: Snapshot) -> str:
+    """The document type this scope last ran, or "" if it has never run one.
+
+    Two keys, because the fix that added the first postdates every scope already on
+    disk. `meta["document_type"]` is what `run_ingest` writes now; `last_ingest.doc_type`
+    is where every earlier run recorded it. Reading both is what lets a scope ingested
+    before the key existed still STATE its type, rather than falling back to the
+    default and telling the operator nothing has been extracted when something has.
+
+    Returns "" for a genuinely unused scope, which is the one case where the page
+    should say so.
+    """
+    meta = snapshot.meta or {}
+    last = meta.get("last_ingest") or {}
+    return str(meta.get("document_type") or last.get("doc_type") or "").strip()

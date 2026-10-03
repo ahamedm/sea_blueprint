@@ -281,6 +281,104 @@ a smaller set that no matcher can ever bind.
 Kept rather than deleted, because each was reported from using the tool and each now
 has a test that fails if it comes back.
 
+### ISS-21 — The decisions pass read as having found nothing, because the only number the run page showed cannot express a records-only pass (fixed 2026-10-03)
+
+- **Reported as.** "Decisions pass didn't pick any decisions. run `run_afc98e3b7a44`."
+- **It did pick them up, and nothing was lost.** `run_afc98e3b7a44` (`ras_v2`,
+  `simple_architecture_partial.md`, `job_ed58ac6c03a8`) records
+  `architecture_decisions: {emitted: 10, consumed: 1}`, `unconsumed_keys: []`, and
+  `stored_facts: 840`. The graph holds **10 `ArchitectureDecision` nodes**, and the
+  decisions pass alone asserted **74 facts** — `decision` ×10, `context` ×10, `status` ×10,
+  `consequence` ×22, `affects_element` ×17, `alternative` ×5 — every one of them carrying
+  `provenance.pass_name == "decisions"`.
+- **What the reporter read.** The run page renders each journal event's payload as
+  `key=value` pairs, and the decisions pass's terminal event is:
+  `chunk_label=chunk 1/1, elapsed=6.357, outcome=ok, pass_name=decisions, path=structured,
+  triples_produced=0`. Four passes above it show 30, 22, 59 and 29. So the one number on
+  the line reads as failure.
+- **Why that number is zero by construction, not by finding nothing.**
+  `_triples_produced` is `len(getattr(result, "triples", None) or [])`, and
+  `DecisionPassResult` deliberately has **no `triples` field** — its docstring says
+  "Decisions only — deliberately NO `triples`", because making the model restate the same
+  edges as triples is what timed out the pass and lost every decision on a 3.3k document
+  (ISS-19, `d3dcbf7`). So the fix for ISS-19 is precisely what makes this counter always
+  read zero for this pass. The counter is not wrong; it is being asked a question its
+  schema cannot answer.
+- **Third time this counter has misled.** YB-051 is why `output_counts` and
+  `unconsumed_keys` exist at all — a pass emitted `connections` records that ingest never
+  read, and `triples_produced` could not show it, because that pass emitted triples too. So
+  the honest per-KEY accounting was added to the run record and then **surfaced nowhere**:
+  `grep output_counts|stored_facts|unconsumed_keys app/` returned nothing. The only
+  per-pass number a submitter could see was the one that cannot express a records-only
+  pass.
+- **Fix.** The run page gains a **What this run produced** table, read from the RUN RECORD
+  rather than the progress channel: per output key, emitted and whether ingest read it,
+  plus the stored fact count and a warning for any emitted-but-unread key. For this run it
+  now shows `architecture_decisions 10 read yes` beside `triples 140 read yes`.
+- **Deliberately NOT changed: the progress payload.** `PROGRESS_PAYLOAD_KEYS` is a closed
+  set ("a key outside this set is either a new transition field that belongs here, or
+  extracted content that does not belong on this channel"). Adding per-key counters to the
+  live channel is a separate decision with its own argument, so the page reads the record
+  instead. The consequence is that the event table still shows `triples_produced=0` — it is
+  a raw log, and the table below it is the authority on what the run produced.
+- **Guarded by** `test_the_run_page_shows_what_each_output_key_emitted`
+  ([test_async_runs.py](tests/test_async_runs.py)), which ingests an output with
+  `architecture_decisions` and no `triples` at all and asserts both that the record proves
+  the pass emitted a decision and that the page says so.
+
+### ISS-20 — The document-type select had no server-rendered default, so a requirements file could be extracted by the architecture profile (fixed 2026-10-03)
+
+- **Reported as.** "Recent job `job_8d9a3d06b2b5` was for Requirement. But it took
+  Architecture profile."
+- **The job really did ask for architecture, and the machinery obeyed.** `scope_id
+  payments_v2`, home `sea_home_green`, `parameters` =
+  `{"document_type":"architecture","filename":"sample_requirements.md","initiative_id":"PSYA-I2001"}`.
+  Nothing downstream mis-selected: the form's `type` becomes `document_type`
+  ([app/__init__.py:1004](app/__init__.py#L1004)), the worker reads it back
+  ([worker.py:287](app/worker.py#L287)), and `run_ingest` passes it to
+  `extractor_factory(doc_type)` ([runner.py:170](app/runner.py#L170)), which picks the
+  architecture agent ([app/__init__.py:264](app/__init__.py#L264)). The model cannot
+  change it — it is an input parameter, never output.
+- **The architecture profile genuinely ran, and on a requirements document.**
+  `run_d2e3dc99b4f8` records all five ARC-G passes — structure 39 triples, connections 4,
+  technology 34, traceability 22, decisions 0 — and the resulting graph holds 86 nodes and
+  **zero requirement kinds**: `Container` 4, `Component` 2, `DataStore` 1, `DeploymentNode`
+  1, `TechnologyStack` 4, `ArchitectureStyle` 2, `Connection` 4, `ArchitectureDecision` 8,
+  `TradeOff` 5.
+- **`document_type` is per-request, not derived from content.** Artifact
+  `62ab2cb9…` is byte-identical to a *correctly* typed ingest of the same file in
+  `ras_sys_v2` (`job_4b5f708742e8`, 10:56Z, `document_type: requirements`). The document
+  itself opens "# Sample Requirements Document". Ruled out as causes: there is no
+  retry/requeue route that could resend stored parameters, and no stale process — the
+  select has had no server-rendered selection since it was introduced (`aa53871`, 2026-09-21)
+  and the route has honoured the value since `7309917`, both well before the job.
+- **Root cause: the form left the decision to the browser.** `<select name="type">` emitted
+  no `selected` option and the route passed no default, so on a reload or back-navigation
+  the browser's own form-state restoration supplied whatever had been submitted last — with
+  nothing on the page to show that it had. The domain-pack select *immediately below it* was
+  already done correctly, rendered from stored scope state
+  (`active_domain_pack=state().meta.get("domain_pack","")`), and `run_ingest` persists
+  `meta["domain_pack"]` ([runner.py:213](app/runner.py#L213)). `document_type` was recorded
+  on the run and in `last_ingest` and **nowhere the page could read it**, so the page had
+  nothing to state and no way to be right. There is no request log, so which click (or
+  restoration) produced that submission cannot be recovered — the mechanism is what is
+  provable, and it is enough to explain a silent switch.
+- **Fix.** `meta["document_type"] = doc_type` is now written beside `domain_pack`; the GET
+  route passes it as `active_document_type`; the select renders **exactly one** `selected`
+  option from it (requirements on a scope with no history), and the hint names the profile
+  the scope last ran; the form carries `autocomplete="off"`. One behaviour decision worth
+  noting: a POST with no `type` field now falls back to the scope's stored choice rather than
+  to a hard-coded `"requirements"` — falling back to the constant would have swapped the
+  extractor behind a page that had just stated the other one.
+- **Guarded by five assertions** in `tests/test_app.py`: a fresh scope renders requirements
+  selected, the page always carries exactly one `selected` (the defect was zero), the stored
+  type is rendered after an architecture ingest, `meta["document_type"]` is persisted, and a
+  missing `type` field does not switch profiles.
+- **Secondary observation, same artifact.** `sample_requirements.md` contains **zero
+  requirement identifiers** — no `FR-…`/`NFR-…` keys at all. That is consistent with the
+  reconciliation measurements: this document gives REQ-G no key to cite, so every link it
+  could ground would have to be paraphrase-based.
+
 ### ISS-19 — The decisions pass timed out and lost every decision, because it asked for a redundant payload (fixed 2026-10-03)
 
 - **Reported as.** `job_8e8b78bccdc9` (scope `ras_v2`, `simple_architecture_partial.md`):

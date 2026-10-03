@@ -211,6 +211,14 @@ def run_ingest(
         meta = dict(before.meta)
         meta["initiative_id"] = initiative_id
         meta["domain_pack"] = active_pack
+        # Remembered for the same reason as the domain pack, and it was missing
+        # here: the ingest page has to be able to say WHICH extractor it will use,
+        # and it can only do that from stored state. Without this the document-type
+        # select had no server-rendered default, so the browser's own form-state
+        # restoration decided — which is how `sample_requirements.md` was extracted
+        # by the architecture profile with the form looking untouched (job
+        # `job_8d9a3d06b2b5`, ISS-20).
+        meta["document_type"] = doc_type
         meta["last_ingest"] = {
             "document": filename,
             "doc_type": doc_type,

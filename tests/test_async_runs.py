@@ -514,6 +514,64 @@ def test_the_artifact_is_the_bytes_as_uploaded(async_app, sqlite_root):
     assert ArtifactStore.digest(raw) == digest
 
 
+def test_the_run_page_shows_what_each_output_key_emitted(sqlite_root, design_factory):
+    """A pass that emits RECORDS instead of triples must not read as having found nothing.
+
+    A field report: "Decisions pass didn't pick any decisions. run run_afc98e3b7a44".
+    The pass had emitted ten, and all ten were stored — but its `pass.finished` event
+    reads `triples_produced=0`, because `DecisionPassResult` deliberately has no
+    `triples` field (the redundant restatement was what made the pass time out and lose
+    everything, ISS-19). So the one number the event log carries is structurally zero
+    for that pass, and the run record's per-key accounting was shown nowhere.
+
+    This pins the page that fixes it: `output_counts` is per output KEY, so it answers
+    the question the counter cannot.
+    """
+    from app import create_app
+    from app.worker import Worker
+    from tests.conftest import FakeExtractor
+
+    # Exactly the shape the decisions pass produces: records, and no `triples` at all.
+    decisions_only = {
+        "architecture_decisions": [{
+            "title": "Synchronous scheme-switch calls",
+            "context": "Authorizations must be fast.",
+            "decision": "Call the scheme switch synchronously.",
+            "consequences": ["Higher latency coupling"],
+            "status": "accepted",
+        }],
+    }
+    journal = FakeJournal()
+    app = create_app(
+        {"TESTING": True, "STORE_ROOT": str(sqlite_root), "REVIEWER": "tester"},
+        store_root=str(sqlite_root),
+        extractor_factory=lambda _t: FakeExtractor(decisions_only),
+        design_factory=design_factory,
+        journal_factory=lambda: journal,
+    )
+    client = app.test_client()
+    response = client.post("/ingest", data={"text": "an ADR", "type": "architecture"})
+    Worker(app, worker_id="worker-test").run_once()
+
+    graph = _graph(app)()
+    record = next(iter(graph.runs.values()))
+    # The misleading number is real: the pass emitted records and NO triples at all, so
+    # any triple-shaped counter for it is zero by construction, not by finding nothing.
+    assert record.output_counts["architecture_decisions"]["emitted"] == 1
+    assert "triples" not in record.output_counts
+
+    page = client.get(response.headers["Location"])
+    html = page.get_data(as_text=True)
+    assert "What this run produced" in html
+    assert "architecture_decisions" in html, "the emitted key must be named"
+    assert "no triples at all" in html, "the page must explain why the counter reads 0"
+    # And the graph really holds the decision, which is what the counter hides.
+    decision = next(
+        n for n in graph.nodes.values() if n.kind == "ArchitectureDecision"
+    )
+    assert "Synchronous scheme-switch" in decision.label
+
+
 def test_a_queued_job_with_no_worker_says_so_on_its_page(async_app, sqlite_root):
     from core.jobs import SqliteJobStore, new_job_id
     from core.workspace import load_workspace, scope_data_dir

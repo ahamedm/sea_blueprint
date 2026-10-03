@@ -61,4 +61,41 @@
     happened while you were away.
   </p>
 </div>
+
+{% if run_output %}
+  <div class="card">
+    <div class="card-head"><h2>What this run produced</h2></div>
+    <p class="hint">
+      Per output key: the records the profile emitted, and whether ingest read them.
+      A pass is not required to emit triples — the decisions pass emits
+      <code>architecture_decisions</code> records and <strong>no triples at all</strong>,
+      so a <code>triples_produced=0</code> line in the event log above does not mean it
+      found nothing. This table is the authority on what the run produced.
+    </p>
+    <table class="run-output">
+      <thead>
+        <tr><th>output key</th><th>emitted</th><th>read by ingest</th></tr>
+      </thead>
+      <tbody>
+        {% for row in run_output %}
+          <tr>
+            <td><code>{{ row.key }}</code></td>
+            <td>{{ row.emitted }}</td>
+            <td>
+              {% if row.read %}yes{% else %}<strong>no — emitted but never read</strong>{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="note">
+      Stored <strong>{{ run_stored_facts }}</strong> fact(s) in the graph.
+      {% if run_unconsumed %}
+        <span class="flash flash-warning" style="display:inline-block;">
+          Nothing reads: {{ run_unconsumed|join(', ') }}
+        </span>
+      {% endif %}
+    </p>
+  </div>
+{% endif %}
 {% endblock %}
