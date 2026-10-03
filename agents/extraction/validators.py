@@ -316,6 +316,78 @@ def check_containment_kinds(
     return flags
 
 
+# Reference slots whose target KIND the ontology declares and nothing enforced.
+# Containment is not here: it has a different slot per element type, and
+# `check_containment_kinds` reads it through `allowed_parent_kinds`.
+_REFERENCE_RANGE_SLOTS: Tuple[Tuple[str, str, str], ...] = (
+    # (the class declaring the slot, the slot, the record field carrying the names)
+    ("DeploymentNode", "serves", "serves"),
+)
+
+
+def check_reference_kinds(elements: Sequence[Any]) -> List[Flag]:
+    """A reference slot's target must be the KIND the ontology declares for it.
+
+    `check_containment_kinds` enforces this for containment, and every other
+    reference slot went unchecked — so `DeploymentNode.serves`, which declares
+    `range: SoftwareSystem`, would happily take an edge to a `Product` or a
+    `Container`. Nothing stopped it: ingest resolves a name against every node in
+    the scope, not only against what this run declared.
+
+    Two findings, and they mean different things:
+
+      - the target IS declared here, with a kind outside the range — an edge the
+        schema does not permit, and the one an over-eager prompt invites;
+      - the target is declared NOWHERE — `_resolve` answers that by minting a
+        `Concept` placeholder, so the graph gains a node whose only purpose is to be
+        the far end of an edge nothing classified. That is the category-noun shape
+        (ISS-1) arriving through a slot rather than through an attribution list.
+
+    The range is read from the ontology rather than written here, for the reason
+    `allowed_parent_kinds` gives: a table in this file is a second statement of the
+    rule, free to drift from the schema it claims to check.
+    """
+    docs = [e for e in as_record_dicts(elements) if e.get("element_type")]
+    if not docs:
+        return []
+
+    kinds = {
+        str(e.get("name") or "").strip(): str(e.get("element_type") or "").strip()
+        for e in docs
+    }
+
+    flags: List[Flag] = []
+    for class_name, slot, field in _REFERENCE_RANGE_SLOTS:
+        declared = ontology_slot_range(class_name, slot)
+        if not declared:
+            continue
+        allowed = ontology_subclasses(declared)
+        for record in docs:
+            name = str(record.get("name") or "").strip()
+            if not name:
+                continue
+            for target in record.get(field) or []:
+                text = str(target).strip()
+                if not text:
+                    continue
+                kind = kinds.get(text)
+                if kind is None:
+                    flags.append(Flag(
+                        "reference_target_undeclared", name,
+                        [f"{field} {text!r} is not a {declared} this run declared, so "
+                         f"it becomes a placeholder node with no kind"],
+                        slot, text,
+                    ))
+                elif kind not in allowed:
+                    flags.append(Flag(
+                        "reference_target_kind", name,
+                        [f"{field} {text!r} is a {kind}; the ontology declares range "
+                         f"{declared} for `{slot}`, so this edge is out of range"],
+                        slot, text,
+                    ))
+    return flags
+
+
 def check_containment(elements: Sequence[Any], triples: Sequence[Any]) -> List[Flag]:
     """C4 is a hierarchy; without containment the graph is a flat bag of nodes.
 

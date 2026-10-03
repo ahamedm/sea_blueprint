@@ -238,10 +238,12 @@ class ElementRecord(BaseModel):
     serves: List[str] = Field(
         default_factory=list,
         description=(
-            "For a DeploymentNode: the SoftwareSystems (or products) this instance "
-            "serves. Multivalued because a shared cluster serves many — the "
-            "singular `parent_system` on the ontology class cannot express that. "
-            "Names must match elements emitted in this run."
+            "For a DeploymentNode: the SoftwareSystems this instance serves. "
+            "Multivalued because a shared cluster serves many — the singular "
+            "`parent_system` on the ontology class cannot express that. Names must "
+            "match SoftwareSystem elements emitted in this run: the ontology ranges "
+            "this slot over SoftwareSystem, so a Container, Component or product "
+            "name here is an edge the schema does not permit."
         ),
     )
 

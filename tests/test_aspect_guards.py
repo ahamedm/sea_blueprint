@@ -43,6 +43,7 @@ from agents.extraction import (
     check_containment_kinds,
     check_enum_membership,
     check_nonempty_field,
+    check_reference_kinds,
     check_schema_consistency,
     ontology_enum,
     ontology_slot_range,
@@ -338,6 +339,50 @@ def test_attribution_endpoints_are_not_judged_without_declarations():
     collections = {"design_techniques": [{"name": "S", "applies_to": ["Anything"]}]}
 
     assert check_attribution_endpoints(collections, []) == []
+
+
+def test_a_reference_target_outside_the_declared_range_is_flagged():
+    """`DeploymentNode.serves` ranges over SoftwareSystem, and nothing checked it.
+
+    Containment is range-checked by `check_containment_kinds`; every other reference
+    slot was not. So an edge to a Container passed every guard — and the extraction
+    field's own wording invited "or products", which is the case the schema has not
+    decided and the one this catches.
+    """
+    elements = _tree() + [
+        {"name": "Cluster", "element_type": "DeploymentNode",
+         "serves": ["Orchestrator"]},                       # a Container
+    ]
+
+    flags = check_reference_kinds(elements)
+
+    assert [f.kind for f in flags] == ["reference_target_kind"]
+    assert "declares range SoftwareSystem" in flags[0].reasons[0]
+    assert flags[0].object == "Orchestrator"
+
+
+def test_a_serves_target_no_run_declared_is_flagged():
+    """The other half: ingest mints a `Concept` placeholder rather than refusing, so
+    the graph gains a node whose only purpose is to be the far end of an edge."""
+    elements = _tree() + [
+        {"name": "Cluster", "element_type": "DeploymentNode",
+         "serves": ["Payment Suite"]},
+    ]
+
+    flags = check_reference_kinds(elements)
+
+    assert [f.kind for f in flags] == ["reference_target_undeclared"]
+    assert "placeholder node with no kind" in flags[0].reasons[0]
+
+
+def test_an_in_range_serves_target_is_not_flagged():
+    """A guard that fires on correct output is worse than none — `Platform` IS a
+    SoftwareSystem in `_tree()`."""
+    elements = _tree() + [
+        {"name": "Cluster", "element_type": "DeploymentNode", "serves": ["Platform"]},
+    ]
+
+    assert check_reference_kinds(elements) == []
 
 
 def test_a_connection_with_a_missing_end_is_flagged():

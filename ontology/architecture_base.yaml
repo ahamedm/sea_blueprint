@@ -848,20 +848,23 @@ classes:
         range: string
       shared_across_enterprise:
         description: >-
-          Whether the system is shared enterprise-wide rather than serving one
-          domain.
+          INTENT, NOT MECHANISM. Whether the system is shared enterprise-wide rather
+          than serving one domain.
 
-          DERIVED, not asserted: it is `DeploymentNode.sharing_scope ==
-          ENTERPRISE` on the instance that actually provides the platform. It
-          used to say "usually implied by system_class" as well, which was two
-          mechanisms for one fact — whether a platform is enterprise-shared is a
-          property of the DEPLOYMENT, not of the software class
-          ([YB-044](../../docs/todos/entries/YB-044-platform-instances.md)).
+          The value it should hold is derivable — `DeploymentNode.sharing_scope ==
+          ENTERPRISE` on the instance that provides the platform — and that
+          derivation is NOT implemented and NOT enforced. This remains an ordinary
+          boolean that any pass, repair or reviewer can assert directly, so the
+          second mechanism this slot was just cleared of can reappear by assertion
+          alone. Nothing reads it today (verified across `core/`, `app/`, `agents/`
+          and `scripts/`), which is what makes the gap harmless for now.
 
-          Nothing reads this slot today (verified across `core/`, `app/`,
-          `agents/` and `scripts/`), so the derivation is not implemented: there
-          is no consumer to migrate. It is stated here so the first consumer
-          reads the instance rather than re-inventing the assertion.
+          FIRST CONSUMER: implement the derivation, or delete the slot. Reading it
+          as authoritative before then is reading an assertion as a derivation.
+          It used to claim "usually implied by `system_class`" as well, which was
+          genuinely two mechanisms for one fact — whether a platform is
+          enterprise-shared is a property of the DEPLOYMENT, not of the software
+          class ([YB-044](../../docs/todos/entries/YB-044-platform-instances.md)).
         range: boolean
       managed_by:
         description: >-

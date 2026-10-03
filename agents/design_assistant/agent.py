@@ -48,6 +48,7 @@ from ..extraction import (
     check_enum_membership,
     check_nonempty_field,
     check_object_contract,
+    check_reference_kinds,
     completeness,
     connection_key,
     element_key,
@@ -194,6 +195,10 @@ class DesignAssistantAgent(ArchitectureExtractionAgent):
             flags += check_containment(elements, triples)
             # No repair runs in this profile, so nothing is excluded as inferred.
             flags += check_containment_kinds(elements)
+            # The design profile reuses `StructurePassResult`, so it can propose a
+            # DeploymentNode with `serves` too — and would otherwise have the same
+            # unchecked reference range the extraction profile just closed.
+            flags += check_reference_kinds(elements)
             flags += check_element_types(elements)
             flags += check_deployment_levels(elements)
             flags += check_enum_membership(elements)

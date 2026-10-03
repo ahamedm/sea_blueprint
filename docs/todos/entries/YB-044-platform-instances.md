@@ -64,11 +64,24 @@ blocked_by: []
 >   from this layer (`architecture_base` imports `enterprise_structure`), so the two
 >   readings are genuinely undistinguished. A `Product` variant would be a second slot,
 >   not a re-range.
+>
+>   The extraction field's wording said "the SoftwareSystems (or products)" — which
+>   invited exactly what the schema has not decided, so it now says SoftwareSystems and
+>   names the range. And because nothing checked a reference slot's range (only
+>   containment goes through `allowed_parent_kinds`), `check_reference_kinds`
+>   ([validators.py](../../agents/extraction/validators.py)) now reads the declared range
+>   from the ontology and flags both an out-of-range target and one no run declared —
+>   the second being the `Concept` placeholder `_resolve` mints instead of refusing.
 > - **Deduplication (OpenShift vs OpenShift Platform).** Only the SAFE half landed: rule 8
 >   now asks for one name per thing, which is a prompt instruction. A normalised or fuzzy
 >   `named_key` was NOT adopted — merging two labels on similarity is the confident
 >   wrong-join this repo ranks as worse than a missing join, and `Payment Platform` vs
 >   `Payment Gateway Platform` are exactly the pair it would have to get right.
+> - **`shared_across_enterprise` is intent, not mechanism.** The slot's description now
+>   says so in those words: the derivation is not implemented and not enforced, the
+>   boolean remains assertable by anything, and the first consumer must implement it or
+>   the slot should go. Clearing it of the `system_class` claim removed one mechanism; it
+>   did not install the other.
 > - **The multi-tenancy join**, split out as its own piece:
 >   [YB-063](YB-063-the-multi-tenancy-requirement-has-no-instance-to-target.md). Neither
 >   this item nor YB-062 decides what a tenancy requirement attaches to.

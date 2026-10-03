@@ -48,6 +48,7 @@ from ..extraction import (
     check_nonempty_field,
     check_object_contract,
     check_quotations_are_grounded,
+    check_reference_kinds,
 )
 from ..extraction.passes import collect, outcome_records, run_passes, summarise
 from .repair import merge_style_elements, repair_containment, style_as_element
@@ -266,6 +267,12 @@ class ArchitectureExtractionAgent(KnowledgeExtractionAgent):
                 inferred = [f.subject for f in stage_flags
                             if getattr(f, "kind", "") == "containment_repaired"]
                 flags += check_containment_kinds(elements, inferred_parents=inferred)
+                # The range the ontology declares for a reference slot, which
+                # `check_containment_kinds` only enforces for containment: `serves`
+                # ranges over SoftwareSystem, and nothing stopped an edge to a
+                # Product or to a name no run declared (which ingest turns into a
+                # `Concept` placeholder rather than refusing).
+                flags += check_reference_kinds(elements)
                 flags += check_element_types(elements)
                 flags += check_deployment_levels(elements)
                 flags += check_enum_membership(elements)
