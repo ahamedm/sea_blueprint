@@ -214,7 +214,64 @@ beside the numbers"*, one question further on.
    most sensitive to graph completeness, and the one where a confident wrong answer costs
    most.
 
-## 10. What I am not claiming
+## 10. The agent shape — and what "given the graph" has to mean
+
+A QnA agent with a chat interface and tools over the graph is the right shape, and §C.3 of
+graph-interaction already names it: *"the agent calls a **function** that returns rows, it
+does not narrate the graph."* The front-door framing is what makes it worth building **and**
+what shrinks the job.
+
+**Why the framing justifies it.** The answers exist across roughly a dozen surfaces — the gap
+report, the quality census, the realisation report, the review queue, the map, the C4 view,
+the diff, reconcile. Nobody knows which one answers their question, so they filter a
+486-item queue instead. That is a routing problem, and a chat front door is a legitimate
+answer to a routing problem. It is also a much smaller claim than "answers architecture
+questions": the agent's job is **select the tool, show the result, carry the caveat** — never
+derive the fact.
+
+**"Given the graph" splits three ways, and only two are safe:**
+
+| Reading | Verdict |
+|---|---|
+| The graph as *context* — nodes/edges retrieved into the prompt, then narrated | **No.** This is YB-010's "rigorously-derived wrong answers", and it does not fit anyway: `payments_v2` is 201 nodes and 781 assertions |
+| The graph as *tools* — functions returning rows | **Yes.** This is the design, and it is what makes an answer falsifiable |
+| The **ontology** as context | **Yes, and this is the useful context.** The vocabulary is what maps a user's words ("service", "gateway", "platform") onto the graph's classes, and it is small — `_format_ontology_context` already ships it to every agent: a flat name list plus the ISO 25010 model, ~5,174 chars |
+
+That third row is the non-obvious one: give the agent the **schema**, not the **instance
+data** — and it already gets the schema.
+
+### What follows, and each is a requirement rather than a preference
+
+1. **Read-only, enforced.** `run_query` today takes a raw SPARQL string and applies no guard
+   at all [M] — the design already asks for "a read-only guard and `LIMIT`", and handing that
+   path to an LLM makes it mandatory rather than prudent. This platform's selling property is
+   that agents *propose and never write*; a QnA agent must not be the exception that erodes it.
+2. **The caveats must survive the prose.** Every surface here carries its state — "not
+   auditable yet", "Read this beside the numbers", "0 hierarchy edge(s)", the scope, the 39
+   unresolved references. A fluent summary that drops them is *less* honest than the page it
+   summarises. So the caveat belongs to the **tool's return value**, not to the model's
+   discretion: an answer that cannot state its own assumptions is not renderable.
+3. **Scope and revision are inputs, not assumptions.** "Impact of X" is only well defined
+   against a scope *and* a revision. No frozen baseline exists on either live scope [M], so
+   the agent must either ask or state which it used.
+4. **The answer is a pointer, not a parallel account.** The chat should deep-link to the
+   deterministic surface it summarised. Two reasons: the page is where the reviewer acts
+   (verify, dispute, reconcile), and the chat log is not an audit trail — the review log is.
+5. **The tools are the existing functions.** `project_gap_report`, `project_quality_report`,
+   `realization_report`, `project_delta`, the review queue and its filters, `to_rdf` +
+   `run_query` (YB-010), and for impact the indexed traversal plus the networkx algorithms of
+   §6. Each is already tested, which is the whole reason to route through them.
+
+### The honest counter-point
+
+If the answers already exist and are reachable, a chat interface is only worth building if
+the routing problem is real. graph-interaction's §4.3 says the cheaper move comes first:
+*"Before any query interface, list the questions users ask that no report answers. If the list
+is short, add reports — cheaper, testable, no hallucination surface."* So §9.2's first step is
+also the falsification: log what is searched and asked, and see whether it is routing or
+missing reports. Nothing above is a reason to skip that measurement.
+
+## 11. What I am not claiming
 
 - **No prototype exists.** Every number here is a measurement of the *substrate* —
   projection functions, SPARQL surface, traversal cost, algorithm cost — not of an

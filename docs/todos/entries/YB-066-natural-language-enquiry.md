@@ -39,6 +39,30 @@ Two of the three are a front-door problem rather than a capability gap:
   `/export/graph.ttl`.
 - **Impact of a change** has nothing behind it at all. That is the real gap.
 
+## The shape (added 2026-10-03, from the agent question)
+
+A QnA agent with a chat interface and tools over the graph is the right shape — §C.3 of
+graph-interaction names it ("the agent calls a *function* that returns rows, it does not
+narrate the graph"), and the front-door framing is both the justification and the limit: the
+agent **selects a tool, shows the result and carries the caveat**; it does not derive the
+fact. Three readings of "given the graph" split, and only two are safe — graph as *context*
+to narrate is the YB-010 failure mode and does not fit (201 nodes / 781 assertions); graph as
+*tools* is the design; and the **ontology** as context is the useful one, because the
+vocabulary is what maps a user's words onto the graph's classes, and every agent already
+receives it (`_format_ontology_context`, ~5,174 chars).
+
+Four requirements follow, and each is a requirement rather than a preference: **read-only,
+enforced** (`run_query` applies no guard today, and handing it to an LLM makes the guard
+mandatory — this platform's property is that agents propose and never write); **the caveats
+live in the tool's return value**, not the model's discretion, because a summary that drops
+"not auditable yet" or "39 unresolved references" is less honest than the page it summarises;
+**scope and revision are inputs**, since no frozen baseline exists on either live scope; and
+**the answer is a pointer** to the deterministic surface, because that is where the reviewer
+acts and a chat log is not an audit trail.
+
+The counter-point stands and is recorded with it: if the answers already exist, chat is only
+worth building if the routing problem is real, so §9.2's first step is also the falsification.
+
 ## The constraint
 
 Inherited from YB-010 and not negotiable:
