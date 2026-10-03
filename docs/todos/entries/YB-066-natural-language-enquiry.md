@@ -402,6 +402,41 @@ So, prior and cheap:
    than guessed. That is design §4.3's own argument ("list the questions users ask that no
    report answers") applied to the one class where the answer is known to be absent.
 
+## Landed 2026-10-03 — the model-free core (stages 1, 2, 3-router, 5-log)
+
+The slice the design argues for first: everything here is useful with no model at all,
+and it is the falsification the plan asks for before any classifier exists.
+
+| Module | What it is |
+|---|---|
+| `core/questions.py` | The registry: frozen `QuestionEntry` / `QuestionRegistry`, `load_question_registry`, `validate_question_registry`, `question_prompt_context` — mirroring `core/patterns.py`, including that a missing file degrades to empty with findings |
+| `ontology/catalogues/questions.yaml` | 12 entries: 9 answerable (gap, quality, realization, containment, delta, review queue, and the three registered queries) and **3 declared absent** |
+| `core/qna/answers.py` | `AnswerShaped(state, result, caveats, assumptions, detail, blocked_by, source, truncated)` and `AnswerContext`; the four states, with `compose` attaching the ENTRY's caveats and pointer so an engine cannot drop them |
+| `core/qna/router.py` | The keyword router — the wedge and the classifier's fallback. Phrase keywords match ALL their words across intervening ones |
+| `core/qna/log.py` | The CAN'T ANSWER log: one JSON line per event under the store root, append-only, malformed lines kept as findings |
+| `app/qna/engines.py` | Eight engines and the dispatcher, plus `run_named_query` — the allowlist that refuses query text |
+| `tests/test_qna.py` | 32 tests, in a new `qna` area: "Can the graph be asked something in words without a model narrating it?" |
+
+**What the tests are mostly about is refusal**, because that is where this could go wrong:
+an unanswerable question is not guessed at (and the refusal lists what the vocabulary does
+cover), `run_named_query` raises on raw SPARQL and on `missing_active`, a
+hierarchy-dependent query refuses rather than reporting empty when `rdfs:subClassOf` is
+absent, every registered query is asserted to return ROWS on a fixture built for it (the
+ISS-16 guard, generalised), and every entry's pointer is asserted to resolve to a route
+that accepts its params — which is what pins the measured `/quality` and `/gaps` gap.
+
+**Routing, measured** on ten real phrasings: 10/11 route as intended, and the eleventh is
+a deliberate tie broken by vocabulary ("assertions" belongs to the query entry, "review"
+to the queue). Two misses found while building it are worth recording because they are
+the wedge's whole risk: requiring contiguous phrase matches lost the registry's own
+canonical question ("no architectural answer" does not contain "no answer"), and
+"decision" alone routed to the review queue when it means a recorded decision. Both are
+fixed, and both are pinned by tests.
+
+**Not in this slice:** the `/ask` route and page, the LLM classifier and agent loop
+(stage 3-LLM and 4), the impact engine (stage 4, last by design), and the store-root
+wiring for the log path (the module takes a path; nothing calls it from the app yet).
+
 ## What closes it
 
 A registry with tests, a router that reports `no_named_question` rather than guessing, at

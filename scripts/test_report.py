@@ -301,6 +301,23 @@ AREAS: Tuple[Area, ...] = (
             "test_sse",
         ),
     ),
+    Area(
+        key="qna",
+        title="Asking the graph",
+        question="Can the graph be asked something in words without a model narrating it?",
+        intent=(
+            "The named-question registry, the keyword router that is both the model-free "
+            "wedge and the classifier's fallback, the engines that answer a name and the "
+            "guards around them, and the record of what could not be answered. The "
+            "assertions are mostly about REFUSALS: an unanswerable question must not be "
+            "guessed at, query text must not be introducible, an empty result from a "
+            "missing substrate must not read as a clean bill of health, and every answer "
+            "must carry the caveats and the pointer that let a reader check it."
+        ),
+        files=(
+            "test_qna",
+        ),
+    ),
 )
 
 AREA_BY_KEY = {area.key: area for area in AREAS}

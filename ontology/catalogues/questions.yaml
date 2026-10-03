@@ -1,0 +1,149 @@
+version: "0.1.0"
+description: >-
+  The questions this platform can answer deterministically, and the ones it cannot
+  yet. One entry per answer-shaped surface that already exists — the projections, the
+  registered SPARQL queries, and the containment tree — plus the questions whose
+  SUBSTRATE is missing, declared rather than omitted so the answer is informative
+  ("nothing is in this scope to check against") instead of silent.
+
+  `engine` names an implementation in `app/qna/engines.py`; `query` names a key of
+  `core.knowledge.rdf.QUERIES` and never raw SPARQL. `pointer` is where a reader can
+  check the answer for themselves — an answer that cannot be checked is a claim.
+
+questions:
+
+  # -- structure -------------------------------------------------------------
+  - id: gaps.unrealized
+    intent: unrealized_requirements
+    question: Which requirements have no architectural answer?
+    engine: realization
+    keywords: [gap, gaps, unanswered, unrealized, unrealised, "no answer", "no architectural answer",
+               "not implemented", "missing architecture", "no architecture", unaddressed,
+               architectural, architecture, answer, answered, requirement, requirements]
+    caveats:
+      - "Absence of a fact is only evidence when the extraction run is COMPLETE."
+      - "A requirement whose claim is not yet BOUND reads as unresolved, not as unanswered."
+    pointer: /gaps
+
+  - id: gaps.both_directions
+    intent: gap_report
+    question: What is missing on either side — requirements nothing answers, and architecture nothing asked for?
+    engine: gap_report
+    keywords: [gaps, missing, dangling, unrealized, unasked, orphan, coverage, incomplete]
+    caveats:
+      - "Absence of a fact is not evidence of its absence on a PARTIAL run."
+    pointer: /gaps
+
+  - id: quality.undelivered
+    intent: quality_coverage
+    question: Which quality attributes does nothing deliver, and which does the architecture deliver unasked?
+    engine: quality_report
+    keywords: [quality, nfr, nonfunctional, "non-functional", attribute, deliver, delivered,
+               undelivered, unasked, iso25010, characteristic]
+    caveats:
+      - "Read this beside the numbers: an attribute with no requirement behind it may simply not have been read."
+    pointer: /quality
+
+  - id: structure.containment
+    intent: containment
+    question: What is inside a named element, and what contains it?
+    engine: containment
+    params: [element]
+    keywords: [contains, containment, inside, "part of", parent, children, hierarchy, tree]
+    caveats:
+      - "Containment is a property on the element, not a drawn edge; only declared parents appear."
+    pointer: /map?mode=tree
+
+  - id: changes.since_baseline
+    intent: delta
+    question: What changed since the frozen or promoted baseline?
+    engine: delta
+    keywords: [changed, changes, delta, diff, since, baseline, frozen, added, removed]
+    caveats:
+      - "With no frozen revision this compares against the promoted baseline, which is a different claim."
+    pointer: /changes/diff
+
+  # -- decisions needed ------------------------------------------------------
+  - id: review.outstanding
+    intent: review_queue
+    question: What still needs a review decision?
+    engine: review_queue
+    keywords: [review, outstanding, pending, unverified, queue, verify, dispute,
+               "needs review", "to review", "review decision", judgement, judgment]
+    caveats:
+      - "A count of unverified assertions is not a count of judgements: some are decidable by a validator."
+    pointer: /review?only=pending
+
+  - id: audit.unverified
+    intent: unverified_assertions
+    question: Which assertions are still asserted by an agent and never confirmed by a human?
+    engine: sparql
+    query: unverified
+    keywords: [unverified, unconfirmed, agent, "not verified", outstanding, review,
+               assertion, assertions, fact, facts, "not confirmed", "never confirmed"]
+    caveats:
+      - "Ordered by model confidence, which is the weakest available signal."
+    pointer: /review?only=pending
+
+  - id: audit.human_overrides
+    intent: human_overrides
+    question: Where has a human corrected or confirmed what an agent asserted?
+    engine: sparql
+    query: human_overrides
+    keywords: [human, corrected, override, verified, confirmed, architect, audit, "audit trail"]
+    pointer: /review?only=human
+
+  - id: runs.incomplete
+    intent: incomplete_runs
+    question: Which extraction runs were not complete?
+    engine: sparql
+    query: partial_runs
+    keywords: [run, runs, incomplete, partial, failed, completeness, extraction, reliability]
+    caveats:
+      - "A graph built from a partial run is not evidence of absence for anything that run omitted."
+    pointer: /changes
+
+  # -- declared absent: the substrate is not in the graph yet ------------------
+  - id: impact.decisions_governing
+    intent: decisions_governing
+    question: Which recorded decisions govern a named element?
+    engine: declared_absent
+    state: substrate_absent
+    absent: >-
+      No ArchitectureDecision nodes are in this scope, and the 38 recorded ADRs carry no
+      link to the elements they affect — `decisions.py` deliberately declines to infer one,
+      because a guess stamped HUMAN_ARCHITECT would be a model's claim wearing a human's
+      provenance.
+    blocked_by: YB-067
+    keywords: [decision, decisions, decide, decided, adr, adrs, governs, governing, affects,
+               accepted, proposed, supersedes, tradeoff, "trade-off", "recorded decision",
+               "architecture decision", "recorded decisions"]
+    pointer: /map
+
+  - id: governance.principles
+    intent: design_conformance
+    question: Which principles does this design satisfy or contradict?
+    engine: declared_absent
+    state: substrate_absent
+    absent: >-
+      No governance instruments are in this scope — zero Principle, Policy, Control, Risk,
+      Strategy and StandardClause nodes — because no profile imports `governance_base` yet.
+      The conformance slots that would carry the claim are decided but deferred.
+    blocked_by: YB-047
+    keywords: [principle, principles, policy, policies, control, controls, conform, conformance,
+               comply, compliance, violate, violates, violation, governance, standard, regulation]
+    pointer: /ontology
+
+  - id: impact.of_change
+    intent: impact
+    question: What would changing a named element affect?
+    engine: declared_absent
+    state: out_of_scope
+    absent: >-
+      Reachability over the graph is not implemented. The structural half is answerable —
+      `structure.containment` walks declared parents — but "what breaks if this changes"
+      also needs resolved references, which the graph currently holds as text.
+    blocked_by: YB-066
+    keywords: [impact, affect, affects, blast, radius, "what breaks", remove, retire, change,
+               changing, dependency, depends, dependents]
+    pointer: /map

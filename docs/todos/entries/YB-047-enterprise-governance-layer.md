@@ -124,7 +124,7 @@ governance linking profile.
 **A demand signal, and a reason to state the absence (2026-10-03).** "Which principles does this
 design satisfy or contradict?" is currently unanswerable *and unstated*: 0 governance nodes exist
 in either live scope, nothing imports `governance_base`, and no registry can route the question.
-[YB-066](YB-066-natural-language-enquiry.md) plans to seed it as a DECLARED entry returning
+[YB-066](YB-066-natural-language-enquiry.md) seeds it as a DECLARED entry returning
 `substrate_absent` and pointing here, and to log the asks — so if that question is common, the
 import and the curated load above get promoted on evidence rather than on a guess. It also gives
 this item's premise a test: a `substrate_absent` answer that names this item is the honest state,
