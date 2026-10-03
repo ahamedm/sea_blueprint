@@ -364,3 +364,91 @@ def test_the_two_pages_that_accept_no_filter_are_known(registry, client):
     assert _accepted_params(source, "quality") == set()
     assert _accepted_params(source, "gaps") == set()
     assert _accepted_params(source, "review") == {"*"}
+
+
+# ---------------------------------------------------------------------------
+# The page — the registry has to be reachable by a person, not only by a test
+# ---------------------------------------------------------------------------
+
+def test_the_ask_page_shows_what_can_be_asked(client):
+    """A registry nobody can reach is a library. The page lists every declared question,
+    including the ones that cannot be answered yet — those are the informative ones."""
+    body = client.get("/ask").get_data(as_text=True)
+
+    assert "What can be asked" in body
+    assert "gaps.unrealized" not in body, "the page shows questions, not ids, to a reader"
+    assert "Which requirements have no architectural answer?" in body
+    assert "substrate_absent" in body, "the not-answerable-yet entries must be visible as such"
+    assert "YB-047" in body
+
+
+@pytest.mark.parametrize("question,state", [
+    ("which requirements have no architectural answer?", STATE_ANSWERED),
+    ("which principles does this design violate?", STATE_SUBSTRATE_ABSENT),
+    ("what would changing the orchestrator affect?", STATE_OUT_OF_SCOPE),
+    ("how many transactions per second?", STATE_NO_NAMED_QUESTION),
+])
+def test_asking_a_question_renders_its_state(client, question, state):
+    """The four states have to reach the page, because three of them are the product:
+    a reader must be able to tell "nothing matched" from "nothing to check against"."""
+    body = client.post("/ask", data={"question": question}).get_data(as_text=True)
+
+    assert f'<span class="tag">{state}</span>' in body
+
+
+def test_an_answered_question_offers_the_surface_to_check_it_at(client):
+    """The answer is a reading; the pointer is where a reviewer acts. An answer without
+    one is a claim."""
+    body = client.post(
+        "/ask", data={"question": "which requirements have no architectural answer?"}
+    ).get_data(as_text=True)
+
+    assert "Check this at /gaps" in body
+    assert "Caveats that travel with this answer" in body
+
+
+def test_a_substrate_absent_answer_names_the_item_that_owns_it(client):
+    """The principles case, on the page: the reader learns why, and who closes it."""
+    body = client.post(
+        "/ask", data={"question": "which principles does this design violate?"}
+    ).get_data(as_text=True)
+
+    assert "Nothing to answer from" in body
+    assert "governance" in body.lower()
+    assert "YB-047" in body
+
+
+def test_a_miss_is_recorded_with_which_kind_of_silence_it_was(app):
+    """The log is the candidate queue, so it has to distinguish demand for a registry
+    entry from demand for the work that would put data in the graph. Recording only the
+    question would make those indistinguishable in the replay."""
+    client = app.test_client()
+
+    client.post("/ask", data={"question": "how many transactions per second?"})
+    client.post("/ask", data={"question": "which principles does this design violate?"})
+
+    events = read_unanswered(default_log_path(app.config["STORE_ROOT"]))
+    by_state = {e["state"] for e in events}
+    assert by_state == {STATE_NO_NAMED_QUESTION, STATE_SUBSTRATE_ABSENT}
+    assert all(e["scope_id"] for e in events), "a replay needs the scope it was asked against"
+    miss = next(e for e in events if e["state"] == STATE_NO_NAMED_QUESTION)
+    assert miss["nearest_entries"], "a miss must record what the vocabulary does cover"
+
+
+def test_the_answer_names_the_revision_it_was_computed_against(client):
+    """An answer that cannot name its graph is vacuous: the reader's graph may not be
+    the one that produced it."""
+    body = client.post(
+        "/ask", data={"question": "which requirements have no architectural answer?"}
+    ).get_data(as_text=True)
+
+    assert "Computed under:" in body
+    assert "revision" in body
+
+
+def test_an_empty_question_asks_nothing_and_says_nothing(client):
+    """A blank form is not a miss, so it must not be logged as one."""
+    body = client.post("/ask", data={"question": ""}).get_data(as_text=True)
+
+    assert "What can be asked" in body
+    assert "Nothing matches that" not in body

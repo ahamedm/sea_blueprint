@@ -36,6 +36,11 @@ def default_log_path(store_root: str | Path) -> Path:
 @dataclass(frozen=True)
 class UnansweredEvent:
     question: str
+    #: WHICH kind of silence this was. The distinction is the reason the log exists:
+    #: `no_named_question` is demand for a registry entry, `substrate_absent` is demand
+    #: for the work that would put data in the graph, and `out_of_scope` is neither.
+    #: Recording only the question would make those indistinguishable in the replay.
+    state: str = ""
     scope_id: str = ""
     ref: str = "working"
     initiative_id: str = ""

@@ -433,9 +433,37 @@ canonical question ("no architectural answer" does not contain "no answer"), and
 "decision" alone routed to the review queue when it means a recorded decision. Both are
 fixed, and both are pinned by tests.
 
-**Not in this slice:** the `/ask` route and page, the LLM classifier and agent loop
-(stage 3-LLM and 4), the impact engine (stage 4, last by design), and the store-root
-wiring for the log path (the module takes a path; nothing calls it from the app yet).
+**Then the page, so the registry is reachable by a person and not only by a test**
+(`/ask`, in the nav): a question is routed, the matched entry answers, and the answer is
+rendered with its state, its caveats, its assumptions, its pointer and — on a miss — what
+the vocabulary does cover. No model is involved anywhere in that path, which is why the
+page could ship before the classifier.
+
+Against the live `payments_v3` scope:
+
+| Asked | State | Pointer |
+|---|---|---|
+| what is inside the Payment Gateway Platform? | `answered` | `/map?mode=tree` |
+| which requirements have no architectural answer? | `answered` | `/gaps` |
+| which principles does this design violate? | `substrate_absent` (owner YB-047) | `/ontology` |
+| what would changing the orchestrator affect? | `out_of_scope` | `/map` |
+| how many transactions per second? | `no_named_question` | — |
+
+Three things the page needed that the engines alone did not:
+
+- **`app/qna/params.py`** fills an entry's slots from the question using the GRAPH as the
+  vocabulary, so "what is inside the Payment Gateway Platform?" resolves the element
+  without a second input box. Longest match wins, because a scope holding both `Payment
+  Platform` and `Payment Gateway Platform` would otherwise answer confidently about the
+  wrong system.
+- **The log records WHICH kind of silence it was.** Demand for a registry entry and demand
+  for the work that would put data in the graph are different asks, and recording only the
+  question made them indistinguishable in the replay.
+- **The answer names its revision**, resolved through the same `resolve_design_baseline`
+  the Design Assistant uses, so the two agree on what "the baseline" means.
+
+**Not in this slice:** the LLM classifier and agent loop (stage 3-LLM and 4), and the
+impact engine (stage 4, last by design).
 
 ## What closes it
 

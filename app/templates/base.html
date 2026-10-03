@@ -51,6 +51,7 @@
         ('reconcile', 'Reconcile'), ('map_view', 'Map'), ('c4_view', 'C4'),
         ('gaps', 'Gaps'),
         ('quality', 'Quality'),
+        ('ask', 'Ask'),
         ('changes', 'Changes'), ('ontology', 'Ontology')] %}
       <a href="{{ url_for(endpoint) }}" class="{{ 'active' if section == endpoint.split('_')[0] else '' }}">{{ label }}</a>
     {% endfor %}

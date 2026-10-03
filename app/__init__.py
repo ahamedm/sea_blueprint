@@ -28,6 +28,7 @@ import json
 import os
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from flask import (
@@ -82,7 +83,7 @@ from core.knowledge import (
     KnowledgeGraph,
     ReconcileError,
     ReviewError,
-    RevisionStore,
+    RevisionStore as RevisionStore,  # re-exported
     Snapshot,
     apply_decisions,
     bulk_apply,
@@ -112,6 +113,8 @@ from core.jobs import (
     SqliteJobStore,
     new_job_id,
 )
+from app.qna.engines import answer as answer_question
+from app.qna.params import params_from_question
 from app.runner import (
     DomainPackFailed,
     ExtractorLoadFailed,
@@ -120,6 +123,10 @@ from app.runner import (
     run_design,
     run_ingest,
 )
+from core.questions import STATE_ANSWERED, load_question_registry
+from core.qna.answers import AnswerContext, unmatched
+from core.qna.log import UnansweredEvent, default_log_path, log_unanswered
+from core.qna.router import route as route_question
 # The store contract and the workspace that addresses scopes. `StoreConflict` is
 # imported here because a lost update must surface as a message, not a 500.
 from core.knowledge import StoreConflict
@@ -342,6 +349,13 @@ def create_app(
         JOB_STORE_FACTORY=job_store_factory,
         INITIATIVE_ID=os.environ.get("SEA_INITIATIVE", "INIT-MVP-001"),
         ONTOLOGY_DIR=os.environ.get("SEA_ONTOLOGY_DIR", "ontology"),
+        # The named questions the /ask page can answer. Loaded once at startup, like
+        # the ontology: it is a declaration, not per-request state. A missing file
+        # yields an empty registry with findings, and the page says so.
+        QUESTION_REGISTRY=load_question_registry(
+            Path(os.environ.get("SEA_ONTOLOGY_DIR", "ontology"))
+            / "catalogues" / "questions.yaml"
+        ),
         SCOPE_ID=os.environ.get("SEA_SCOPE", ""),
     )
     if test_config:
@@ -1535,6 +1549,61 @@ def create_app(
     #
     # `/graph` redirects here. It is the old name for this route, and a bookmarked
     # link should land on the view that replaced it rather than on a 404.
+
+    @app.route("/ask", methods=["GET", "POST"])
+    def ask():
+        """Ask the graph a named question. The router picks the name; the engine answers.
+
+        Deliberately no model in this path. The keyword router answers what it can, and
+        what it cannot is RECORDED rather than guessed at — which is the whole reason
+        this page can exist before the classifier does. A miss is not a failure state
+        here; it is the candidate queue, and the page renders it as an answer.
+        """
+        registry = current_app.config["QUESTION_REGISTRY"]
+        question = (request.form.get("question") or request.args.get("q") or "").strip()
+        result = None
+        if question:
+            snapshot = state()
+            store = current_store()
+            # The revision is not decoration: an answer that cannot name the graph it
+            # describes is vacuous. `resolve_design_baseline` is the same resolution the
+            # Design Assistant uses, so the two agree on what "the baseline" means.
+            try:
+                resolved = resolve_design_baseline(store, snapshot.graph)
+                ref = resolved.ref or "working"
+            except Exception:  # noqa: BLE001 — a missing baseline must not break asking
+                ref = "working"
+            context = AnswerContext(
+                graph=snapshot.graph, log=snapshot.log,
+                scope_id=current_scope_id(), ref=ref, store=store,
+                ontology_dir=current_app.config["ONTOLOGY_DIR"],
+            )
+            routed = route_question(registry, question)
+            if routed.routed:
+                slots = params_from_question(routed.entry, question, snapshot.graph)
+                result = answer_question(registry, routed.entry, context, slots)
+            else:
+                result = unmatched(question, nearest=routed.nearest)
+            result["matched_score"] = routed.score
+            if result["state"] != STATE_ANSWERED:
+                # Everything not answered is demand: a vocabulary gap, or a substrate
+                # gap someone should promote. Recording it here is what makes that
+                # measurable instead of a guess.
+                log_unanswered(
+                    default_log_path(current_app.config["STORE_ROOT"]),
+                    UnansweredEvent(
+                        question=question,
+                        state=result["state"],
+                        scope_id=current_scope_id(), ref=ref,
+                        matched_intent=result.get("intent") or "",
+                        nearest_entries=tuple(result.get("nearest") or ()),
+                        asked_by=current_app.config.get("REVIEWER", ""),
+                    ),
+                )
+        return render_template(
+            "ask.html", registry=registry, question=question, result=result
+        )
+
 
     @app.route("/map")
     def map_view():

@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %}Ask · SEA Platform{% endblock %}
+{% block content %}
+<h1>Ask</h1>
+<p class="hint">
+  A question is routed to a <em>named</em> question this platform can answer
+  deterministically, and the engine answers it. Nothing here narrates the graph, and
+  nothing here writes to it: an answer is a result, the caveats that qualify it, and a
+  link to where you can check it.
+  {% if not registry %}The question catalogue is missing or empty, so nothing can be
+  routed — that is a supported state, and it means the declaration file is absent.
+  {% endif %}
+</p>
+
+<form method="post" action="{{ url_for('ask') }}" class="row" style="gap:8px; margin-bottom:16px;">
+  <input type="search" name="question" value="{{ question or '' }}" style="flex:1; min-width:320px;"
+         placeholder="Which requirements have no architectural answer?" aria-label="Your question">
+  <button class="btn btn-primary" type="submit">Ask</button>
+</form>
+
+{% if registry %}
+  <p class="hint small">
+    {{ registry.entries|length }} question(s) declared —
+    {{ registry.answerable()|length }} answerable now, {{ registry.absent()|length }} declared
+    not answerable yet. Ask one, or ask something close and see what it routes to.
+  </p>
+{% endif %}
+
+{% if result %}
+  {% set answered = result.state == 'answered' %}
+  <div class="card">
+    <div class="card-head">
+      <h2>
+        {% if answered %}Answer{% elif result.state == 'no_named_question' %}Nothing matches that
+        {% elif result.state == 'substrate_absent' %}Nothing to answer from
+        {% else %}Not built yet{% endif %}
+      </h2>
+      <span class="tag">{{ result.state }}</span>
+    </div>
+
+    {% if result.question_id %}
+      <p class="small muted">
+        Routed to <code>{{ result.question_id }}</code> — {{ result.question }}
+      </p>
+    {% endif %}
+
+    {% if result.detail %}
+      <p>{{ result.detail }}</p>
+    {% endif %}
+    {% if result.blocked_by %}
+      <p class="small muted">
+        Owned by <code>{{ result.blocked_by }}</code> in <code>TODO.md</code> — the item that
+        closes this. Until it does, the honest answer is the one above, not an empty result.
+      </p>
+    {% endif %}
+
+    {% if answered and result.result is mapping %}
+      <table class="table-plain">
+        <tbody>
+          {% for key, value in result.result.items() if value is not mapping and value is not sequence %}
+            <tr><th style="text-align:left; width:240px;">{{ key.replace('_', ' ') }}</th>
+                <td>{{ value }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% for key, value in result.result.items() if value is mapping or value is sequence %}
+        <details style="margin-top:8px;">
+          <summary class="small">{{ key.replace('_', ' ') }} ({{ value|length }})</summary>
+          <pre class="small" style="max-height:280px; overflow:auto;">{{ value|tojson(indent=2) }}</pre>
+        </details>
+      {% endfor %}
+    {% elif answered and result.result is sequence %}
+      <p class="small muted">{{ result.result|length }} row(s){% if result.truncated %}, truncated{% endif %}.</p>
+      <div class="table-wrap" style="max-height:340px;">
+        <table>
+          <thead><tr>{% for column in result.result[0].keys() %}<th>{{ column }}</th>{% endfor %}</tr></thead>
+          <tbody>
+            {% for row in result.result[:50] %}
+              <tr>{% for value in row.values() %}<td class="small">{{ value }}</td>{% endfor %}</tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+
+    {% if result.nearest %}
+      <h3 class="small" style="margin-top:12px;">What this vocabulary does cover</h3>
+      <ul class="small">
+        {% for near in result.nearest %}
+          <li><code>{{ near.id }}</code> — {{ near.question }}
+            {% if near.overlap is defined %}<span class="muted">({{ near.overlap }} shared word(s))</span>{% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+      <p class="hint small">
+        A miss is recorded rather than guessed at, so the questions people actually ask
+        become the evidence for what to declare next.
+      </p>
+    {% endif %}
+
+    {% if result.caveats %}
+      <h3 class="small" style="margin-top:12px;">Caveats that travel with this answer</h3>
+      <ul class="small">
+        {% for caveat in result.caveats %}<li>{{ caveat }}</li>{% endfor %}
+      </ul>
+    {% endif %}
+
+    {% if result.assumptions %}
+      <p class="small muted" style="margin-top:8px;">
+        Computed under: {% for a in result.assumptions %}{{ a }}{% if not loop.last %}; {% endif %}{% endfor %}.
+      </p>
+    {% endif %}
+
+    {% if result.pointer %}
+      <p style="margin-top:12px;">
+        <a class="btn btn-sm" href="{{ result.pointer }}">Check this at {{ result.pointer }}</a>
+        <span class="small muted">— the answer above is a reading of that surface, and the
+        surface is where a reviewer acts.</span>
+      </p>
+    {% endif %}
+  </div>
+{% endif %}
+
+{% if registry and not result %}
+  <div class="card">
+    <div class="card-head"><h2>What can be asked</h2></div>
+    <table class="table-plain">
+      <thead><tr><th>Question</th><th>State</th><th>Check it at</th></tr></thead>
+      <tbody>
+        {% for entry in registry.entries %}
+          <tr>
+            <td>
+              <form method="post" action="{{ url_for('ask') }}" style="display:inline;">
+                <input type="hidden" name="question" value="{{ entry.question }}">
+                <button class="btn btn-sm" type="submit">{{ entry.question }}</button>
+              </form>
+              {% if entry.params %}<span class="small muted">needs: {{ entry.params|join(', ') }}</span>{% endif %}
+            </td>
+            <td>
+              {% if entry.engine == 'declared_absent' %}
+                <span class="tag tag-warn">{{ entry.state }}</span>
+                <span class="small muted">owner {{ entry.blocked_by }}</span>
+              {% else %}
+                <span class="tag">answered</span>
+              {% endif %}
+            </td>
+            <td class="small"><a href="{{ entry.pointer }}">{{ entry.pointer }}</a></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endif %}
+{% endblock %}
