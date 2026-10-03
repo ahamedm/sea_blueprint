@@ -43,6 +43,39 @@ blocked_by: []
 >   description currently says it is *"usually implied by `system_class`"*. Two mechanisms
 >   for one fact is the single point the two items must agree on, and it is cheap to
 >   settle — which is why these are worth doing early together rather than late apart.
+>
+> ## Status, 2026-10-03 — the unblocked half LANDED
+>
+> Landed in lockstep, because on this repo a slot declared on one end and not the other
+> becomes the declared-but-unemitted defect it keeps rediscovering:
+>
+> | Layer | Change |
+> |---|---|
+> | Ontology | `DeploymentNode.platform_type` (cited string), `.sharing_scope` + the `SharingScope` enum, `.serves` (multivalued); `shared_across_enterprise` stopped claiming `system_class` as a second mechanism |
+> | Extraction | `ElementRecord` gained the three fields — the first DeploymentNode slots that pass has ever emitted |
+> | Ingest | the structure-fact whitelist (`ingest.py:480`) gained `platform_type` and `sharing_scope`; `serves` writes one EDGE per target |
+> | Guards | `serves` added to `IRREFLEXIVE_PREDICATES` and to the C4 view's stated exclusions; `("sharing_scope", "SharingScope")` added to `check_enum_membership` |
+> | Prompt | structure-pass rules 3 and 6: the type is never an element, a platform is not classified both ways in one run; rule 8 asks for one name per thing |
+>
+> **Still open, and deliberately not decided by implementing them:**
+>
+> - **`serves`' range.** Declared `SoftwareSystem` to mirror the singular `parent_system`
+>   it augments. The design's prose says "serves 200 products", and `Product` IS reachable
+>   from this layer (`architecture_base` imports `enterprise_structure`), so the two
+>   readings are genuinely undistinguished. A `Product` variant would be a second slot,
+>   not a re-range.
+> - **Deduplication (OpenShift vs OpenShift Platform).** Only the SAFE half landed: rule 8
+>   now asks for one name per thing, which is a prompt instruction. A normalised or fuzzy
+>   `named_key` was NOT adopted — merging two labels on similarity is the confident
+>   wrong-join this repo ranks as worse than a missing join, and `Payment Platform` vs
+>   `Payment Gateway Platform` are exactly the pair it would have to get right.
+> - **The multi-tenancy join**, split out as its own piece:
+>   [YB-063](YB-063-the-multi-tenancy-requirement-has-no-instance-to-target.md). Neither
+>   this item nor YB-062 decides what a tenancy requirement attaches to.
+> - **The prompt-budget consequence.** The `SharingScope` enum name tipped the design
+>   profile's scaffolding 10 bytes over its document budget — measured, and recorded as
+>   [ISS-15](../../ISSUES.md#iss-15--the-design-profiles-prompt-scaffolding-sits-at-its-ceiling-so-any-vocabulary-growth-breaks-the-budget-guard)
+>   rather than absorbed by adjusting that guard.
 
 ### The distinction the graph cannot make
 

@@ -126,6 +126,12 @@ _NON_C4_RELATIONSHIPS = (
     "satisfies_attribute", "realizes_attribute", "follows_style", "conforms_to",
     "applies_technique", "binds_to_application", "binds_to_platform", "binds_to_system",
     "authorised_by_initiative", "delivers_initiative", "refines", "depends_on",
+    # YB-044's instance→system edge. Real, and NOT a drawn relationship: C4 places a
+    # system on a deployment node by containment, so drawing one arrow per served
+    # system would turn a shared cluster into 200 lines. Listed here so it is a
+    # STATED exclusion that gets counted rather than an unknown predicate the view
+    # silently drops.
+    "serves",
 )
 
 

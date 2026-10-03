@@ -197,6 +197,23 @@ enums:
       PRODUCTION: { description: Live environment. }
       DISASTER_RECOVERY: { description: Failover environment. }
 
+  SharingScope:
+    description: >-
+      How widely one DEPLOYMENT INSTANCE of a platform is shared. A property of
+      the instance, not of the platform type: the same product is routinely
+      deployed three ways at once, which a property of the type cannot express
+      (YB-044).
+
+      ENTERPRISE is what `SoftwareSystem.shared_across_enterprise` is derived
+      from, rather than asserted beside it.
+    permissible_values:
+      ENTERPRISE:
+        description: Shared by the whole enterprise; many products depend on it.
+      BUSINESS_UNIT:
+        description: Shared within one business unit.
+      DEDICATED:
+        description: Serves one product or platform; not shared.
+
   InfrastructureType:
     description: Kind of deployment/infrastructure node.
     permissible_values:
@@ -832,8 +849,19 @@ classes:
       shared_across_enterprise:
         description: >-
           Whether the system is shared enterprise-wide rather than serving one
-          domain. Usually implied by system_class, but stated explicitly because
-          an in-house shared service blurs the two.
+          domain.
+
+          DERIVED, not asserted: it is `DeploymentNode.sharing_scope ==
+          ENTERPRISE` on the instance that actually provides the platform. It
+          used to say "usually implied by system_class" as well, which was two
+          mechanisms for one fact — whether a platform is enterprise-shared is a
+          property of the DEPLOYMENT, not of the software class
+          ([YB-044](../../docs/todos/entries/YB-044-platform-instances.md)).
+
+          Nothing reads this slot today (verified across `core/`, `app/`,
+          `agents/` and `scripts/`), so the derivation is not implemented: there
+          is no consumer to migrate. It is stated here so the first consumer
+          reads the instance rather than re-inventing the assertion.
         range: boolean
       managed_by:
         description: >-
@@ -1172,6 +1200,47 @@ classes:
         multivalued: true
       parent_system:
         range: SoftwareSystem
+      platform_type:
+        description: >-
+          The platform TYPE this node is an instance of, as the source names or
+          cites it ("OpenShift", "Airflow", "n8n").
+
+          A cited reference rather than a resolved edge, on purpose: where the
+          type LIVES in the vocabulary is the open decision in
+          [YB-062](../../docs/todos/entries/YB-062-the-two-platform-lenses.md)
+          (its options a-d), and committing to a range here would settle it by
+          implementation. `platform-instances.md` proposes a `TechnologyStack`,
+          which is NOT taken: it would mint a third name for one axis beside
+          `Platform.platform_type` and `SoftwareSystemClass`, and collide with
+          option (d)'s `TechnologyPlatform` entity.
+
+          This is the same ref-then-resolve shape `requirement_refs` uses: the
+          string arrives at extraction time and a resolved slot can be added
+          without changing this one.
+        range: string
+      sharing_scope:
+        description: >-
+          How widely this instance is shared — ENTERPRISE, BUSINESS_UNIT or
+          DEDICATED. On the instance rather than the type, because one platform
+          type is routinely deployed all three ways at once (YB-044).
+        range: SharingScope
+      serves:
+        description: >-
+          The SoftwareSystems this instance serves. Multivalued, and that is the
+          point: `parent_system` above is singular, so a cluster shared by 200
+          products cannot be the parent of 200 things. This is the edge that
+          replaces that approximation.
+
+          Range is `SoftwareSystem` because that is what the singular slot it
+          augments already ranges, and because the served thing is an
+          architecture element. Whether a PRODUCT (the enterprise construct,
+          reachable from this layer) should also be servable is an open
+          sub-decision of
+          [YB-044](../../docs/todos/entries/YB-044-platform-instances.md) — the
+          design's prose says "serves 200 products", so the two readings are not
+          yet distinguished.
+        range: SoftwareSystem
+        multivalued: true
       network_zone:
         description: >-
           Network segmentation zone (e.g. "DMZ", "CDE", "internal") — relevant

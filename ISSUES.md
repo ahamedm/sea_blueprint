@@ -236,6 +236,36 @@ a smaller set that no matcher can ever bind.
   range is narrowed so the model is not asked for something nothing can join.
 
 
+## ISS-15 — The design profile's prompt scaffolding sits at its ceiling, so any vocabulary growth breaks the budget guard
+
+**Open.** One new enum name tipped a guard that was already at 100%.
+
+- **Evidence.** `test_scaffolding_does_not_exceed_the_document`
+  ([test_prompt_budget.py:96](tests/test_prompt_budget.py#L96)) measures the design
+  profile's pass prompt against a synthetic 7,266-char requirement document and asserts
+  `scaffolding <= document`. Adding `SharingScope` to `architecture_base.yaml` (YB-044) —
+  one enum, three permissible values, and no new classes — moved it to **7,276**, so the
+  test now fails by 10 bytes (1.00:1).
+- **Why it is structural rather than a defect in that enum.** The scaffolding is
+  dominated by the shared ontology context, which `SEABaseAgent._format_ontology_context`
+  builds as the list of every class and enum NAME resolved across the layer's imports:
+  **5,174 of those 7,276 chars**. The profile's own contribution (pass instructions plus
+  catalogue context) is ~2,100. So the ratio is governed by the size of the vocabulary,
+  and this project's vocabulary is meant to GROW — every ontology item drives the number
+  up. Measured before the change, the guard had no headroom: it passed, and only just.
+- **Consequence.** YB-007's ratio, as measured here, currently reports vocabulary size
+  rather than prompt dilution. It cannot tell "the profile's instructions are crowding out
+  the document" — the failure it exists to catch — from "the ontology gained a term",
+  which is the product working as intended.
+- **Options.** (a) Measure the profile's OWN scaffolding (pass instructions and
+  catalogue) and assert the ratio on that, with the shared vocabulary bounded separately;
+  (b) shrink the shared context, which is the dominant term and the more direct fix for
+  prompt budget; (c) accept a larger allowance, which weakens the guard without answering
+  what it measures.
+- **Not fixed here.** The guard was left failing rather than adjusted, because redefining
+  another area's budget test to accommodate a schema change is the wrong order — and the
+  measurement is the point, not the green tick.
+
 ---
 
 ## Fixed

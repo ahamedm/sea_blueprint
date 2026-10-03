@@ -206,6 +206,44 @@ class ElementRecord(BaseModel):
             "CONFIDENTIALITY. Empty if only the top-level characteristic is clear."
         ),
     )
+    # ---- DeploymentNode slots (YB-044) ----
+    #
+    # The first DeploymentNode slots this pass has ever emitted. Until now a
+    # deployment node arrived as a bare name plus `element_type`, because NONE of
+    # the class's own fields (infrastructure_type, environment, region,
+    # network_zone, hosted_on, runs_containers, parent_system) existed on this
+    # record — and `ingest.py`'s structure-fact whitelist is a literal tuple, so a
+    # field here that is not added there reaches the output dict and never the
+    # graph. Both ends move together or the new slots become the
+    # "declared-but-unemitted" defect a third time (ConceptAttribute,
+    # `Platform.contracts`).
+    platform_type: str = Field(
+        default="",
+        description=(
+            "For a DeploymentNode: the platform TYPE this node is an instance of, "
+            "as the source names it — 'OpenShift', 'Airflow', 'n8n'. The TYPE is "
+            "never an element: do not also emit it as one. Empty for anything that "
+            "is not a platform instance."
+        ),
+    )
+    sharing_scope: str = Field(
+        default="",
+        description=(
+            "For a DeploymentNode: how widely THIS instance is shared — "
+            "ENTERPRISE, BUSINESS_UNIT or DEDICATED. A property of the instance, "
+            "not of the type: one platform type is routinely deployed all three "
+            "ways at once. Empty where the document does not say."
+        ),
+    )
+    serves: List[str] = Field(
+        default_factory=list,
+        description=(
+            "For a DeploymentNode: the SoftwareSystems (or products) this instance "
+            "serves. Multivalued because a shared cluster serves many — the "
+            "singular `parent_system` on the ontology class cannot express that. "
+            "Names must match elements emitted in this run."
+        ),
+    )
 
     # Coerce rather than reject — see the enum-coercion note above. A pass is
     # worth more than the precision of one value.
@@ -319,7 +357,12 @@ Rules:
 2. A logical block inside one container is a **Component**.
 3. A persistence store is a **DataStore**. An external party or system is an
    **ExternalSystem**. Infrastructure (OpenShift, data centre, cluster) is a
-   **DeploymentNode** with no C4 level.
+   **DeploymentNode** with no C4 level. When the document names the platform a
+   node is an instance OF ("the OpenShift cluster"), put that platform's name in
+   `platform_type`, and set `sharing_scope` when the document says how widely
+   this instance is shared (ENTERPRISE, BUSINESS_UNIT, DEDICATED). List the
+   systems one shared instance serves in `serves`. The platform TYPE is never an
+   element: emit the cluster, not the cluster and its type.
 4. Set `parent` for every contained element, AND emit the matching
    `<contained> --part_of--> <parent>` triple. Both are required. If this
    excerpt does not say where a Container, Component or DataStore sits, attach
@@ -328,7 +371,9 @@ Rules:
 5. Capture `responsibilities` — what each element is accountable for — where the
    document states them.
 6. Several SoftwareSystems is expected: the system under design plus the
-   enterprise platforms it depends on. Classify each with `system_class`.
+   enterprise platforms it depends on. Classify each with `system_class`. Do not
+   emit one platform both ways in the same run: a cluster or runtime the document
+   deploys ON is the DeploymentNode of rule 3, not also a SoftwareSystem.
 7. An architectural STYLE or pattern the document names (microservices, layered,
    event-driven, hexagonal, modular monolith, SOA) is NOT an element — do not
    emit it here. A named technology, framework, tool or platform is a
@@ -336,6 +381,9 @@ Rules:
 8. Use the concrete name the document gives (PostgreSQL, Valkey, OpenShift).
    Never emit a bare category word — "Database", "Cache", "Services",
    "Microservices" — as an element when the document names the specific thing.
+   Use ONE name for one thing throughout: where the document calls it "the
+   OpenShift cluster" in one place and "OpenShift" in another, that is one
+   element, not two.
 9. Set `container_type` on every Container and DataStore — the KIND of running
    thing it is (WEB_APPLICATION, API_SERVICE, WORKER, BATCH_JOB, DATABASE, CACHE,
    MESSAGE_BROKER, GATEWAY, UI_COMPONENT, FILE_STORE, SCHEDULER). The ontology

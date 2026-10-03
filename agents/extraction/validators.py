@@ -411,6 +411,9 @@ def check_enum_membership(elements: Sequence[Any]) -> List[Flag]:
         # one of them carries a value the ontology already enumerates.
         ("quality_category", "QualityAttributeCategory"),
         ("subcharacteristic", "QualitySubcharacteristic"),
+        # YB-044's sharing topology. An instance marked shared some third way is a
+        # classification nothing can reason about, which is worse than an absent one.
+        ("sharing_scope", "SharingScope"),
     )
     flags: List[Flag] = []
     for e in as_record_dicts(elements):

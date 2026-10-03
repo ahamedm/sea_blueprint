@@ -478,13 +478,29 @@ def graph_from_extraction(
             graph.add_assertion(nid, "description", value=e["description"],
                                 confidence=1.0, provenance=p, scope=scope, initiative_id=init_id)
         for attr in ("element_type", "c4_level", "system_class", "origin",
-                     "deployment_model", "container_type"):
+                     "deployment_model", "container_type",
+                     # YB-044's DeploymentNode slots. A field on `ElementRecord` that
+                     # is not in this tuple reaches the output dict and never the
+                     # graph — the declared-but-unemitted defect this repo keeps
+                     # rediscovering (ConceptAttribute, `Platform.contracts`). The two
+                     # ends are changed together on purpose.
+                     "platform_type", "sharing_scope"):
             if e.get(attr):
                 graph.add_assertion(nid, attr, value=str(e[attr]),
                                     confidence=1.0, provenance=p, scope=scope, initiative_id=init_id)
         if e.get("parent"):
             pid = _resolve(graph, e["parent"], by_label)
             graph.add_assertion(nid, "part_of", obj=pid, confidence=1.0, provenance=p, scope=scope, initiative_id=init_id)
+        # `serves` is an EDGE, not a value: the instance points at each thing it
+        # serves, so a cluster shared by 200 products is one node with 200 edges
+        # rather than a singular parent it cannot have.
+        own_name = str(e.get("name") or "").strip().lower()
+        for served in e.get("serves") or []:
+            text = str(served).strip()
+            if not text or text.lower() == own_name:
+                continue
+            graph.add_assertion(nid, "serves", obj=_resolve(graph, text, by_label),
+                                confidence=1.0, provenance=p, scope=scope, initiative_id=init_id)
         for r in e.get("responsibilities") or []:
             text = str(r).strip()
             if text:

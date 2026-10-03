@@ -201,6 +201,9 @@ IRREFLEXIVE_PREDICATES = frozenset({
     "connects_to", "calls", "invokes",
     # one element realizing another
     "implements",
+    # One deployment INSTANCE serving a system. An instance serving itself is
+    # impossible, and the write boundary is the cheapest place to say so (YB-044).
+    "serves",
 })
 
 

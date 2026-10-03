@@ -339,10 +339,10 @@ def test_payload_is_complete_and_serialisable(ontology, req_extraction):
     assert set(payload) == {"overview", "classes", "enums", "subsets"}
     # Exact, like `test_ontology.test_totals`: 50 enums is 49 plus
     # `ArchitectureDocumentStatus`, which gave an architecture description its own
-    # lifecycle instead of borrowing `RequirementStatus` (ISS-review nit 1) — again
-    # an enum with no new class.
+    # lifecycle instead of borrowing `RequirementStatus` (ISS-review nit 1), and 51
+    # adds `SharingScope` (YB-044) — again an enum with no new class.
     assert len(payload["classes"]) == 70
-    assert len(payload["enums"]) == 50
+    assert len(payload["enums"]) == 51
     assert len(payload["subsets"]) == 15
     json.dumps(payload)  # must not contain anything a JSON encoder refuses
 
