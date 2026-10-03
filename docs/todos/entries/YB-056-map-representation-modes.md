@@ -46,6 +46,58 @@ that makes the picture hard to read. In a force layout:
   the depth information away.
 - **There is no "how deep is this?"** question a reader can answer by looking.
 
+### Feasibility, measured 2026-10-03
+
+The scope above (`data/sea_home_01`, `acme_pillar_01`) no longer exists, so those numbers
+are unreproducible. These are from the current live scope —
+`data/sea_home_x/payment_sys_v2.sqlite`, scope `payments_v2`, 201 nodes.
+
+**Two things are cheaper than this entry assumes.**
+
+- **The layout already ships.** `app/static/js/d3.v7.min.js` is the full d3 7.9.0 bundle:
+  `d3.hierarchy`, `d3.tree`, `d3.cluster` and `d3.stratify` are all exported — verified by
+  executing the vendored file, not by reading its size. A 3-node hierarchy lays out
+  correctly. So: no new dependency, no build step, no `THIRD-PARTY-NOTICES` change.
+- **The spanning tree is nearly trivial on today's data.** Exactly **one** node has more
+  than one containment parent, and there are **no cycles anywhere**. The cycle-breaking
+  this entry budgets for is defensive only — it still needs the synthetic fixture the
+  acceptance asks for, because no real data exercises it. And `d3.tree` writes `x`/`y`
+  onto the same fields `d3.forceSimulation` writes, so a tree mode can reuse the existing
+  render path and simply not start the simulation.
+
+**One thing is much worse: what the tree would draw is 16 nodes of 201.**
+
+| | |
+|---|---|
+| containment assertions (`part_of`/`belongs_to`/`composed_of`) | 15 |
+| nodes placeable in a containment tree | **16 of 201** |
+| ...of the 25 C4-kind nodes | 16 — **9 have no place at all** |
+| roots | 2, and they are `Payment Platform` and `Payment Gateway Platform` |
+| deepest chain | 3 (System → Container → Component) |
+
+The binding constraint is **containment coverage, not the layout**. A tree over the
+containment hierarchy is a C4-only view of 16 nodes with 185 reported undrawable, which
+turns the acceptance criterion *"states the edges it could not draw"* from an edge case
+into the dominant surface of the page.
+
+Two consequences worth deciding before building it:
+
+- **The single multi-parent node IS the ISS-10 defect.** `storefront_management_service` is
+  `part_of` both `payment_gateway_platform` and `payment_platform`, and those two are one
+  system under two identities. The tree would draw that defect as two roots — arguably
+  making ISS-10 visible, but a reviewer reads two root systems as a broken view. So ISS-10's
+  identity decision ([YB-053](YB-053-category-elements-and-duplicate-system.md) defect 2) is
+  a soft prerequisite for a tree that looks correct.
+- **A requirement tree is not available.** `Requirement` and `FunctionalRequirement` carry
+  no parent slot, so the largest non-C4 population cannot be treed at all. What exists is
+  `BusinessGoal.parent_goal` and `BusinessCapability.sub_capabilities` — a business-context
+  tree over a different, smaller set.
+
+**Consequence for the order.** This entry already puts filtering (Option B) first; the
+measurement supports that more strongly than the entry does. Filtering improves the force
+view immediately, while the tree's yield is gated on containment coverage — a data-quality
+item (the C4 view's `unplaced` gap, 9 nodes) rather than a layout one.
+
 ### Option A — a tidy tree over the containment hierarchy
 
 [D3's tree layout](https://observablehq.com/@d3/tree/2) (`d3.tree` / `d3.hierarchy`)
