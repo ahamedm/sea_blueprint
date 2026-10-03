@@ -153,27 +153,44 @@ gives layers and no overlap. More work than A, and it answers the same question.
 
 ### Option B — filtering and limiting, which is orthogonal and probably first
 
-The current controls are the lens (four fixed groups) and a concept *table* filter
-that does not touch the drawing. That is not enough to make 147 nodes legible. The
-candidates, roughly cheapest first:
+**Corrected 2026-10-03: this section undercounted what already exists.** It said the current
+controls are "the lens (four fixed groups) and a concept *table* filter that does not touch
+the drawing". That omits a filter which landed **three days before this entry was written**
+(`eba6bc4`, 2026-09-25): the **quality-concern focus**. `?concern=RELIABILITY` filters the
+DRAWING server-side (`quality_focus`, `quality_focus_options` in `merged.py`) and reports what
+it hides — `focus_hidden_nodes` and `focus_hidden_kinds`, rendered as *"This filter hides N
+node(s) the lens would otherwise draw (…)"*. The lens does the same for the kinds it excludes
+(*"Not shown by this lens: …"*).
+
+So the "state what is not being drawn" rule this section asks for **is already implemented
+twice**, and the pattern to copy exists. What is missing is only the candidates below: none of
+the five shipped. Verified by absence — no `hops`, `min_degree`, `edge_type` or depth limit
+anywhere in the map, and the concept-table filter is still client-side and still does not touch
+the drawing.
+
+That changes the estimate rather than the direction. Filtering is not a from-scratch build but
+an **extension of a server-side filter that already reports its own effect**, which is
+precisely the shape candidates 1, 3, 4 and 5 need. The candidates, roughly cheapest first:
 
 1. **Focus + n hops.** Click a node, keep it and its neighbours within *n*, drop the
    rest. The adjacency walk already exists in the map script for hover-dimming; this
-   is the same data with the layout re-run.
+   is the same data with the layout re-run. Natural extension of the existing focus.
 2. **Depth limit on the containment tree.** "Containers only", or "stop at level 3" —
    natural for C4, and natural for the tree layout in Option A.
 3. **Degree threshold.** Hide nodes with fewer than *k* facts; the concept table is
    already sorted by fact count, so the cut is explainable rather than arbitrary, and
-   the page must say how many it is hiding (the table's truncation hint is the
-   precedent).
+   the page must say how many it is hiding (the table's truncation hint and
+   `focus_hidden_nodes` are both precedent).
 4. **Edge-type filter.** Links vs open references, or one predicate family at a time
    (`part_of` / `connects_to` / `implements_requirement`). The distinction is already
    in the payload as `reference`, and 59 of 285 links are a different kind of thing.
-5. **Kind/group checkboxes** on top of the lens.
+5. **Kind/group checkboxes** on top of the lens — the closest to what `excluded_kinds`
+   already does.
 
 Whichever ships, **the page must state what is not being drawn** — a filter over a
-silently truncated graph answers "this is not in the graph" for a node that is. That
-rule is already applied to the concept table; it has to apply to the canvas.
+silently truncated graph answers "this is not in the graph" for a node that is. That rule
+is already applied to the concept table, to the focus, and to the lens; it has to apply to
+whatever is added next.
 
 ### What is explicitly not proposed
 
