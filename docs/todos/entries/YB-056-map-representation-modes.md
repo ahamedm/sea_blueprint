@@ -65,7 +65,7 @@ are unreproducible. These are from the current live scope —
   onto the same fields `d3.forceSimulation` writes, so a tree mode can reuse the existing
   render path and simply not start the simulation.
 
-**One thing is much worse: what the tree would draw is 16 nodes of 201.**
+**What containment alone offers — the C4-mode numbers.**
 
 | | |
 |---|---|
@@ -75,28 +75,51 @@ are unreproducible. These are from the current live scope —
 | roots | 2, and they are `Payment Platform` and `Payment Gateway Platform` |
 | deepest chain | 3 (System → Container → Component) |
 
-The binding constraint is **containment coverage, not the layout**. A tree over the
-containment hierarchy is a C4-only view of 16 nodes with 185 reported undrawable, which
-turns the acceptance criterion *"states the edges it could not draw"* from an edge case
-into the dominant surface of the page.
+**The binding question is WHICH hierarchy, because this entry is about the whole map.**
+Option A as written says "a tree over the containment hierarchy", which reads as the C4 half —
+but the map is every kind, and this entry's own table measures the `all` lens first. Measured
+against all 201 nodes:
 
-Two consequences worth deciding before building it:
+| Basis for the tree | Nodes placed | Invents a relation? |
+|---|---|---|
+| Containment alone (Option A as worded) | **16 of 201** | no |
+| Containment + one hop of any edge | **72 of 201** | no |
+| Containment + everything reachable | **142 of 201** | no |
+| Grouped by the ontology's own classification (family → kind) | **201 of 201** (33 kinds) | no — a declared classification, not a relation |
 
-- **The single multi-parent node IS the ISS-10 defect.** `storefront_management_service` is
-  `part_of` both `payment_gateway_platform` and `payment_platform`, and those two are one
-  system under two identities. The tree would draw that defect as two roots — arguably
-  making ISS-10 visible, but a reviewer reads two root systems as a broken view. So ISS-10's
-  identity decision ([YB-053](YB-053-category-elements-and-duplicate-system.md) defect 2) is
-  a soft prerequisite for a tree that looks correct.
-- **A requirement tree is not available.** `Requirement` and `FunctionalRequirement` carry
-  no parent slot, so the largest non-C4 population cannot be treed at all. What exists is
-  `BusinessGoal.parent_goal` and `BusinessCapability.sub_capabilities` — a business-context
-  tree over a different, smaller set.
+So the layout is not the constraint, and neither is containment on its own. The constraint is
+that **the map is not connected**: **27 components** — 142 nodes, then 23, 8, 3, 2, … A single
+tidy tree cannot represent that without either being a **forest** (d3 draws one tree per root,
+which is fine) or inventing a grouping root. And the 59 nodes unreachable from the C4 spine
+are not debris: the 23-node component is the domain model (`DomainConcept` →
+`ConceptAttribute`), which is its own native hierarchy.
 
-**Consequence for the order.** This entry already puts filtering (Option B) first; the
-measurement supports that more strongly than the entry does. Filtering improves the force
-view immediately, while the tree's yield is gated on containment coverage — a data-quality
-item (the C4 view's `unplaced` gap, 9 nodes) rather than a layout one.
+Three consequences, and the first corrects a rule this entry states too strictly:
+
+- **"Any grouping must come from edges the graph holds" needs refining.** Grouping by the
+  ontology's own classification is not inventing a relation — it is the axis the map *already*
+  colours and filters by (`COLOUR_AXES = family | layer | kind`, `family_of(kind)`), and the
+  same 15 `subsets` [YB-064](YB-064-route-the-vocabulary-by-subset.md) proposes to route
+  context by. Read strictly, that rule forbids the only basis covering the whole map. What it
+  must keep forbidding is a PARENT invented from nothing.
+- **The C4 spine can carry satellites, but only via resolved references.** The parenting edges
+  available are `applies_technique` 33, `satisfies_attribute` 29, `uses_technology` 27,
+  `realizes_quality_attribute` 3 and `implements_requirement` **1 object edge** — the rest of
+  the requirement links are value-based references, so a tree builder has to resolve them the
+  way the map's reference edges already do rather than read `object` alone.
+- **The one multi-parent node IS the ISS-10 defect.** `storefront_management_service` is
+  `part_of` both `payment_gateway_platform` and `payment_platform`, which are one system under
+  two identities, so the tree would draw it as two roots. Visible, but a reviewer reads two
+  root systems as a broken view — which makes
+  [YB-053](YB-053-category-elements-and-duplicate-system.md) defect 2 a soft prerequisite for
+  a tree that looks correct.
+
+**Consequence for the order.** Filtering (Option B) still comes first, but the tree to aim at
+is a **grouped or forest tree over all kinds**, not a containment tree with everything else
+relegated to a "could not draw" count. The containment tree is worth having as a *C4 mode
+within* the map rather than as the map's tree. A requirement tree remains unavailable —
+`Requirement` and `FunctionalRequirement` carry no parent slot, so that population can only be
+placed by grouping.
 
 ### Option A — a tidy tree over the containment hierarchy
 
