@@ -163,3 +163,23 @@ def test_filters_that_match_nothing_keep_a_way_back(seeded_client):
     assert "No assertions match these filters" in body
     assert "<thead>" not in body
     assert _chip_labels(body), "the chips are the way back from an empty result"
+
+
+def test_the_ref_tag_says_what_it_means(seeded_client):
+    """`ref` is a fact about WHERE the target lives, not about whether it resolved.
+
+    `target_kind` is `reference` for every cross-graph predicate — resolved or not —
+    so the tag reads like a flag on the predicate and sits beside `unresolved`
+    without saying how the two differ. That ambiguity is what the tooltip removes,
+    so the tooltip is pinned rather than left to drift: a bare `ref` is the state
+    this test exists to keep out.
+    """
+    body = seeded_client.get("/review").get_data(as_text=True)
+
+    assert "tag tag-ref" in body, "the seeded graph has no cross-graph row to check"
+    assert "belongs in the other graph" in body, (
+        "the `ref` tag lost the tooltip that explains it — it reads as a flag on "
+        "the predicate again"
+    )
+    assert "Not a fault on its own" in body
+

@@ -8,11 +8,13 @@
   </td>
   <td>
     <code>{{ row.predicate }}</code>
-    {% if row.target_kind == 'reference' %}<span class="tag tag-ref">ref</span>{% endif %}
+    {% if row.target_kind == 'reference' %}<span class="tag tag-ref"
+          title="Cross-graph reference: this predicate's target belongs in the other graph (REQ-G or ARC-G), so it is written as text at extraction and bound to a node when reconciliation runs. Not a fault on its own — check for 'unresolved' if the referent is missing.">ref</span>{% endif %}
   </td>
   <td>
     {{ row.target_label }}
-    {% if row.target_kind == 'node' %}<span class="tag">node</span>{% endif %}
+    {% if row.target_kind == 'node' %}<span class="tag"
+          title="The target is a node in this graph — an ordinary link, not a cross-graph reference.">node</span>{% endif %}
   </td>
   <td class="col-confidence">
     <span class="conf conf-{{ row.confidence_band }}">{{ row.confidence_pct }}%</span>
@@ -20,7 +22,8 @@
   <td class="col-status">
     <span class="badge badge-{{ row.status_slug }}">{{ row.status }}</span>
     {% if row.is_human %}<span class="tag tag-human">human</span>{% endif %}
-    {% if row.is_unresolved %}<span class="tag tag-warn">unresolved</span>{% endif %}
+    {% if row.is_unresolved %}<span class="tag tag-warn"
+          title="No node in this graph answers this reference, so reconciliation has not bound it yet. This is the state that needs a decision.">unresolved</span>{% endif %}
     {% if row.last_decision %}<span class="tag">{{ row.last_decision }}</span>{% endif %}
   </td>
   <td class="col-actions">
