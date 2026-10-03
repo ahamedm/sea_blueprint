@@ -408,7 +408,7 @@ so a census run today would report five unattributed attributes and call it a fi
 `/ontology` exists because a list of class names is not comprehension. It presents
 the schema structurally:
 
-- **The import chain.** Four layers, one-way, with counts and the reason each layer
+- **The import chain.** Five layers, one-way, with counts and the reason each layer
   exists. This is the ontology's own architecture: `requirements_base` may reference
   `enterprise_structure` and never the reverse, which is why enterprise constructs are
   defined once and both graphs speak one vocabulary.
@@ -433,20 +433,20 @@ supertypes above, subtypes below, relationship targets and incoming references f
 out. Position therefore *means* something; a hairball of 63 classes teaches nothing,
 and a physics layout teaches less because the arrangement is arbitrary.
 
-### Measured state of the four schemas
+### Measured state of the five schemas
 
 | | |
 |---|---|
-| Classes | 63 (4 common, 7 enterprise, 31 requirements, 21 architecture) |
-| Enums | 42 |
-| Subsets | 13 |
-| Slots declared | 508 |
-| Slots whose range is another class | 162 |
-| Abstract / mixin classes | 3 / 2 |
+| Classes | 70 (4 common, 7 enterprise, 31 requirements, 7 governance, 21 architecture) |
+| Enums | 51 |
+| Subsets | 15 defined, 13 assigned — `Compliance` and `Governance` are declared but no class uses them |
+| Slots declared | 555 |
+| Slots whose range is another class | 179 |
+| Abstract / mixin classes | 4 / 2 |
 | Unresolved supertypes, unresolved ranges, duplicate names | 0 / 0 / 0 |
 
 The loader's own resolution is checked against **LinkML's authoritative parser** for
-every one of the 63 classes — ancestors and effective slot sets
+every one of the 70 classes — ancestors and effective slot sets
 (`test_resolution_matches_linkml`). Asserting against hand-written expectations would
 only prove the loader is consistently wrong.
 

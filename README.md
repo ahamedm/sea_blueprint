@@ -98,6 +98,19 @@ JSON APIs sit alongside the pages (`/api/gaps`, `/api/quality`, `/api/map`, `/ap
 `/api/runs/<run_id>/stream`), and the graph exports as `/export/graph.json` and
 `/export/graph.ttl`.
 
+## What it looks like
+
+Four pages of the `payments_v3` scope — a requirements ingest of
+[`test_data/prd/sample_requirements.md`](test_data/prd/sample_requirements.md) under the
+`payment_processing` domain pack. Click any image for the full size;
+`scripts/capture_screenshots.py` regenerates them against a running app, so they can be
+refreshed in one command rather than drifting.
+
+| | |
+|---|---|
+| [![The knowledge map](docs/images/map.png)](docs/images/map.png)<br>**`/map`** — the whole graph in one drawing. Solid lines are links the graph holds, dashed ones are references no node answers yet, and the notice names the node kinds no layer claims. | [![Quality attributes](docs/images/quality.png)](docs/images/quality.png)<br>**`/quality`** — every quality attribute under its ISO 25010 characteristic, in the four coverage states. A column nothing populates says so rather than being dropped. |
+| [![The ontology](docs/images/ontology.png)](docs/images/ontology.png)<br>**`/ontology`** — the schema itself: five layers and the one-way import rule, with what each vocabulary is for and where it stops. | [![The review gate](docs/images/review.png)](docs/images/review.png)<br>**`/review`** — every fact with its source, confidence and review state. `REF` marks a cross-graph reference, `NODE` a bound one, and nothing enters a baseline unverified. |
+
 ## Command line
 
 ```bash
@@ -169,12 +182,14 @@ yeah_blueprint/
 │   └── catalogues/            # the architecture pattern library
 ├── evaluation/                # DeepEval harness — the `sea-eval` CLI
 ├── config/                    # agent_config.py + optional per-agent YAML overrides
-├── scripts/                   # test_report.py, todo.py, sanity_check.py, benches
+├── scripts/                   # test_report.py, todo.py, sanity_check.py, benches,
+│                              #   capture_screenshots.py
 ├── tests/                     # pytest suite, grouped by the question it answers
 ├── test_data/                 # tracked INPUT fixtures: prd/, arch/, test_cases/
 ├── data/                      # runtime output (gitignored)
 ├── reports/                   # generated test reports (gitignored)
-├── docs/                      # PRD, design notes, decisions (ADRs), todos
+├── docs/                      # PRD, design notes, decisions (ADRs), todos,
+│                              #   images/ (the README screenshots)
 ├── run.py                     # the `sea-app` entry point
 ├── AGENTS.md                  # the conventions this repo is held to
 ├── CONTRIBUTING.md ISSUES.md TODO.md

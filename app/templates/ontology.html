@@ -6,7 +6,7 @@
   <div>
     <h1>Foundational ontologies</h1>
     <p>
-      The vocabulary this platform reasons with — four LinkML schemas that every
+      The vocabulary this platform reasons with — five LinkML schemas that every
       extracted fact is expressed in. This is a reference to the <em>schema</em>, not a
       view of your graph: <a href="{{ url_for('map_view') }}">Knowledge map</a> shows the
       architecture, <a href="{{ url_for('gaps') }}">Gaps</a> shows what is missing from it.
@@ -62,7 +62,7 @@
   {# -- the import chain: why the layers exist ---------------------------- #}
   <div class="card">
     <div class="card-head">
-      <h2>The four layers, and the one-way import rule</h2>
+      <h2>The five layers, and the one-way import rule</h2>
     </div>
     <p class="hint">
       Each layer may reference the ones below it and never the reverse. That rule is
@@ -97,14 +97,14 @@
       {% endfor %}
     </div>
     <p class="hint" style="margin-top:12px;">
-      Two classes are <strong>mixins</strong> ({{ view.mixins|join(', ') }}) rather than
+      {{ view.mixins|length }} classes are <strong>mixins</strong> ({{ view.mixins|join(', ') }}) rather than
       supertypes: they contribute identity and provenance to whatever mixes them in
-      without being part of any taxonomy. Three classes are
+      without being part of any taxonomy. {{ view.abstract|length }} classes are
       <strong>abstract</strong> ({{ view.abstract|join(', ') }}) and exist only to be inherited.
     </p>
   </div>
 
-  {# -- the domain pack: conditional, swappable, and NOT a fifth layer ---- #}
+  {# -- the domain pack: conditional, swappable, and NOT one of the base layers ---- #}
   <div class="card">
     <div class="card-head">
       <h2>Domain pack — the vocabulary of the subject matter</h2>
@@ -114,7 +114,7 @@
       <p class="hint">
         This graph was extracted under the <strong>{{ view.pack.title }}</strong>
         domain pack — the vocabulary of <em>what the business is about</em>, as opposed
-        to the four layers above, which describe <em>the artifact</em>. Read from the
+        to the five layers above, which describe <em>the artifact</em>. Read from the
         graph's own provenance, not from configuration, so it reports the vocabulary a
         fact was actually made in.
       </p>
@@ -170,7 +170,7 @@
     {% else %}
       <p class="hint">
         <strong>No domain pack is in force for this graph.</strong> That is a supported
-        state, not a missing one: the four layers above are a complete vocabulary for the
+        state, not a missing one: the five layers above are a complete vocabulary for the
         artifact, and a domain pack only adds the vocabulary of the <em>subject matter</em>.
         Select one per Initiative at <a href="{{ url_for('ingest') }}">ingest</a>.
       </p>

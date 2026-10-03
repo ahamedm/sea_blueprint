@@ -409,7 +409,7 @@ def class_detail(model: OntologyModel, name: str, graph=None) -> Optional[Dict[s
 
 def ontology_payload(model: OntologyModel, graph=None) -> Dict[str, Any]:
     """The whole model as JSON — for the API, and for anything that wants the
-    schema without re-parsing four YAML files."""
+    schema without re-parsing five YAML files."""
     return {
         "overview": ontology_overview(model, graph),
         "classes": [
