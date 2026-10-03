@@ -51,9 +51,15 @@ assertions — see `app/viewpoints/__init__.py` for why the layers are split.
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Any, Dict, FrozenSet, List, Optional, Tuple
+from typing import Any, Dict, FrozenSet, Iterable, List, Optional, Tuple
 
-from app.projections import edge_records, literal_facts, node_records
+from app.projections import (
+    HIERARCHY_DIRECTIONS,
+    edge_records,
+    hierarchy_records,
+    literal_facts,
+    node_records,
+)
 from app.viewpoints.c4 import LEVEL_FROM_FACT, LEVEL_FROM_KIND
 from core.knowledge.model import CROSS_GRAPH_PREDICATES, reference_targets_a_node
 from core.knowledge.quality import quality_state
@@ -620,6 +626,249 @@ def _shape_legend(nodes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return [{"key": s, "label": SHAPE_LABELS.get(s, s), "count": seen[s]} for s in order]
 
 
+#: The predicates a tidy tree may draw as a PARENT link, with the direction each one
+#: runs. Kept as data because the direction is NOT uniform and guessing it inverts a
+#: tree: `part_of` names the child first (`Container part_of SoftwareSystem`), while
+#: `contains` names the parent first (`DomainConcept contains DomainConcept`).
+#:
+#: Only edges the graph actually holds. A parent invented from nothing is the failure
+#: ADR-0029 was written about, and this list is the whole of the invention budget.
+_TREE_CHILD_TO_PARENT: Tuple[str, ...] = (
+    "part_of", "belongs_to", "composed_of", "concept", "parent_goal",
+)
+_TREE_PARENT_TO_CHILD: Tuple[str, ...] = (
+    "contains", "sub_capabilities",
+)
+
+#: Spacing for the computed layout, in viewBox units. The server lays the tree out
+#: rather than handing a hierarchy to the client so that "same input, same picture"
+#: is assertable in a test instead of merely likely — the acceptance criterion this
+#: entry sets, and the one thing a force layout can never offer.
+_TREE_X_STEP = 132
+_TREE_Y_STEP = 96
+_TREE_MARGIN = 60
+#: A grouped family wraps into a block of at most this many columns, and the blocks
+#: themselves wrap at roughly this canvas width. Both exist for the same reason: 183
+#: unparented nodes in one row is a canvas nobody can read at any zoom.
+_TREE_GROUP_COLS = 6
+_TREE_GROUP_WRAP = 8 * _TREE_X_STEP
+
+#: The id prefix for a placeholder that exists only to group unparented nodes. It is
+#: a GROUP, not a parent the graph claims: `parent_of` never assigns a real node under
+#: one as if an edge existed, and the group is drawn as a placeholder.
+_TREE_GROUP_PREFIX = "group:family:"
+
+
+def map_tree(
+    nodes: List[Dict[str, Any]],
+    links: List[Dict[str, Any]],
+    hierarchy: List[Dict[str, Any]],
+    *,
+    ontology_dir: str = "ontology",
+) -> Dict[str, Any]:
+    """A forest over the drawn nodes, laid out, with what could not be a tree edge.
+
+    WHY THIS IS NOT `d3.hierarchy` ON THE LINKS
+
+    A tidy tree needs one parent per node and this graph does not promise that, and
+    more importantly it is NOT CONNECTED — on the live scope it is 27 components. So
+    there is no single root to hand a tree layout, and two things follow:
+
+      - it is a FOREST, laid out side by side, because the components genuinely are
+        not related and a synthetic single root would claim they are;
+      - the nodes in no hierarchy edge at all are GROUPED by the ontology's own
+        family (`family_of`, the same axis the map colours by) and drawn under a
+        placeholder. Grouping by a declared classification is not inventing a parent:
+        `_REFERENCE_COLOUR`-style placeholders are already how this view admits a
+        node it cannot place.
+
+    WHAT IT REPORTS RATHER THAN DROPS
+
+    Every edge that is not drawn as a parent/child link is counted, and the reasons
+    are separated, because they are different claims:
+
+      - `cross_links` — edges between two drawn nodes that the tree does not use;
+      - `alternates` — a second parent a node had, which a tree cannot draw (this is
+        the ISS-10 duplicate-identity shape: one container `part_of` two systems);
+      - `cycles_broken` — a containment cycle, which the layout must break to exist.
+
+    Dropping any of those silently would hide exactly the traceability this platform
+    exists to expose, which is the failure this entry's acceptance calls out.
+    """
+    drawn = [str(n["id"]) for n in nodes]
+    drawn_set = set(drawn)
+    labels = {str(n["id"]): str(n.get("label", n["id"])) for n in nodes}
+    kinds = {str(n["id"]): str(n.get("kind", "")) for n in nodes}
+
+    # -- 1. the tree edges, by preference -----------------------------------
+    # A node keeps the FIRST predicate that offers it a parent; within one predicate
+    # the parent with the smallest id wins, so the forest does not depend on
+    # assertion order (`graph.active()` is stable, but merge order is not a promise).
+    parent_of: Dict[str, str] = {}
+    alternates: List[Tuple[str, str, str]] = []
+    # `hierarchy` arrives normalised (child, parent) by `projections.hierarchy_records`
+    # and in predicate-preference order, so the first parent a node is offered is the
+    # one it keeps. Within one predicate the smallest parent id wins, which keeps the
+    # forest from depending on assertion or merge order.
+    order = {pred: i for i, (pred, _) in enumerate(HIERARCHY_DIRECTIONS)}
+    ranked = sorted(hierarchy, key=lambda h: (order.get(h["predicate"], 99),
+                                              str(h["parent"]), str(h["child"])))
+    for record in ranked:
+        child, parent = str(record["child"]), str(record["parent"])
+        if child not in drawn_set or parent not in drawn_set or child == parent:
+            continue
+        existing = parent_of.get(child)
+        if existing is None:
+            parent_of[child] = parent
+        elif existing != parent:
+            alternates.append((child, parent, str(record["predicate"])))
+
+    # -- 2. break cycles ----------------------------------------------------
+    # Walk each node to its root. Revisiting a node on the way up means the chain is a
+    # cycle; the node where it closes gives up its parent. Sorted order keeps the
+    # choice deterministic rather than dependent on dict iteration.
+    cycles_broken: List[str] = []
+    for start in sorted(drawn_set):
+        seen: List[str] = []
+        node = start
+        while node in parent_of and len(seen) <= len(drawn_set):
+            if node in seen:
+                parent_of.pop(node, None)
+                cycles_broken.append(node)
+                break
+            seen.append(node)
+            node = parent_of[node]
+
+    # -- 3. group what no hierarchy edge reaches ----------------------------
+    children: Dict[str, List[str]] = {}
+    for child, parent in parent_of.items():
+        children.setdefault(parent, []).append(child)
+    for kids in children.values():
+        kids.sort(key=lambda n: (labels.get(n, n).lower(), n))
+
+    in_hierarchy = set(parent_of) | set(children)
+    grouped: Dict[str, List[str]] = {}
+    for node in drawn:
+        if node in in_hierarchy:
+            continue
+        family = family_of(kinds.get(node, ""), ontology_dir)
+        grouped.setdefault(family, []).append(node)
+
+    # -- 4. lay it out ------------------------------------------------------
+    # Slots are handed out to LEAVES in order and an internal node takes the mean of
+    # its children, which cannot overlap because every leaf owns a distinct slot. It
+    # is a layered drawing, not a beauty contest: deterministic and readable first.
+    place: Dict[str, Tuple[float, int]] = {}
+    next_slot = [0]
+
+    def layout(node: str, depth: int) -> float:
+        kids = children.get(node, [])
+        if not kids:
+            x = float(next_slot[0])
+            next_slot[0] += 1
+        else:
+            xs = [layout(k, depth + 1) for k in kids]
+            x = sum(xs) / len(xs)
+        place[node] = (_TREE_MARGIN + x * _TREE_X_STEP,
+                       _TREE_MARGIN + depth * _TREE_Y_STEP)
+        return x
+
+    # Real roots first: that is the hierarchy the graph actually holds, and it is
+    # what a reader came for. Alphabetical, so two runs of one graph agree.
+    roots = sorted(
+        (n for n in in_hierarchy if n not in parent_of),
+        key=lambda n: (labels.get(n, n).lower(), n),
+    )
+    for root in roots:
+        layout(root, 0)
+
+    # The grouped families go BELOW the forest as bounded blocks, not as another
+    # row of leaves. On the live scope 183 of 201 nodes are in no hierarchy edge at
+    # all, so one leaf per slot would be a 26,000-unit canvas — technically tidy and
+    # unreadable at any zoom. A block wraps at `_TREE_GROUP_COLS` and the blocks
+    # themselves wrap, which keeps the picture bounded and legible.
+    group_ids: List[str] = []
+    forest_bottom = max((y for _, y in place.values()), default=0.0)
+    cursor_x = _TREE_MARGIN
+    cursor_y = forest_bottom + _TREE_Y_STEP if place else _TREE_MARGIN
+    row_bottom = cursor_y
+    for family in sorted(grouped):
+        members = grouped[family]
+        cols = min(_TREE_GROUP_COLS, max(1, len(members)))
+        rows = -(-len(members) // cols)
+        block_w = (cols - 1) * _TREE_X_STEP
+        if cursor_x > _TREE_MARGIN and cursor_x + block_w > _TREE_GROUP_WRAP:
+            cursor_x = _TREE_MARGIN
+            cursor_y = row_bottom + _TREE_Y_STEP
+        gid = f"{_TREE_GROUP_PREFIX}{family}"
+        group_ids.append(gid)
+        children[gid] = members
+        place[gid] = (cursor_x + block_w / 2, cursor_y)
+        for i, member in enumerate(members):
+            place[member] = (cursor_x + (i % cols) * _TREE_X_STEP,
+                             cursor_y + _TREE_Y_STEP * (1 + i // cols))
+            # The placeholder is the member's parent in the DRAWING, so the edge is
+            # recorded. It is not a graph edge and is not counted as one below.
+            parent_of[member] = gid
+        cursor_x += block_w + _TREE_X_STEP * 2
+        row_bottom = max(row_bottom, cursor_y + _TREE_Y_STEP * rows)
+
+    tree_nodes: List[Dict[str, Any]] = []
+    for node in drawn:
+        x, y = place[node]
+        tree_nodes.append({
+            "id": node, "parent": parent_of.get(node, ""),
+            "x": round(x, 1), "y": round(y, 1),
+            "group": False,
+        })
+    for gid in group_ids:
+        family = gid[len(_TREE_GROUP_PREFIX):]
+        x, y = place[gid]
+        tree_nodes.append({
+            "id": gid, "parent": "", "x": round(x, 1), "y": round(y, 1),
+            "group": True,
+            "label": FAMILY_LABELS.get(family, family),
+            "kind": "group",
+        })
+
+    max_depth = max((p[1] for p in place.values()), default=0)
+    max_slot = max((p[0] for p in place.values()), default=0)
+    # Only edges the tree DID NOT use are "cross links". Counting every link here
+    # would report the tree's own edges as its omissions.
+    grouped_total = sum(len(v) for v in grouped.values())
+    # `parent_of` now carries both, and they are different claims: an edge the graph
+    # holds versus a line onto a shelf it does not. Counting them together would let
+    # the page report 381 "hierarchy edges" for a graph with 198.
+    tree_edges = set(parent_of.items())
+    cross_links = sum(
+        1 for l in links
+        if (l.get("source"), l.get("target")) not in tree_edges
+        and (l.get("target"), l.get("source")) not in tree_edges
+    )
+
+    return {
+        "nodes": tree_nodes,
+        "roots": roots + group_ids,
+        "tree_edges": len(parent_of) - grouped_total,
+        "cross_links": cross_links,
+        "alternates": len(alternates),
+        "alternate_examples": [
+            {"child": labels.get(c, c), "kept": labels.get(parent_of.get(c, ""), ""),
+             "dropped": labels.get(p, p)}
+            for c, p, _ in alternates[:5] if c in parent_of
+        ],
+        "cycles_broken": len(cycles_broken),
+        "grouped": grouped_total,
+        "group_count": len(group_ids),
+        "components": len(roots) + len(group_ids),
+        # The canvas the caller must fit. Reported rather than recomputed by the
+        # renderer, so the picture and the viewBox cannot disagree about how big the
+        # drawing is.
+        "width": round(max((x for x, _ in place.values()), default=0.0) + _TREE_MARGIN, 1),
+        "height": round(max((y for _, y in place.values()), default=0.0) + _TREE_MARGIN, 1),
+    }
+
+
 def merged_view(
     graph,
     lens: str = DEFAULT_LENS,
@@ -721,6 +970,17 @@ def merged_view(
     for node in nodes:
         counts[node["kind"]] = counts.get(node["kind"], 0) + 1
 
+    # The tidy-tree representation, computed here rather than in the browser: the
+    # server owns the structure AND the coordinates, so "same input, same picture"
+    # is a test rather than a hope (see `map_tree`). It reads the graph rather than
+    # `links`, because containment is a property on a node and never a drawn edge.
+    tree = map_tree(
+        nodes,
+        links,
+        hierarchy_records(graph, [n["id"] for n in nodes]),
+        ontology_dir=ontology_dir,
+    )
+
     groups: Dict[str, int] = {layer: 0 for layer in LAYER_ORDER}
     for node in nodes:
         groups[node["group"]] = groups.get(node["group"], 0) + 1
@@ -744,6 +1004,9 @@ def merged_view(
         "focus_hidden_kinds": sorted({r["kind"] for r in hidden_by_focus}),
         "nodes": nodes,
         "links": links,
+        # The second representation: a laid-out forest plus the count of what it
+        # could not draw as tree edges, so the page can state its own omission.
+        "tree": tree,
         "kind_counts": dict(sorted(counts.items())),
         "group_counts": groups,
         # What the lens is deliberately not showing, so the omission stays legible.

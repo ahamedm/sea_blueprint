@@ -949,10 +949,18 @@ def test_api_ontology_returns_the_schema(client):
     payload = client.get("/api/ontology").get_json()
     # Deliberately exact, like `test_ontology.test_totals`: a schema change has to be
     # acknowledged here rather than flowing through to whatever reads the payload.
-    # 49 enums is `ConceptAttributeDataType`, the logical data-type vocabulary of
-    # YB-055 (an enum and no new class — the class was already declared).
+    # 51 enums, each an enum and no new class: `ConceptAttributeDataType` (the logical
+    # data-type vocabulary of YB-055), `ArchitectureDocumentStatus` (an architecture
+    # description is not DEFERRED the way a requirement is, so it stopped borrowing
+    # `RequirementStatus`), and `SharingScope` (YB-044 — sharing topology is a property
+    # of the deployment, not of the software class).
+    #
+    # This counter had drifted to 49 while `test_ontology` said 50, so the two agreed
+    # on nothing and only this suite was red. The three are pinned in three files by
+    # design — a schema change must be acknowledged where it is read — but they must
+    # be updated TOGETHER, and the 15-minute suite is the one that gets forgotten.
     assert len(payload["classes"]) == 70
-    assert len(payload["enums"]) == 49
+    assert len(payload["enums"]) == 51
     assert payload["overview"]["stats"]["classes"] == 70
     assert payload["overview"]["diagnostics"]["is_clean"] is True
 

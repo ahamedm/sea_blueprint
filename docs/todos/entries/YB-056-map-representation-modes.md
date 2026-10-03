@@ -192,6 +192,49 @@ silently truncated graph answers "this is not in the graph" for a node that is. 
 is already applied to the concept table, to the focus, and to the lens; it has to apply to
 whatever is added next.
 
+### Implemented, 2026-10-03 — tree mode, laid out on the server
+
+`?mode=force|tree`, with `force` still the default so nothing regresses.
+
+| Layer | Change |
+|---|---|
+| Projection | `hierarchy_records` in `app/projections.py` — the parent/child links the graph holds, normalised to `(child, parent)` through a `HIERARCHY_DIRECTIONS` table, because `part_of` names the child first and `contains` names the parent first |
+| Viewpoint | `map_tree(nodes, links, hierarchy)` — a laid-out forest plus the counts of everything it could not draw as a tree edge |
+| Route | `?mode=`, with an unknown value falling back to force |
+| Client | `draw()` extracted from the tick handler; tree mode skips the simulation, places the server's coordinates, and fits the viewBox to the tree canvas |
+| Tests | `tests/test_map_tree.py`, assigned to the views area: a cycle, a multi-parent node, a reference-only node, determinism, non-overlap, bounded width, and the mode switch end to end |
+
+**One deliberate deviation from Option A: the layout is computed on the SERVER, not by
+`d3.tree`.** Option A proposed the d3 layout and d3 does ship it — the vendored 7.9.0 bundle
+exports `hierarchy`, `tree`, `cluster` and `stratify`. It moved because of this entry's own
+acceptance criterion: *"the layout is deterministic for a given graph"* is something a pure
+function can be TESTED for, and a browser-side layout cannot be tested here at all, because
+the suite has no browser. So structure *and* coordinates come from Python, where non-overlap
+and determinism are assertions, and the client only places what it is given. The
+`app/static/js/` layout module this entry's `area` anticipated was therefore not needed.
+
+Measured on the live scope (`payments_v2`, 201 nodes), `?mode=tree`:
+
+| | |
+|---|---|
+| nodes placed | 201, plus 8 family placeholders |
+| hierarchy edges drawn | **15** |
+| nodes grouped by family | **183** |
+| cross-links not drawn as tree edges | 364 |
+| forest roots (components) | 11 |
+| alternates — a second parent | 1, the ISS-10 duplicate pair |
+| cycles broken | 0 |
+| canvas | 1704 × 4344 |
+
+**15 is the number that matters.** On today's graph the tree is mostly a *shelf*, not a
+hierarchy — and the page says so instead of implying otherwise, which is the containment
+coverage finding above seen from the other end. The layout was never the constraint. The
+grouped families also wrap into bounded blocks rather than one row: 183 leaves in a line is
+a 26,000-unit canvas, technically tidy and unreadable at any zoom.
+
+**Not done: the filtering half (Option B).** The mode is the representation; those five
+candidates remain open, and this entry stays open for them.
+
 ### What is explicitly not proposed
 
 - **Replacing the force view.** It shows clusters and the overall shape, which the

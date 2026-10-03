@@ -620,6 +620,46 @@ def edge_records(graph, node_ids: Iterable[str]) -> List[Dict[str, Any]]:
     return edges
 
 
+#: The hierarchy predicates the graph declares, each with its direction: `True` means
+#: the predicate names the CHILD first (`Container part_of SoftwareSystem`), `False`
+#: means it names the parent first (`DomainConcept contains DomainConcept`). Data
+#: rather than an assumption, because the two directions coexist in one vocabulary
+#: and a caller that picked wrong would draw a system inside its own container.
+HIERARCHY_DIRECTIONS: Tuple[Tuple[str, bool], ...] = (
+    ("part_of", True),
+    ("belongs_to", True),
+    ("composed_of", True),
+    ("concept", True),
+    ("parent_goal", True),
+    ("contains", False),
+    ("sub_capabilities", False),
+)
+
+
+def hierarchy_records(graph, node_ids: Iterable[str]) -> List[Dict[str, Any]]:
+    """Parent/child links the graph HOLDS, normalised so `parent` means parent.
+
+    A projection rather than another walk inside the viewpoint, for the reason the
+    map's one deliberate exception is documented as an exception: a view composes
+    projections, and each extra walk erodes the rule.
+    """
+    wanted = set(node_ids)
+    seen = set()
+    records: List[Dict[str, Any]] = []
+    for predicate, child_first in HIERARCHY_DIRECTIONS:
+        for a in graph.active():
+            if a.predicate != predicate or not a.object:
+                continue
+            child, parent = (a.subject, a.object) if child_first else (a.object, a.subject)
+            if child not in wanted or parent not in wanted or child == parent:
+                continue
+            if (child, parent) in seen:
+                continue
+            seen.add((child, parent))
+            records.append({"child": child, "parent": parent, "predicate": predicate})
+    return records
+
+
 def literal_facts(graph, node_ids: Iterable[str]) -> Dict[str, Dict[str, Any]]:
     """Facts whose object is a value rather than a node, keyed by subject.
 

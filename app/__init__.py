@@ -1545,8 +1545,14 @@ def create_app(
         # page says how many rows it is not showing. A filter over a silently
         # truncated list answers "no match" for a concept that exists.
         index = project_node_index(snapshot.graph)
+        # A second representation, not a replacement: `force` stays the default so an
+        # absent or mistaken mode changes nothing (YB-056).
+        mode = request.args.get("mode", "force")
+        if mode not in ("force", "tree"):
+            mode = "force"
         return render_template(
             "map.html",
+            mode=mode,
             view=merged_view(
                 snapshot.graph, lens, request.args.get("concern", ""),
                 colour=request.args.get("colour", DEFAULT_COLOUR),

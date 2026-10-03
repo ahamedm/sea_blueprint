@@ -28,6 +28,23 @@
   a container stays separable from a component inside one colour (ISSUES.md ISS-11).
 #}
 <div class="row" style="flex-wrap:wrap; margin-bottom:12px;">
+  <span class="muted small" style="align-self:center;">Layout</span>
+  <a class="btn btn-sm {{ 'btn-primary' if mode != 'tree' else '' }}"
+     title="Position carries no meaning; the simulation shows clusters and overall shape."
+     href="{{ url_for('map_view', lens=view.lens, colour=view.colour, mode='force', concern=view.focus.value) if view.focus else url_for('map_view', lens=view.lens, colour=view.colour, mode='force') }}">Force</a>
+  <a class="btn btn-sm {{ 'btn-primary' if mode == 'tree' else '' }}"
+     title="A layered forest: parent above child, depth legible as height, and the same graph always drawn the same way."
+     href="{{ url_for('map_view', lens=view.lens, colour=view.colour, mode='tree', concern=view.focus.value) if view.focus else url_for('map_view', lens=view.lens, colour=view.colour, mode='tree') }}">Tree</a>
+  {% if mode == 'tree' %}
+    <span class="muted small" style="align-self:center;">
+      — {{ view.tree.tree_edges }} hierarchy edge(s),
+      {{ view.tree.grouped }} node(s) grouped by family,
+      {{ view.tree.cross_links }} cross-link(s) not drawn as tree edges
+    </span>
+  {% endif %}
+</div>
+
+<div class="row" style="flex-wrap:wrap; margin-bottom:12px;">
   <span class="muted small" style="align-self:center;">Colour by</span>
   {% for axis, label in view.colour_labels.items() %}
     <a class="btn btn-sm {{ 'btn-primary' if view.colour == axis else '' }}"
@@ -238,8 +255,11 @@
       if (!el || !window.d3) { return; }
       var data = {{ view|tojson }};
 
-      var width = el.clientWidth || 960;
-      var height = el.clientHeight || 560;
+      var MODE = {{ mode | tojson }};
+      // Tree mode draws to the canvas the server laid the forest out on, so the
+      // whole picture fits instead of a corner of it filling the viewport.
+      var width = (MODE === 'tree' && data.tree) ? data.tree.width : (el.clientWidth || 960);
+      var height = (MODE === 'tree' && data.tree) ? data.tree.height : (el.clientHeight || 560);
 
       var nodes = data.nodes.map(function (n) { return Object.assign({}, n); });
       var links = data.links.map(function (l) { return Object.assign({}, l); });
@@ -264,6 +284,56 @@
         });
       });
       synthetic.forEach(function (n) { nodes.push(n); });
+
+      // -- tree mode: the coordinates come from the server ----------------------
+      //
+      // The server computes the forest AND its layout (`map_tree`), so "same input,
+      // same picture" is a test rather than a property of a simulation. The browser
+      // only places what it is given, which is also why tree mode can reuse the whole
+      // render path below: a node's position is `d.x`/`d.y` either way.
+      var byId = {};
+      nodes.forEach(function (n) { byId[n.id] = n; });
+      if (MODE === 'tree' && data.tree) {
+        data.tree.nodes.forEach(function (t) {
+          var n = byId[t.id];
+          if (!n) {
+            // A grouping placeholder: it stands for a family, not for a fact.
+            n = {
+              id: t.id, label: t.label, kind: t.kind, group: 'reference',
+              placeholder: true, shape: 'point', external_refs: [],
+              colour_key: 'reference', description: 'Grouped by family: these nodes are in no hierarchy edge, so they are shelved rather than parented.'
+            };
+            nodes.push(n); byId[t.id] = n;
+          }
+          n.x = t.x; n.y = t.y; n.tree_parent = t.parent || '';
+        });
+        // A cross-link is drawn between nodes that are not parent and child. It is
+        // not dropped: it is the traceability this view exists to expose.
+        links.forEach(function (l) {
+          l.tree_edge = (byId[l.target] && byId[l.target].tree_parent === l.source) ||
+                        (byId[l.source] && byId[l.source].tree_parent === l.target);
+        });
+        // The shelf a grouped node sits on is a relationship too, and the server sent
+        // the parent for it — so draw it, rather than leaving a family label floating
+        // above a block with nothing joining the two.
+        var shelfLinks = [];
+        data.tree.nodes.forEach(function (t) {
+          if (t.parent && t.parent.indexOf('group:') === 0) {
+            shelfLinks.push({ source: t.parent, target: t.id, predicate: 'grouped_by',
+                              label: 'grouped by', tree_edge: true, grouped: true,
+                              reference: false, confidence: 0 });
+          }
+        });
+        links = links.concat(shelfLinks);
+        // `d3.forceLink` is what normally replaces these strings with node objects,
+        // and in tree mode it never runs — so every `d.source.x` below would be
+        // undefined and the whole drawing would land on NaN. Resolving them here is
+        // what lets tree mode reuse the render path at all.
+        links.forEach(function (l) {
+          l.source = byId[l.source] || l.source;
+          l.target = byId[l.target] || l.target;
+        });
+      }
 
       // -- colour: the chosen axis, painted from the legend the server sent -------
       //
@@ -322,11 +392,17 @@
       var svg = d3.select(el).append('svg')
         .attr('viewBox', [0, 0, width, height]);
 
-      var sim = d3.forceSimulation(nodes)
-        .force('link', d3.forceLink(links).id(function (d) { return d.id; }).distance(130).strength(0.4))
-        .force('charge', d3.forceManyBody().strength(-460))
-        .force('center', d3.forceCenter(width / 2, height / 2))
-        .force('collide', d3.forceCollide(40));
+      // In tree mode the layout is already decided, so there is no simulation to
+      // start — and every `sim.` use below is guarded rather than removed, so the
+      // force mode keeps behaving exactly as it did.
+      var sim = null;
+      if (MODE !== 'tree') {
+        sim = d3.forceSimulation(nodes)
+          .force('link', d3.forceLink(links).id(function (d) { return d.id; }).distance(130).strength(0.4))
+          .force('charge', d3.forceManyBody().strength(-460))
+          .force('center', d3.forceCenter(width / 2, height / 2))
+          .force('collide', d3.forceCollide(40));
+      }
 
       // The container is sized by CSS (viewport-relative), by the drag handle and
       // by fullscreen, so the viewBox has to follow it. A FIXED viewBox that only
@@ -337,8 +413,8 @@
         var w = el.clientWidth, h = el.clientHeight;
         if (!w || !h) { return; }
         svg.attr('viewBox', [0, 0, w, h]);
-        sim.force('center', d3.forceCenter(w / 2, h / 2));
-        sim.alpha(0.25).restart();
+        if (MODE === 'tree') { return; }
+        if (sim) { sim.force('center', d3.forceCenter(w / 2, h / 2)); sim.alpha(0.25).restart(); }
       }
       if (window.ResizeObserver) {
         new ResizeObserver(function () {
@@ -407,7 +483,19 @@
       var link = svg.append('g').attr('class', 'link')
         .selectAll('line').data(links).join('line')
         .attr('stroke-dasharray', function (d) { return d.reference ? '5,4' : null; })
-        .attr('stroke', function (d) { return d.reference ? '#94a3b8' : '#cbd5e1'; });
+        .attr('stroke', function (d) {
+          // In tree mode the hierarchy is the subject and everything else is
+          // context: 364 cross-links drawn as boldly as the 15 tree edges would bury
+          // exactly what a reader switched to this mode to see. The shelf a grouped
+          // node sits on is fainter still, because it stands for a family rather
+          // than for a fact.
+          if (d.grouped) { return '#e2e8f0'; }
+          if (MODE === 'tree' && !d.tree_edge) { return '#e2e8f0'; }
+          return d.reference ? '#94a3b8' : '#cbd5e1';
+        })
+        .attr('stroke-width', function (d) {
+          return (MODE === 'tree' && d.tree_edge && !d.grouped) ? 1.8 : null;
+        });
 
       var linkText = svg.append('g').attr('class', 'link-text')
         .selectAll('text').data(links).join('text')
@@ -431,12 +519,12 @@
         .selectAll('g').data(nodes).join('g')
         .call(d3.drag()
           .on('start', function (event, d) {
-            if (!event.active) { sim.alphaTarget(0.3).restart(); }
+            if (sim && !event.active) { sim.alphaTarget(0.3).restart(); }
             d.fx = d.x; d.fy = d.y;
           })
           .on('drag', function (event, d) { d.fx = event.x; d.fy = event.y; })
           .on('end', function (event, d) {
-            if (!event.active) { sim.alphaTarget(0); }
+            if (sim && !event.active) { sim.alphaTarget(0); }
             d.fx = null; d.fy = null;
           }))
         .on('pointerenter', function (event, d) { hoveredNode = d; refresh(); })
@@ -464,13 +552,14 @@
            .attr('y2', function (d) { return d.target.y; });
       }
 
-      sim.on('tick', function () {
+      function draw() {
         position(link);
         position(linkHit);
         linkText.attr('x', function (d) { return (d.source.x + d.target.x) / 2; })
                 .attr('y', function (d) { return (d.source.y + d.target.y) / 2 - 3; });
         node.attr('transform', function (d) { return 'translate(' + d.x + ',' + d.y + ')'; });
-      });
+      }
+      if (sim) { sim.on('tick', draw); } else { draw(); }
 
       // -- the legend, from the same legend the canvas was painted from ---------
       //
@@ -546,7 +635,7 @@
       if (relayout) {
         relayout.addEventListener('click', function () {
           nodes.forEach(function (n) { n.fx = null; n.fy = null; });
-          sim.alpha(1).restart();
+          if (sim) { sim.alpha(1).restart(); }
         });
       }
 

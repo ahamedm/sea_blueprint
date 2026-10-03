@@ -258,6 +258,7 @@ AREAS: Tuple[Area, ...] = (
             "test_projections",
             "test_c4_view",
             "test_viewpoint_map",
+            "test_map_tree",
         ),
     ),
     Area(
