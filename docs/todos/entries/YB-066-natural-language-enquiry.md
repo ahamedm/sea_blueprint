@@ -117,18 +117,82 @@ reaches X" often means "X is in another island". On `payments_v3` the unresolved
 0 — and an impact answer there is not reliable, it is **vacuous**; those two states must
 not look alike.
 
+## Corrected, 2026-10-03 — the decision/trade-off substrate, verified
+
+`d831adf` (*"record decisions and structured trade-offs in the graph"*, now HEAD) added
+`ArchitectureDecision` ingest, `TradeOff` nodes, the design digest's rendering of both, and
+`tests/test_decisions.py`. That genuinely moves the impact class, and it is why this section
+exists. Four specifics in the re-reasoning needed correcting against the shipped code, and two
+of them change what stage 4 is.
+
+| Stated | Shipped |
+|---|---|
+| `affects_element` | **`affects_elements`** — plural, multivalued, range `ArchitectureElement` |
+| trade-offs linked "from the owner by `has_trade_off`" | `has_trade_off` is real, but written by ingest for **technique, pattern, style** only (`ingest.py:649`, `:693`, `:710`), matching the three ontology `trade_offs` slots. **No `trade_offs` on `ArchitectureDecision`** |
+| "38 ADRs… carrying `affects_element` and `supersedes`" | ADRs carry **neither** |
+| "I populated precisely the substrate" | Implemented and committed; **0 `ArchitectureDecision` and 0 `TradeOff` nodes** in all five revisions of both scopes [M] |
+
+**The correction that matters.** `core/knowledge/decisions.py` states it outright:
+
+> `consequences`, `alternatives_considered`, `affects_elements` and `supersedes` are **NOT
+> inferred from prose** — those richer links come from the Design Assistant's decisions pass,
+> which is a proposal, not an extraction.
+
+So the 38 recorded human decisions are **disconnected from the element graph**: the edges exist
+only for *proposed* decisions. "Which decisions govern X?" would answer from the proposals and
+return nothing for the record — and the record is the authority. That inverts who the answers
+come from, which is the opposite of an improvement.
+
+**The traversal is not decision → trade-off.** It is two paths that meet at the *element*:
+
+```
+X ←── affects_elements ── proposed decisions          (ADR decisions: no edge at all)
+X ──→ style | pattern | technique ──→ trade_offs ──→ gains / sacrifices
+```
+
+"Changing X reverses these recorded decisions and their trade-offs" is therefore, today,
+"…reverses these *proposed* decisions; and separately, X's style/pattern/technique bought these
+attributes at the cost of those."
+
+**Architectural consequence is unchanged** — recording *why* moves the line; the *rightness* of
+a trade-off stays the person's call. That part of the re-reasoning stands, and the
+same-graph property of `affects_elements`/`supersedes`/`has_trade_off` (nothing routes them
+cross-graph) confirms it is indexable rather than requiring the SPARQL surface.
+
+Two sharpening notes from the same verification:
+
+- **Every one of the 38 ADRs is `status: accepted`** [M], so filtering by status does not
+  discriminate *among records* — it discriminates records from **proposals**, which do carry
+  non-accepted statuses. Provenance (`HUMAN_ARCHITECT`) marks the same split, but status is the
+  richer signal because a proposed decision can be rejected while remaining a proposal.
+- `decision` is set to the ADR **title** and `context` to a ≤300-char first paragraph [M]; for
+  ADRs, `consequences` and `alternatives_considered` are declared in the schema and **not
+  ingested at all**. The shipped record is thinner than the schema implies.
+- The loader is sound on the real corpus — **38 files, 38 records, 0 skipped** [M] — but
+  `test_the_real_adr_directory_parses` asserts only `len(records) >= 10`, and skipping is
+  *silent by design* ("a file with no parseable frontmatter is skipped rather than guessed").
+  Twenty-eight ADRs could stop parsing without a test failing. The bound should be the corpus.
+
+**So stage 4 is not "expose a projection over data that exists"** — it is *close the
+record → element link first*. That is [YB-067](YB-067-adr-frontmatter-declares-the-elements-it-governs.md),
+and it is a decision about ADR frontmatter rather than a coding task.
+
 ## Recommended order
 
 1. **The registry, with no model** — named questions over the deterministic answers that
    already exist. Useful with no NLP at all.
 2. **A keyword router** over it. Falsifies the interaction model in a day.
 3. **YB-010's query surface, then SPARQL-backed entries** — the four existing queries get
-   their caller.
-4. **Impact, last and explicitly** — the class with no precedent and the highest cost of a
-   confident wrong answer.
+   their caller, and `missing_active` gets registered in `QUERIES` (defined, never named [M]).
+4. **[YB-067](YB-067-adr-frontmatter-declares-the-elements-it-governs.md) — the record → element
+   link**, then a decision index over it (element → decisions, decision → `supersedes`), exposed
+   as an answer-shaped function. The *nodes* exist; the *edges from the record* do not.
+5. **Impact, last and explicitly** — the class with no precedent and the highest cost of a
+   confident wrong answer, and the one whose substrate turned out to be half-wired.
 
 ## What closes it
 
 A registry with tests, a router that reports `no_named_question` rather than guessing, at
-least one SPARQL-backed entry reaching the four existing queries, and an impact answer that
-states its scope, its unresolved-reference count and its assumptions.
+least one SPARQL-backed entry reaching the four existing queries, a decision index that
+answers for **recorded** decisions and not only proposed ones, and an impact answer that states
+its scope, its unresolved-reference count and its assumptions.

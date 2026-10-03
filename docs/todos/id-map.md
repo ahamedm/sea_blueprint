@@ -97,3 +97,4 @@
 | None | Context ingestion — route the vocabulary by subset instead of shipping every visible name | [YB-064](entries/YB-064-route-the-vocabulary-by-subset.md) | entry (open) |
 | None | A whole-schema view for the ontology page — the 179 range edges, not the 26 is_a ones | [YB-065](entries/YB-065-whole-schema-view-for-the-ontology-page.md) | entry (open) |
 | None | Ask the graph: a named-question registry, then a router, then SPARQL — never a model narrating the graph | [YB-066](entries/YB-066-natural-language-enquiry.md) | entry (open) |
+| None | The 38 recorded decisions govern nothing — ADR frontmatter should name the elements they affect | [YB-067](entries/YB-067-adr-frontmatter-declares-the-elements-it-governs.md) | entry (open) |
