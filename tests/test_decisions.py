@@ -159,3 +159,42 @@ def test_a_patterns_trade_offs_become_structured_nodes():
         a.subject == trade_off.id and a.predicate == "rationale" and a.value
         for a in graph.active()
     )
+
+
+def test_the_architecture_extraction_profile_runs_a_decisions_pass():
+    """A report from the field: an architecture ingest produced no decisions.
+
+    The decisions pass was added to the DESIGN profile, so an `/ingest` of an
+    architecture document could never emit `architecture_decisions` — the graph's
+    decision count stayed at zero and nothing failed. This is the assertion that
+    would have said so.
+    """
+    from agents.architecture_extraction.passes import ARCHITECTURE_PASSES
+
+    names = [spec.name for spec in ARCHITECTURE_PASSES]
+    assert "decisions" in names, f"the extraction profile runs {names}"
+
+
+def test_the_decisions_pass_emits_keys_ingest_consumes():
+    """A pass whose output key nothing reads is the defect `test_output_consumption`
+    exists for, and it is worth asserting here too: the whole point of adding the pass
+    is that the decision reaches the graph."""
+    from agents.architecture_extraction.passes import ARCHITECTURE_PASSES
+
+    spec = next(s for s in ARCHITECTURE_PASSES if s.name == "decisions")
+    assert "architecture_decisions" in spec.output_keys.values()
+
+
+def test_an_extracted_decision_keeps_the_two_status_axes_apart():
+    """`status` is the decision's life in the enterprise; provenance and the assertion's
+    status are the REVIEW state. A document sounding settled does not make the
+    extraction verified, and conflating the two is how the document's confidence
+    becomes the platform's."""
+    from agents.architecture_extraction.passes import ArchitectureDecisionRecord
+
+    record = ArchitectureDecisionRecord(title="Synchronous gateway calls")
+
+    assert record.status == "ACCEPTED", "the default is what a document asserts"
+    assert record.status not in ("VERIFIED", "UNVERIFIED"), (
+        "the review state must not be expressible in this field"
+    )

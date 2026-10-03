@@ -769,4 +769,92 @@ Omit this section entirely if the excerpt contains no traceability content.""",
 )
 
 
-ARCHITECTURE_PASSES = [STRUCTURE_PASS, CONNECTION_PASS, TECHNOLOGY_PASS, TRACEABILITY_PASS]
+class ArchitectureDecisionRecord(BaseModel):
+    """A decision the DOCUMENT records, mirroring the ontology's `ArchitectureDecision`.
+
+    Shared with the Design Assistant, which proposes decisions; this profile EXTRACTS
+    the ones a document states. The record is identical because the graph node is —
+    what differs is who is claiming it, and that lives in the provenance, not here.
+    """
+
+    title: str = Field(..., description=(
+        "Short name for the decision, e.g. 'Synchronous gateway calls for "
+        "authorizations'. A decision names a CHOICE, not an element."
+    ))
+    context: str = Field(default="", description=(
+        "The forces at play when the decision was made — the requirements, quality "
+        "attributes or constraints the document gives as its reason."
+    ))
+    decision: str = Field(default="", description="What was decided.")
+    consequences: List[str] = Field(default_factory=list, description=(
+        "What follows from the decision, good and bad, as the document states it."
+    ))
+    alternatives_considered: List[str] = Field(default_factory=list, description=(
+        "The options the document says were rejected, with the reason where it gives one."
+    ))
+    decided_date: str = Field(default="", description="When it was decided, if the document says.")
+    status: str = Field(default="ACCEPTED", description=(
+        "What the DOCUMENT says about the decision's own lifecycle: ACCEPTED when it "
+        "presents the choice as settled, PROPOSED when under consideration, SUPERSEDED, "
+        "REJECTED or DEPRECATED when it says so. This is NOT the review state — the "
+        "assertion is UNVERIFIED and carries agent provenance however settled the "
+        "document sounds, and conflating the two axes is how a document's confidence "
+        "becomes the platform's."
+    ))
+    affects_elements: List[str] = Field(default_factory=list, description=(
+        "The elements this decision governs, by the exact name of an element you "
+        "extracted. Leave it empty rather than inventing an element."
+    ))
+    supersedes: List[str] = Field(default_factory=list, description=(
+        "An earlier decision this one replaces, by its exact title. Empty when new."
+    ))
+
+
+class DecisionPassResult(BaseModel):
+    architecture_decisions: List[ArchitectureDecisionRecord] = Field(default_factory=list)
+    triples: List[ExtractedTriple] = Field(default_factory=list)
+
+
+ARCHITECTURE_DECISION_PASS = PassSpec(
+    name="decisions",
+    schema=DecisionPassResult,
+    output_keys={"architecture_decisions": "architecture_decisions", "triples": "triples"},
+    instructions="""# Task: extract the architecture DECISIONS the excerpt records
+
+A decision is the WHY — a choice and the forces behind it. It is not an element and
+not a requirement. Extract only decisions the excerpt actually states or clearly
+implies; a document that records no rationale yields no decisions, and an empty
+result is a correct answer.
+
+Rules:
+1. `title` names the CHOICE, not a thing. Good: "Synchronous calls for
+   authorizations". Bad: "Payment Gateway Platform".
+2. `context` gives the forces the document cites — the requirement, quality
+   attribute or constraint that made one option win. Quote its reason where it
+   gives one; do not invent a rationale the excerpt does not contain.
+3. `decision` is what was chosen, in one sentence.
+4. `consequences` and `alternatives_considered` come from the excerpt. Both matter:
+   a decision with no rejected alternative and no consequence usually means the
+   excerpt did not state a decision, only a fact.
+5. `status` is what the DOCUMENT says — ACCEPTED for a settled choice, PROPOSED for
+   one still under consideration, SUPERSEDED / REJECTED / DEPRECATED where stated.
+   This is the decision's lifecycle in the enterprise, NOT the review state: every
+   assertion here is UNVERIFIED and agent-attributed until a human vouches for it.
+6. `affects_elements` names the elements this decision governs, by the exact name
+   of an element in this excerpt. Empty rather than invented.
+7. `supersedes` names an earlier decision this one replaces, by its exact title.
+8. Do not restate a requirement or a quality attribute as a decision. "The system
+   shall route transactions" is a requirement; "route by rule engine rather than
+   round-robin" is a decision.
+
+Omit this section entirely if the excerpt records no decisions.""",
+)
+
+
+ARCHITECTURE_PASSES = [
+    STRUCTURE_PASS,
+    CONNECTION_PASS,
+    TECHNOLOGY_PASS,
+    TRACEABILITY_PASS,
+    ARCHITECTURE_DECISION_PASS,
+]

@@ -37,6 +37,22 @@ i.e. nothing for the part a human actually vouched for. [M] 0 `ArchitectureDecis
 in any of the five revisions of either scope today, and the loader parses all 38 files cleanly
 (38 files → 38 records, 0 skipped), so the gap is the missing edges, not a parse failure.
 
+## Update 2026-10-03 — the extraction profile could not record a decision either
+
+[ISS-18](../../../ISSUES.md#iss-18--an-architecture-ingest-could-never-record-a-decision-and-nothing-failed-when-it-did-not-fixed-2026-10-03)
+found a second reason the graph held 0 decision nodes: `ARCHITECTURE_PASSES` had no
+`decisions` pass at all, so an architecture INGEST could never emit one — the ADR loader
+was the only producer. That is now fixed: the extraction profile runs a decisions pass, and
+it emits `affects_elements` for decisions a document states.
+
+That narrows this item rather than closing it, and the distinction is the one that matters:
+a decision extracted from a document is `EXTRACTION_AGENT` and `UNVERIFIED`, so its
+`affects_elements` is a CLAIM awaiting review. The 38 recorded ADRs are a human's own
+record, and inferring their element links from prose would stamp that guess
+`HUMAN_ARCHITECT`. Both routes now exist and they answer different questions — "what does
+this document assert?" versus "what did we decide?" — and the second still needs the
+frontmatter.
+
 ## Why it cannot be fixed by inference
 
 The obvious fix — read `affects_elements` out of ADR prose — is the one `decisions.py` already

@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field
 
 from ..architecture_extraction.passes import (
     ConnectionPassResult,
+    DecisionPassResult,
     DesignTechniqueRecord,
     StructurePassResult,
     TraceabilityPassResult,
@@ -378,48 +379,6 @@ Rules:
 # ============================================================================
 # 7. DECISIONS — the why, recorded so impact reasoning has something to read
 # ============================================================================
-
-
-class ArchitectureDecisionRecord(BaseModel):
-    """A decision the design makes, mirroring the ontology's `ArchitectureDecision`.
-
-    A decision is the *why* the design is this way: the forces (`context`), the
-    choice (`decision`), what follows (`consequences`), what was not chosen
-    (`alternatives_considered`), and two links that make impact reasoning
-    answerable — `affects_elements` (the elements it governs) and `supersedes`
-    (the existing decision it replaces).
-    """
-
-    title: str = Field(..., description=(
-        "Short name for the decision, e.g. 'Synchronous gateway calls for "
-        "authorizations'."
-    ))
-    context: str = Field(default="", description=(
-        "The forces at play when the decision was made — the requirements, "
-        "quality attributes or constraints that shaped it."
-    ))
-    decision: str = Field(default="", description="What was decided.")
-    consequences: List[str] = Field(default_factory=list, description=(
-        "What follows from the decision, good and bad."
-    ))
-    alternatives_considered: List[str] = Field(default_factory=list, description=(
-        "The options that were rejected, with the reason where you have it."
-    ))
-    decided_date: str = Field(default="", description="When it was decided, if known.")
-    status: str = Field(default="proposed", description=(
-        "proposed / accepted / superseded — a design proposal is 'proposed'."
-    ))
-    affects_elements: List[str] = Field(default_factory=list, description=(
-        "The elements (proposed or reused) this decision governs, by exact name."
-    ))
-    supersedes: List[str] = Field(default_factory=list, description=(
-        "An existing decision shown in Input 2 that this one replaces, by title."
-    ))
-
-
-class DecisionPassResult(BaseModel):
-    architecture_decisions: List[ArchitectureDecisionRecord] = Field(default_factory=list)
-    triples: List[ExtractedTriple] = Field(default_factory=list)
 
 
 DESIGN_DECISION_PASS = PassSpec(

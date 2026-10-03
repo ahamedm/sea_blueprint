@@ -281,6 +281,34 @@ a smaller set that no matcher can ever bind.
 Kept rather than deleted, because each was reported from using the tool and each now
 has a test that fails if it comes back.
 
+### ISS-18 — An architecture ingest could never record a decision, and nothing failed when it did not (fixed 2026-10-03)
+
+- **Reported as.** "Recent Architecture extraction job `job_e793a18aab1e` didn't get a
+  DECISIONS pass."
+- **Half of that was timing.** That job ran at **10:27:18**; `d831adf` — which added the
+  decisions pass — landed at **12:32:15**, about two hours later. Its four passes
+  (`structure`, `connections`, `technology`, `traceability`) are exactly
+  `ARCHITECTURE_PASSES` as it stood then, so the run was correct for its code.
+- **The other half was a real gap, and the more useful finding.**
+  `d831adf`'s own message says *"Add a **Design Assistant** decisions pass"* — so the pass
+  existed only in the design profile. `agents/architecture_extraction/passes.py` held
+  `ARCHITECTURE_PASSES = [structure, connections, technology, traceability]`, and
+  **ingest was already ready** (`architecture_decisions` was in the consumed-key whitelist
+  and had been since that commit). So an `/ingest` of an architecture document could never
+  emit a decision, the graph's decision count stayed at zero, and no test failed — which is
+  why the measurement in YB-067 read "0 ArchitectureDecision nodes" without anyone being
+  able to say whether that was the data or the profile.
+- **Fix.** `ARCHITECTURE_DECISION_PASS` added to the extraction profile, with the record
+  type moved to `architecture_extraction/passes.py` and imported by the design profile
+  rather than declared twice. The extraction prompt differs where it must: it extracts what
+  the DOCUMENT states and defaults `status` to `ACCEPTED`, because a document presenting a
+  choice as settled is asserting an enterprise fact — while the assertion stays `UNVERIFIED`
+  with agent provenance. Those are two axes and the prompt says so, because a document
+  sounding confident must not become the platform sounding confident.
+- **Guarded now by three assertions**: the extraction profile runs a `decisions` pass, that
+  pass's output key is one ingest consumes, and the record's `status` cannot express a review
+  state.
+
 ### ISS-17 — The ontology count pins drifted apart again, one commit after the note about it (fixed 2026-10-03)
 
 - **Evidence.** `d831adf` added `TradeOff` and took the class count 70 → 71. It updated the
