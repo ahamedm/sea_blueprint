@@ -281,6 +281,34 @@ a smaller set that no matcher can ever bind.
 Kept rather than deleted, because each was reported from using the tool and each now
 has a test that fails if it comes back.
 
+### ISS-19 — The decisions pass timed out and lost every decision, because it asked for a redundant payload (fixed 2026-10-03)
+
+- **Reported as.** `job_8e8b78bccdc9` (scope `ras_v2`, `simple_architecture_partial.md`):
+  `pass_name=decisions, outcome=failed, path=none, triples_produced=0,
+  error=no schema-valid answer from either path after 58s`.
+- **What the run shows.** The pass list is complete — `structure` 11.1s, `connections` 8.8s,
+  `technology` 28.3s, `traceability` 12.7s, `decisions` **58.1s and failed** — on a
+  **3,273-character** document. So the pass was reached, ran longest by a factor of two, and
+  returned nothing usable. Not a timeout: the structured timeout is 180s.
+- **The cause, and it is a design flaw rather than a model failure.** `DecisionPassResult`
+  declared `architecture_decisions` **and `triples`**, so the model was asked for a rich
+  nine-field record per decision *and* to restate each one's links as triples.
+  `core/knowledge/ingest.py` derives **every** decision edge from the record fields itself —
+  `affects_element` from `affects_elements`, `supersedes` from `supersedes` — so the triples
+  were work thrown away. The invoice for it was visible on a smaller document: the same pass
+  emitted **155 triples**, more than any other pass, all ignored.
+- **Fix.** `triples` removed from the schema and from `output_keys`; the prompt now bounds the
+  answer at ten decisions and says an empty list is correct and complete, and that the links are
+  read from the fields. Both profiles share the schema, so the Design Assistant gets the
+  smaller payload too.
+- **Guarded** by two assertions: a decisions payload with **no** `triples` key produces the
+  node *and* both edges, and the pass declares no `triples` output at all.
+- **Still worth a look:** the report also noted that ~24 of the decisions read as technology or
+  deployment choices rather than architecture decisions. The bound and rule 1 push toward the
+  load-bearing ones, but whether "Java Microservices Technology Decision" belongs in
+  `ArchitectureDecision` is a modelling judgement, not a bug — a technology choice with a
+  recorded rationale is arguably exactly what the class is for.
+
 ### ISS-18 — An architecture ingest could never record a decision, and nothing failed when it did not (fixed 2026-10-03)
 
 - **Reported as.** "Recent Architecture extraction job `job_e793a18aab1e` didn't get a

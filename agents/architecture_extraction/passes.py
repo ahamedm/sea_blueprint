@@ -811,14 +811,23 @@ class ArchitectureDecisionRecord(BaseModel):
 
 
 class DecisionPassResult(BaseModel):
+    """Decisions only — deliberately NO `triples`.
+
+    Ingest derives every edge a decision has from these fields: `affects_element` from
+    `affects_elements` and `supersedes` from `supersedes` (`core/knowledge/ingest.py`).
+    Asking the model to restate them as triples duplicated work it had already done, and
+    the duplication was not free: on a 3.3k-character document the pass spent 58s and
+    returned nothing schema-valid at all, losing every decision — while the same pass on
+    a smaller document emitted 155 triples that ingest ignored.
+    """
+
     architecture_decisions: List[ArchitectureDecisionRecord] = Field(default_factory=list)
-    triples: List[ExtractedTriple] = Field(default_factory=list)
 
 
 ARCHITECTURE_DECISION_PASS = PassSpec(
     name="decisions",
     schema=DecisionPassResult,
-    output_keys={"architecture_decisions": "architecture_decisions", "triples": "triples"},
+    output_keys={"architecture_decisions": "architecture_decisions"},
     instructions="""# Task: extract the architecture DECISIONS the excerpt records
 
 A decision is the WHY — a choice and the forces behind it. It is not an element and
@@ -846,6 +855,11 @@ Rules:
 8. Do not restate a requirement or a quality attribute as a decision. "The system
    shall route transactions" is a requirement; "route by rule engine rather than
    round-robin" is a decision.
+9. Record at most TEN decisions — the ones that shape the architecture. An empty list
+   is a correct and complete answer for an excerpt that records no rationale, and a
+   short list is better than a padded one. Do NOT emit triples: the links this pass
+   needs (`affects_elements`, `supersedes`) are read from those fields, so restating
+   them is work thrown away.
 
 Omit this section entirely if the excerpt records no decisions.""",
 )

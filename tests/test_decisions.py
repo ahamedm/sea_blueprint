@@ -198,3 +198,47 @@ def test_an_extracted_decision_keeps_the_two_status_axes_apart():
     assert record.status not in ("VERIFIED", "UNVERIFIED"), (
         "the review state must not be expressible in this field"
     )
+
+
+def test_a_decision_payload_needs_no_triples_to_become_nodes_and_edges():
+    """The decisions pass asks for NO triples, because ingest derives every edge from the
+    record fields. This is what makes that safe, and it is the assertion that would have
+    caught the opposite: a pass asking for a large redundant payload, timing out on a
+    3.3k-character document, and losing every decision it was meant to record."""
+    output = {
+        "architecture_decisions": [{
+            "title": "Rule-based routing over round-robin",
+            "context": "Routing criteria vary by country and currency.",
+            "decision": "Route with a configurable rule engine.",
+            "status": "ACCEPTED",
+            "consequences": ["A second component to operate"],
+            "alternatives_considered": ["Static round-robin"],
+            "affects_elements": ["Payment Orchestrator Service"],
+            "supersedes": ["Naive routing"],
+        }],
+        # deliberately NO "triples" key at all
+    }
+    graph, _ = graph_from_extraction(output, {"model_id": "stub"},
+                                     document_ref="arch.md", document_text="arch")
+
+    decision = next(n for n in graph.nodes.values() if n.kind == "ArchitectureDecision")
+    facts = {a.predicate: a for a in graph.active() if a.subject == decision.id}
+
+    assert facts["decision"].value == "Route with a configurable rule engine."
+    assert facts["status"].value == "ACCEPTED"
+    assert facts["consequence"].value == "A second component to operate"
+    assert facts["alternative"].value == "Static round-robin"
+    # the two EDGES, which is the part a triple would have duplicated
+    assert facts["affects_element"].object, "affects_elements must become an edge"
+    assert facts["supersedes"].object, "supersedes must become an edge"
+
+
+def test_the_decisions_pass_declares_no_triples_output():
+    """A pass whose declared output the agent cannot consume is the YB-051 shape; a pass
+    whose declared output is DERIVABLE is wasted model effort that failed in the field."""
+    from agents.architecture_extraction.passes import ARCHITECTURE_PASSES
+
+    spec = next(s for s in ARCHITECTURE_PASSES if s.name == "decisions")
+
+    assert "triples" not in set(spec.output_keys.values())
+    assert "triples" not in spec.schema.model_fields
