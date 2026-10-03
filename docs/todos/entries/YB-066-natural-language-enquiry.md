@@ -4,7 +4,7 @@ legacy: null
 title: "Ask the graph: a named-question registry, then a router, then SPARQL — never a model narrating the graph"
 status: open
 priority: medium
-area: "`app/` (the registry and its route), `core/knowledge/rdf.py` (the query surface YB-010 already wrote), `app/projections.py` (the answer-shaped functions the registry wraps), `scripts/bench_traversal.py` (the networkx measurements)"
+area: "`core/questions.py` + `ontology/catalogues/questions.yaml` (the registry), `core/qna/` (router, log), `agents/qna/` (classifier, agent), `app/` (the `/ask` route), `core/knowledge/rdf.py` (the query surface YB-010 wrote — allowlist, no raw SPARQL), `app/projections.py` (the answer-shaped functions the registry wraps), `scripts/bench_traversal.py` (the networkx measurements)"
 created: 2026-10-03
 updated: 2026-10-03
 design: docs/design/natural-language-enquiry.md
@@ -176,6 +176,90 @@ Two sharpening notes from the same verification:
 **So stage 4 is not "expose a projection over data that exists"** — it is *close the
 record → element link first*. That is [YB-067](YB-067-adr-frontmatter-declares-the-elements-it-governs.md),
 and it is a decision about ADR frontmatter rather than a coding task.
+
+## The plan, preserved (2026-10-03)
+
+Kept here rather than in a conversation thread: the stages below are the work item, and
+everything above is only their argument. Deltas forced by the RDF fixes are marked
+**[e2bd3eb]**.
+
+**1. The registry — a declarative catalogue of named questions**
+
+- `core/questions.py`: a frozen `QuestionEntry` (`id`, `intent`, `question`, `params`,
+  `engine`, `caveats`, `pointer`) plus `QuestionRegistry`, `load_question_registry(path)` and
+  `question_prompt_context(registry)` — mirroring `core/patterns.py`'s `PatternCatalogue`, the
+  proven "bounded vocabulary + resolution" shape. **[e2bd3eb]** the entry also needs
+  `needs_hierarchy: bool` and `current_state: bool`; see stage 2.
+- `ontology/catalogues/questions.yaml` as the seed. That directory already exists
+  (`architecture_patterns.yaml`), so this is an established home rather than a new one.
+- A missing or empty registry degrades to "no questions" rather than crashing, as a missing
+  pattern catalogue does.
+
+**2. The engine layer — one uniform, read-only tool contract**
+
+- `AnswerShaped(result, caveats, pointer, assumptions)`; engine signature
+  `(graph, scope_id, ref, params) -> AnswerShaped`.
+- Adapters over the existing projections so `gap` / `quality` / `realization` / `delta` speak
+  one return shape.
+- ~~The decisions index (`decisions_for(element)` over `affects_element` + `has_trade_off` +
+  `supersedes`)~~ — **deferred to [YB-067](YB-067-adr-frontmatter-declares-the-elements-it-governs.md)**.
+  It cannot be built as written: the slot is `affects_elements`, decisions own no trade-offs,
+  and the recorded decisions have no edge into the element graph at all.
+- `run_named_query(graph, name, limit, *, current_state, ontology_dir)`, accepting **only
+  `QUERIES` keys** — the allowlist is what forbids a model emitting raw SPARQL. **[e2bd3eb]**
+  - `current_state` comes from the ENTRY, because `include_superseded` is part of a query's
+    meaning: a retired implementer is not an implementer.
+  - It must **refuse to answer** when a `needs_hierarchy` entry finds no class hierarchy.
+    Measured: a property-path query returns 0 rows with no ontology and 1 with it, so "0" would
+    read as "nothing is missing".
+  - **`missing_active` is NOT registered.** It is fixed and deliberately unregistered, with the
+    three measured reasons in its own comment.
+
+**3. Router and classifier — select an entry, never generate a query**
+
+- `core/qna/router.py`: a keyword/synonym map to `(intent_id, confidence)` or `None`, returning
+  nearest entries on a miss. The day-1 falsification, and the fallback.
+- `agents/qna/classifier.py`: `ClassifiedQuestion{intent_id, slots, confidence}` and
+  `NoNamedQuestion{nearest}`, produced through `invoke_structured` (exists, `base_agent.py:981`)
+  from `question_prompt_context(registry)` + the ontology context + the question. It selects and
+  fills slots; it is never given query text to emit. **[e2bd3eb]** the router should SHORTLIST and
+  the classifier choose among the shortlist, so registry growth does not grow the prompt linearly.
+
+**4. The agent loop**
+
+- `agents/qna/agent.py`: `QnAAgent.run({question, scope_id, ref, initiative_id})`.
+- Resolve the graph from `ref` the way the design path does — `resolve_design_baseline(store,
+  graph)` (`app/runner.py:279`): a frozen `load_revision(ref)`, or the promoted `SYSTEM_BASELINE`,
+  or `load_working()` — and record which in `assumptions`, because an impact answer that cannot
+  name its revision is vacuous.
+- Loop: keyword router → classifier on a miss or low confidence → dispatch the entry's `engine`
+  with the filled `slots` → `AgentResult` carrying
+  `{answer, caveats, pointer, matched_intent, confidence, assumptions}`.
+- `no_named_question` is a first-class output: nearest entries plus a log event, never a
+  low-confidence guess. **[risk]** the classifier must degrade to the keyword router on timeout
+  or error, or the whole front door depends on the LLM being up.
+
+**5. CAN'T ANSWER log, route, tests**
+
+- `core/qna/log.py`: one JSON line per unanswered question — `{ts, question, matched_intent,
+  confidence, nearest_entries, scope_id, ref, initiative_id}` — to a **gitignored log under the
+  store root** (`<store_root>/.qna/unanswered.jsonl`), not the repo root, so it follows
+  `SEA_DATA_DIR` and does not mix workspaces.
+- `POST /ask` taking question + scope/ref, rendering the answer with its caveats and a deep link
+  to the deterministic surface via `pointer` — so the chat log is never the audit trail.
+- `tests/test_qna.py`: registry resolution, router, classifier (mocked `invoke_structured`), tool
+  dispatch, the `run_named_query` allowlist, the JSONL log, `no_named_question` — registered under
+  a **new area** in `scripts/test_report.py` rather than widening an existing one.
+- **[e2bd3eb] two guards, each generalising a defect found while verifying**: every registered
+  query returns ROWS on a fixture (ISS-16 was a query nothing ran and nothing tested, so a name in
+  an allowlist with no positive test is a landmine), and every entry's `pointer` resolves route
+  and params (six broken relative links survived in this repo because the check validated anchors
+  and never paths, and a declarative catalogue of deep links is where that recurs).
+
+**Assumptions carried:** the registry lives in a declarative file (design §8 decision 1) rather
+than an `app/` table; `pointer` is a route plus params; read-only is structural — the engines are
+projections and allowlisted queries, and `to_rdf` builds a derived copy; and promotion to a
+registry entry stays a human-reviewed code-plus-test change, never auto-registration.
 
 ## Recommended order
 
