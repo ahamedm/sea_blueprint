@@ -98,3 +98,4 @@
 | None | A whole-schema view for the ontology page — the 179 range edges, not the 26 is_a ones | [YB-065](entries/YB-065-whole-schema-view-for-the-ontology-page.md) | entry (open) |
 | None | Ask the graph: a named-question registry, then a router, then SPARQL — never a model narrating the graph | [YB-066](entries/YB-066-natural-language-enquiry.md) | entry (open) |
 | None | The 38 recorded decisions govern nothing — ADR frontmatter should name the elements they affect | [YB-067](entries/YB-067-adr-frontmatter-declares-the-elements-it-governs.md) | entry (open) |
+| None | Rules and regulations reach the graph as text, on a slot that declares a node range | [YB-068](entries/YB-068-governed-by-rules-is-literal-on-a-node-ranged-slot.md) | entry (open) |

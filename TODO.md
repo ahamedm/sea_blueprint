@@ -3,7 +3,7 @@
 
 Open work only. Each item is one file under `docs/todos/entries/` — that file is the source of truth and this index is generated from it.
 
-**40 active · 1 parked · 2 superseded · 38 closed records**
+**41 active · 1 parked · 2 superseded · 38 closed records**
 
 Where each thing lives, and which files are hand-edited: [docs/todos/README.md](docs/todos/README.md).
 
@@ -58,6 +58,7 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [YB-059](docs/todos/entries/YB-059-measurable-required-on-platform-requirements.md) | `measurable` is required on every NFR, so the three Platform* requirements inherit a shape they do not have | open | `ontology/requirements_base.yaml` (`NonFunctionalRequirement.measurable`, and the three `Platform*Requirement` subclasses) |
 | [YB-063](docs/todos/entries/YB-063-the-multi-tenancy-requirement-has-no-instance-to-target.md) | A multi-tenancy requirement targets the commercial Platform, and there is no instance to check it against | open | `ontology/requirements_base.yaml` (`PlatformMultiTenancyRequirement.target_platform`, `isolation_level`, `data_segregation_model`), `ontology/architecture_base.yaml` (`DeploymentNode` once YB-044 lands) |
 | [YB-066](docs/todos/entries/YB-066-natural-language-enquiry.md) | Ask the graph: a named-question registry, then a router, then SPARQL — never a model narrating the graph | open | `core/questions.py` + `ontology/catalogues/questions.yaml` (the registry), `core/qna/` (router, log), `agents/qna/` (classifier, agent), `app/` (the `/ask` route), `core/knowledge/rdf.py` (the query surface YB-010 wrote — allowlist, no raw SPARQL), `app/projections.py` (the answer-shaped functions the registry wraps), `scripts/bench_traversal.py` (the networkx measurements) |
+| [YB-068](docs/todos/entries/YB-068-governed-by-rules-is-literal-on-a-node-ranged-slot.md) | Rules and regulations reach the graph as text, on a slot that declares a node range | open | `agents/knowledge_extraction/` (the `triples` pass and the predicate list), `agents/extraction/validators.py` (range checks cover object edges only), `ontology/requirements_base.yaml` (`Requirement.governed_by_rules`) |
 
 ## Low
 
