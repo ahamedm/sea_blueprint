@@ -63,9 +63,15 @@ def test_totals(ontology):
     it), +6 enums, +2 subsets, and a fifth base layer. It is the enterprise's own
     instruments, as distinct from the external `Regulation`/`Standard` referents
     one layer down — see `ontology/governance_base.yaml`.
+
+    `TradeOff` is the newest: one class, no enum, no new subset (it joins the
+    existing `ArchitectureRationale` subset). It turns the `trade_offs` slot on
+    `ArchitectureStyle`, `ArchitecturePattern` and `DesignTechnique` from free
+    text into a structured, queryable node — the ATAM trade-off point made a
+    first-class class rather than a list of strings.
     """
     stats = ontology.stats()
-    assert stats["classes"] == 70
+    assert stats["classes"] == 71
     # 50 since `ArchitectureDocumentStatus` joined: an architecture description is
     # not DEFERRED or REJECTED the way a requirement is, so it stopped borrowing
     # `RequirementStatus`. 51 since `SharingScope` (YB-044) — an instance's sharing
@@ -83,7 +89,7 @@ def test_classes_are_attributed_to_the_layer_that_declares_them(ontology):
         "enterprise": 7,
         "requirements": 31,
         "governance": 7,
-        "architecture": 21,
+        "architecture": 22,
     }
     assert ontology.get("Provenance").layer == "common"
     assert ontology.get("Product").layer == "enterprise"

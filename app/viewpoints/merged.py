@@ -123,6 +123,7 @@ ARCHITECTURE_KINDS: FrozenSet[str] = frozenset(
         "ArchitecturePattern",
         "ArchitectureStyle",
         "ArchitectureDecision",
+        "TradeOff",
         "ArchitectureView",
         "ArchitectureSpecification",
         "Connection",

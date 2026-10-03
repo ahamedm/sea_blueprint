@@ -1447,9 +1447,13 @@ classes:
         description: Why this style was chosen.
         range: string
       trade_offs:
-        description: Known costs accepted with this style (e.g. "distributed debugging", "operational overhead").
-        range: string
+        description: >-
+          The structured costs accepted with this style — one TradeOff per
+          attribute gained versus sacrificed. A cost with no attribute mapping is
+          a TradeOff carrying `description` only.
+        range: TradeOff
         multivalued: true
+        inlined_as_list: true
       mandated_by:
         description: >-
           The requirement that mandates this style, when one does. Lets the
@@ -1491,9 +1495,12 @@ classes:
         description: Why this pattern was chosen.
         range: string
       trade_offs:
-        description: Known costs or limitations accepted with this pattern.
-        range: string
+        description: >-
+          The structured costs accepted with this pattern — one TradeOff per
+          attribute gained versus sacrificed.
+        range: TradeOff
         multivalued: true
+        inlined_as_list: true
       mandated_by:
         description: >-
           The requirement that mandates this pattern, when one does. Lets the
@@ -1649,10 +1656,12 @@ classes:
         range: string
       trade_offs:
         description: >-
-          Costs accepted with it — "distributed debugging", "external session
-          store becomes a dependency", "operational overhead of a second region".
-        range: string
+          The structured costs accepted with it — one TradeOff per attribute
+          gained versus sacrificed ("distributed debugging", "external session
+          store becomes a dependency", "operational overhead of a second region").
+        range: TradeOff
         multivalued: true
+        inlined_as_list: true
       mandated_by:
         description: >-
           The requirement that mandates this technique, when one does. Capture
@@ -1830,6 +1839,42 @@ classes:
         range: ArchitectureElement
         multivalued: true
     class_uri: sea-arc:ArchitectureDecision
+    in_subset:
+      - ArchitectureRationale
+
+  TradeOff:
+    description: >-
+      A structured cost accepted with a design choice: which quality attribute the
+      choice BUYS and which it SACRIFICES. Distinct from the free-text `rationale`
+      that explains a choice — a TradeOff is a queryable node ("which choices
+      bought Consistency at the cost of Availability?" is answerable) where a bare
+      string is only displayable. The ATAM trade-off point made a first-class
+      node, so impact reasoning can name what a change reverses rather than merely
+      that a cost was accepted.
+    attributes:
+      id:
+        identifier: true
+        range: string
+        required: true
+      name:
+        description: The trade-off as stated, e.g. "Consistency over availability".
+        range: string
+        required: true
+      description:
+        description: The cost, in prose, when it cannot be mapped to an attribute.
+        range: string
+      rationale:
+        description: Why this cost is acceptable in this design.
+        range: string
+      gains:
+        description: The quality attribute the choice buys.
+        range: QualityAttribute
+        multivalued: true
+      sacrifices:
+        description: The quality attribute the choice costs.
+        range: QualityAttribute
+        multivalued: true
+    class_uri: sea-arc:TradeOff
     in_subset:
       - ArchitectureRationale
 

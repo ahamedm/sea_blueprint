@@ -1405,7 +1405,7 @@ _PREDICATE_SHAPE = re.compile(
     r"consumes|produces|comprises|scopes|extends_|is_part_of|performs_|serves_|"
     r"delivers_|held_by|mandated_by|adopted_by|applies_to|runs_on|hosted_on|"
     r"assigned_|excluded_|included_|originates_|pursues_|exposes|provided_by|"
-    r"part_of|supersedes|belongs_to|prescribed_by|defined_by)"
+    r"affects_|part_of|supersedes|belongs_to|prescribed_by|defined_by)"
 )
 
 # Slots that point at infrastructure-of-the-record rather than meaning.
@@ -1548,6 +1548,9 @@ CORE_ROUTED_PREDICATES = frozenset({
     "addresses_goals",
     "delivers_initiatives",
     "mandated_by",
+    # Decisions and trade-offs: same-graph edges the decisions pass teaches.
+    "affects_elements",
+    "supersedes",
 })
 
 
@@ -1624,6 +1627,16 @@ LOCAL_PREDICATES = frozenset({
     # materialises the attribute as a node and writes `satisfies_attribute`; the
     # plural here is the schema slot name the model is shown.
     "satisfies_attributes",
+    # A decision naming the elements it governs and the decision it replaces.
+    # Same-graph edges — both ends live in ARC-G — so nothing routes them.
+    "affects_elements",
+    "supersedes",
+    # A TradeOff's owner and its bought/sacrificed attributes. Written by ingest
+    # when a technique, pattern or style carries structured trade_offs; the model
+    # fills the `trade_offs` record field, never these edges.
+    "has_trade_off",
+    "gains",
+    "sacrifices",
 })
 
 

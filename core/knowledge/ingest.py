@@ -65,7 +65,7 @@ INGESTED_OUTPUT_KEYS = frozenset({
     "elements", "connections", "triples",
     "technology_stacks", "architecture_styles", "design_techniques",
     "engineering_conventions", "quality_scenarios", "architecture_patterns",
-    "references", "entities", "initiatives",
+    "architecture_decisions", "references", "entities", "initiatives",
 })
 
 # Keys a consumer downstream of ingest reads. `findings` is rendered by the run
@@ -341,6 +341,10 @@ def _collect_declared_nodes(
         if isinstance(c, dict):
             declare("EngineeringConvention", c.get("name") or "")
 
+    for d in output.get("architecture_decisions", []) or []:
+        if isinstance(d, dict):
+            declare("ArchitectureDecision", d.get("title") or d.get("name") or "")
+
     # Requirements profile
     for e in output.get("entities", []) or []:
         if not isinstance(e, dict):
@@ -381,6 +385,44 @@ def _resolve(
     nid = graph.add_node(fallback_kind, label or "")
     by_label[key] = nid
     return nid
+
+
+def _ingest_trade_offs(graph, owner_id, trade_offs, by_label, provenance):
+    """Write structured TradeOff nodes for an owner's `trade_offs` field.
+
+    Accepts both a legacy bare string (kept as a description-only TradeOff) and
+    the structured `TradeOffRecord` dict (name + gains/sacrifices + rationale).
+    The TradeOff is a first-class node so its bought and sacrificed attributes
+    are queryable, not merely displayable.
+    """
+    for trade_off in trade_offs or []:
+        if isinstance(trade_off, str):
+            name, gains, sacrifices, rationale = str(trade_off).strip(), [], [], ""
+        elif isinstance(trade_off, dict):
+            name = str(trade_off.get("name") or "").strip()
+            gains = trade_off.get("gains") or []
+            sacrifices = trade_off.get("sacrifices") or []
+            rationale = str(trade_off.get("rationale") or "")
+        else:
+            continue
+        if not name:
+            continue
+        tid = _resolve(graph, name, by_label, "TradeOff")
+        graph.add_assertion(owner_id, "has_trade_off", obj=tid,
+                            confidence=1.0, provenance=provenance)
+        if rationale:
+            graph.add_assertion(tid, "rationale", value=rationale,
+                                confidence=1.0, provenance=provenance)
+        for attr_name in gains:
+            if str(attr_name).strip():
+                aid = _resolve(graph, str(attr_name).strip(), by_label, "QualityAttribute")
+                graph.add_assertion(tid, "gains", obj=aid,
+                                    confidence=1.0, provenance=provenance)
+        for attr_name in sacrifices:
+            if str(attr_name).strip():
+                aid = _resolve(graph, str(attr_name).strip(), by_label, "QualityAttribute")
+                graph.add_assertion(tid, "sacrifices", obj=aid,
+                                    confidence=1.0, provenance=provenance)
 
 
 # ============================================================================
@@ -604,6 +646,7 @@ def graph_from_extraction(
         for adopter in s.get("adopted_by") or []:
             aid = _resolve(graph, adopter, by_label)
             graph.add_assertion(aid, "follows_style", obj=sid, confidence=1.0, provenance=p)
+        _ingest_trade_offs(graph, sid, s.get("trade_offs"), by_label, p)
 
     # ---- design techniques: the mechanism that realizes a quality attribute ----
     #
@@ -647,6 +690,7 @@ def graph_from_extraction(
             if str(nfr).strip():
                 graph.add_assertion(did, "realizes_quality_attribute", value=str(nfr).strip(),
                                     confidence=1.0, provenance=p)
+        _ingest_trade_offs(graph, did, d.get("trade_offs"), by_label, p)
 
     # ---- architecture patterns: the named solutions the design adopts ----
     #
@@ -663,10 +707,7 @@ def graph_from_extraction(
             if pattern.get(slot):
                 graph.add_assertion(pid, slot, value=str(pattern[slot]),
                                     confidence=1.0, provenance=p)
-        for trade_off in pattern.get("trade_offs") or []:
-            if str(trade_off).strip():
-                graph.add_assertion(pid, "trade_off", value=str(trade_off).strip(),
-                                    confidence=1.0, provenance=p)
+        _ingest_trade_offs(graph, pid, pattern.get("trade_offs"), by_label, p)
         # The attribute a pattern targets, as a node — the same shape the technique
         # block writes, so the quality census reads both without a special case.
         for attribute in pattern.get("satisfies_attributes") or []:
@@ -742,6 +783,51 @@ def graph_from_extraction(
         for governed in c.get("applies_to") or []:
             gid = _resolve(graph, governed, by_label)
             graph.add_assertion(gid, "conforms_to", obj=cid, confidence=1.0, provenance=p)
+
+    # ---- architecture decisions: recorded choices (ADRs) and proposals ----
+    #
+    # A decision carries the forces at play (`context`), the choice (`decision`),
+    # what follows (`consequence`, one per item), what was not chosen
+    # (`alternative`), and two edges that make impact reasoning answerable:
+    # `affects_element` (the elements it governs) and `supersedes` (the decision
+    # it replaces). Both are same-graph links, resolved by label rather than kept
+    # as literal cross-graph references.
+    for decision in output.get("architecture_decisions", []) or []:
+        if not isinstance(decision, dict):
+            continue
+        title = (decision.get("title") or decision.get("name") or "").strip()
+        if not title:
+            continue
+        did = _resolve(graph, title, by_label, "ArchitectureDecision")
+        p = prov("decisions")
+        for slot in ("id", "context", "decision", "status"):
+            if decision.get(slot):
+                graph.add_assertion(did, slot, value=str(decision[slot]),
+                                    confidence=1.0, provenance=p)
+        if decision.get("decided_date") or decision.get("date"):
+            graph.add_assertion(
+                did, "decided_date",
+                value=str(decision.get("decided_date") or decision.get("date")),
+                confidence=1.0, provenance=p,
+            )
+        for consequence in decision.get("consequences") or []:
+            if str(consequence).strip():
+                graph.add_assertion(did, "consequence", value=str(consequence).strip(),
+                                    confidence=1.0, provenance=p)
+        for alternative in decision.get("alternatives_considered") or []:
+            if str(alternative).strip():
+                graph.add_assertion(did, "alternative", value=str(alternative).strip(),
+                                    confidence=1.0, provenance=p)
+        for element in decision.get("affects_elements") or []:
+            if str(element).strip():
+                eid = _resolve(graph, str(element).strip(), by_label)
+                graph.add_assertion(did, "affects_element", obj=eid,
+                                    confidence=1.0, provenance=p)
+        for superseded in decision.get("supersedes") or []:
+            if str(superseded).strip():
+                sid = _resolve(graph, str(superseded).strip(), by_label, "ArchitectureDecision")
+                graph.add_assertion(did, "supersedes", obj=sid,
+                                    confidence=1.0, provenance=p)
 
     # ---- traceability references (architecture profile) ----
     for r in output.get("references", []) or []:

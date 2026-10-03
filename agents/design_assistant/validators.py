@@ -260,3 +260,65 @@ def check_name_collisions(
                 ])
             )
     return flags
+
+
+def check_decision_affects_known_elements(
+    decisions: Sequence[Any],
+    elements: Sequence[Any],
+    known_labels: Sequence[str] = (),
+) -> List[Flag]:
+    """A decision governing an element that exists nowhere is a dangling edge.
+
+    `affects_elements` is the link that makes "which decisions govern this
+    element?" answerable, so it must point at an element the design actually has
+    — one it proposed, or one it reused from the existing architecture.
+    """
+    known = {str(label).strip().lower() for label in known_labels if str(label).strip()}
+    known |= {
+        str(element.get("name") or "").strip().lower()
+        for element in as_record_dicts(elements)
+    }
+    flags: List[Flag] = []
+    for decision in as_record_dicts(decisions):
+        title = str(decision.get("title") or "").strip()
+        for element in decision.get("affects_elements") or []:
+            name = str(element).strip()
+            if name and name.lower() not in known:
+                flags.append(
+                    Flag("decision", title, [
+                        f"affects element {name!r}, which is neither proposed nor "
+                        f"present in the existing architecture"
+                    ])
+                )
+    return flags
+
+
+def check_decision_supersedes_known(
+    decisions: Sequence[Any],
+    existing_decision_titles: Sequence[str] = (),
+) -> List[Flag]:
+    """A decision replacing a decision the design was never shown is a dangling link.
+
+    `supersedes` must name a decision the digest actually carried — a recorded ADR
+    or another proposal in this same run — otherwise ingest would mint a placeholder
+    node for a decision nobody made.
+    """
+    known = {
+        str(title).strip().lower() for title in existing_decision_titles if str(title).strip()
+    }
+    known |= {
+        str(decision.get("title") or "").strip().lower()
+        for decision in as_record_dicts(decisions)
+    }
+    flags: List[Flag] = []
+    for decision in as_record_dicts(decisions):
+        title = str(decision.get("title") or "").strip()
+        for superseded in decision.get("supersedes") or []:
+            name = str(superseded).strip()
+            if name and name.lower() not in known:
+                flags.append(
+                    Flag("decision", title, [
+                        f"supersedes {name!r}, which is not a decision the design was shown"
+                    ])
+                )
+    return flags

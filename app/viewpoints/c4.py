@@ -113,7 +113,8 @@ _TECHNOLOGY_PREDICATE = "uses_technology"
 #: counter-example — PostgreSQL is legitimately both a technology and a container, and
 #: flagging that would make the report cry wolf.
 _NEVER_AN_ELEMENT_KINDS = frozenset({
-    "DesignTechnique", "EngineeringConvention", "ArchitectureStyle", "Standard",
+    "DesignTechnique", "EngineeringConvention", "ArchitectureStyle", "TradeOff",
+    "Standard",
     "QualityAttribute", "Concept", "BusinessRule", "BusinessProcess",
 })
 

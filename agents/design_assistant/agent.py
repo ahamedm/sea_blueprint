@@ -59,6 +59,8 @@ from ..extraction import (
 from ..extraction.passes import Chunk, collect, outcome_records, run_passes, summarise
 from .passes import design_passes
 from .validators import (
+    check_decision_affects_known_elements,
+    check_decision_supersedes_known,
     check_grounded_elements,
     check_name_collisions,
     check_pattern_resolution,
@@ -81,6 +83,15 @@ def _reference_key(record: Dict[str, Any]) -> tuple:
         str(record.get("relationship") or "").strip().lower(),
         str(record.get("reference") or "").strip().lower(),
     )
+
+
+def _decision_key(record: Dict[str, Any]) -> str:
+    """Identity of a decision, for merging across passes: its title.
+
+    `ArchitectureDecisionRecord` is keyed by `title`, not `name`, so the generic
+    `named_key` would return "" for every decision and drop them all.
+    """
+    return str(record.get("title") or "").strip().lower()
 
 
 class DesignAssistantAgent(ArchitectureExtractionAgent):
@@ -172,11 +183,14 @@ class DesignAssistantAgent(ArchitectureExtractionAgent):
                 collect(outcomes, "scenarios", "quality_scenarios"), named_key, completeness)
             references = merge_records(
                 collect(outcomes, "traceability", "references"), _reference_key, completeness)
+            decisions = merge_records(
+                collect(outcomes, "decisions", "architecture_decisions"), _decision_key, completeness)
 
             self.log(
                 f"Proposed: {len(elements)} elements, {len(connections)} connections, "
                 f"{len(techniques)} techniques, {len(patterns)} patterns, "
-                f"{len(scenarios)} scenarios, {len(references)} references"
+                f"{len(scenarios)} scenarios, {len(decisions)} decisions, "
+                f"{len(references)} references"
             )
 
             # ---- 4. resolve the chosen patterns against the catalogue ----
@@ -221,6 +235,12 @@ class DesignAssistantAgent(ArchitectureExtractionAgent):
             )
             flags += check_techniques_are_linked(techniques)
             flags += check_name_collisions(elements, self._existing_kinds(graph))
+            flags += check_decision_affects_known_elements(
+                decisions, elements, known_labels=list(self._existing_kinds(graph))
+            )
+            flags += check_decision_supersedes_known(
+                decisions, self._existing_decision_titles(baseline)
+            )
             findings = [f.to_dict() for f in flags]
             if findings:
                 self.log(f"  {len(findings)} finding(s) flagged for review", level="warning")
@@ -234,6 +254,7 @@ class DesignAssistantAgent(ArchitectureExtractionAgent):
                 "design_techniques": [self._as_output_dict(t) for t in techniques],
                 "architecture_patterns": [self._as_output_dict(p) for p in patterns],
                 "quality_scenarios": [self._as_output_dict(s) for s in scenarios],
+                "architecture_decisions": [self._as_output_dict(d) for d in decisions],
                 "references": [self._as_output_dict(r) for r in references],
                 "pattern_resolutions": resolutions,
                 "findings": findings,
@@ -249,6 +270,7 @@ class DesignAssistantAgent(ArchitectureExtractionAgent):
                     "total_design_techniques": len(techniques),
                     "total_architecture_patterns": len(patterns),
                     "total_quality_scenarios": len(scenarios),
+                    "total_architecture_decisions": len(decisions),
                     "total_references": len(references),
                     "patterns_resolved": sum(1 for r in resolutions if r["resolved"]),
                     "findings": len(findings),
@@ -327,6 +349,28 @@ class DesignAssistantAgent(ArchitectureExtractionAgent):
     def _existing_kinds(graph: KnowledgeGraph) -> Dict[str, str]:
         """label (lowercased) -> kind, for the collision check."""
         return {n.label.strip().lower(): n.kind for n in graph.nodes.values()}
+
+    @staticmethod
+    def _existing_decision_titles(baseline: Optional[KnowledgeGraph]) -> List[str]:
+        """Decision titles the design input showed, for the supersedes check.
+
+        The digest merges the recorded ADRs into the architecture source, and the
+        baseline may already carry ArchitectureDecision nodes — both are decisions
+        a proposal may legitimately claim to replace.
+        """
+        from core.knowledge.decisions import DEFAULT_DECISIONS_DIR, load_adr_records
+
+        titles = {
+            str(record.get("title") or "").strip().lower()
+            for record in load_adr_records(DEFAULT_DECISIONS_DIR)
+        }
+        if baseline is not None:
+            titles |= {
+                node.label.strip().lower()
+                for node in baseline.nodes.values()
+                if node.kind == "ArchitectureDecision"
+            }
+        return sorted(title for title in titles if title)
 
     @staticmethod
     def _requirement_labels(graph: KnowledgeGraph) -> List[str]:

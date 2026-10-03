@@ -33,6 +33,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from .decisions import DEFAULT_DECISIONS_DIR, ingest_decisions, load_adr_records
 from .ingest import completeness_note
 from .model import KnowledgeGraph, REQUIREMENT_KINDS
 from .quality import quality_report
@@ -56,11 +57,18 @@ _ARCHITECTURE_SECTIONS: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
     ("Design techniques", ("DesignTechnique",)),
     ("Architecture patterns", ("ArchitecturePattern",)),
     ("Architecture styles", ("ArchitectureStyle",)),
+    ("Architecture decisions", ("ArchitectureDecision",)),
 )
 
 _ARCHITECTURE_KINDS = frozenset(
     kind for _title, kinds in _ARCHITECTURE_SECTIONS for kind in kinds
 )
+
+# The kinds that make a graph "have architecture" for the greenfield caveat.
+# ArchitectureDecision is excluded: a decision is a constraint the design must
+# respect, not an element it can extend, so a baseline that holds only decisions
+# is still a greenfield design even though the digest shows them.
+_ARCHITECTURE_ELEMENT_KINDS = _ARCHITECTURE_KINDS - {"ArchitectureDecision"}
 
 # Cross-graph predicates worth showing: they are the links a designer must not
 # recreate. A pattern/technique link is listed on the node itself.
@@ -143,6 +151,36 @@ def _outgoing(graph: KnowledgeGraph) -> Dict[str, List[Tuple[str, str]]]:
         if target:
             out.setdefault(a.subject, []).append((a.predicate, target))
     return out
+
+
+def _trade_off_lines(graph: KnowledgeGraph, node) -> List[str]:
+    """A node's TradeOffs as "name — gains X; sacrifices Y" lines.
+
+    TradeOffs are first-class nodes linked by `has_trade_off`, not literals on the
+    owner, so the digest resolves each one's bought and sacrificed attributes.
+    """
+    lines: List[str] = []
+    for a in graph.active():
+        if a.subject != node.id or a.predicate != "has_trade_off" or a.object is None:
+            continue
+        trade_off = graph.nodes.get(a.object)
+        label = trade_off.label if trade_off else a.object
+        gains: List[str] = []
+        sacrifices: List[str] = []
+        if trade_off is not None:
+            for b in graph.active():
+                if b.subject != trade_off.id or b.predicate not in ("gains", "sacrifices"):
+                    continue
+                target = _target_label(graph, b)
+                if target:
+                    (gains if b.predicate == "gains" else sacrifices).append(target)
+        parts = [label]
+        if gains:
+            parts.append("gains " + ", ".join(sorted(set(gains))))
+        if sacrifices:
+            parts.append("sacrifices " + ", ".join(sorted(set(sacrifices))))
+        lines.append(" — ".join(parts))
+    return lines
 
 
 def _source_texts(graph: KnowledgeGraph) -> Dict[str, str]:
@@ -307,6 +345,15 @@ def _render_architecture(
             })
             if attributes:
                 lines.append("    delivers: " + ", ".join(attributes))
+            if node.kind == "ArchitectureDecision":
+                decision = facts_for.get("decision")
+                if decision and decision.strip() != node.label.strip():
+                    lines.append(f"    decision: {decision[:200]}")
+                status = facts_for.get("status")
+                if status:
+                    lines.append(f"    status: {status}")
+            for trade_off in _trade_off_lines(graph, node):
+                lines.append(f"    trade-off: {trade_off}")
 
     if include_links:
         # The single most useful thing the design can be told: which requirements
@@ -447,14 +494,28 @@ def architecture_digest(
 
 
 def _architecture_node_count(graph: KnowledgeGraph) -> int:
-    """How many nodes the architecture renderer would actually draw.
+    """How many architecture ELEMENTS the graph holds, for the greenfield caveat.
 
-    Deliberately the same `_ARCHITECTURE_KINDS` the sections are built from, so
-    "this graph declares no architecture" can never disagree with what the model was
-    shown. A second notion of "has architecture" would drift from the renderer and
-    the caveat below would start lying in whichever direction drifted last.
+    Deliberately `_ARCHITECTURE_ELEMENT_KINDS` rather than every rendered kind: a
+    baseline holding only decisions names no elements to extend, so it is still a
+    greenfield design even though the digest shows those decisions.
     """
-    return sum(1 for n in graph.nodes.values() if n.kind in _ARCHITECTURE_KINDS)
+    return sum(1 for n in graph.nodes.values() if n.kind in _ARCHITECTURE_ELEMENT_KINDS)
+
+
+def _with_adr_decisions(graph: KnowledgeGraph) -> KnowledgeGraph:
+    """Merge the recorded ADRs into the architecture source.
+
+    The design extends decisions a human already made, so those decisions must
+    reach the prompt. Loaded here rather than at each caller so the CLI, the app
+    route and the worker all see the same set. Missing files degrade to no-op.
+    """
+    if not DEFAULT_DECISIONS_DIR.is_dir():
+        return graph
+    records = load_adr_records(DEFAULT_DECISIONS_DIR)
+    if not records:
+        return graph
+    return ingest_decisions(graph, records)
 
 
 def design_input(
@@ -479,7 +540,9 @@ def design_input(
     alternative, silently designing against nothing, is how a proposal ends up
     duplicating containers that already exist.
     """
-    architecture_source = baseline if baseline is not None else graph
+    architecture_source = _with_adr_decisions(
+        baseline if baseline is not None else graph
+    )
     resolved_ref = base_ref or ("baseline" if baseline is not None else "working (no frozen baseline)")
 
     requirements = requirements_digest(graph, initiative_id=initiative_id,

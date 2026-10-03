@@ -159,6 +159,7 @@ AREAS: Tuple[Area, ...] = (
             "test_requirements_chunking",
             "test_merge",
             "test_design_ingest",
+            "test_decisions",
         ),
     ),
     Area(

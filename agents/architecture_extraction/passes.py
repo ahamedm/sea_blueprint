@@ -488,6 +488,30 @@ class TechnologyStackRecord(BaseModel):
     used_by: List[str] = Field(default_factory=list, description="Elements that use it.")
 
 
+class TradeOffRecord(BaseModel):
+    """A structured cost accepted with a design choice: what it buys, what it costs.
+
+    Maps to the `TradeOff` ontology class. A bare string cost is still accepted by
+    ingest (kept as a description-only node), but the structured form is what makes
+    a trade-off queryable — "which choices bought Availability at the cost of
+    Flexibility?".
+    """
+
+    name: str = Field(..., description=(
+        "The trade-off as stated, e.g. 'Consistency over availability'."
+    ))
+    gains: List[str] = Field(default_factory=list, description=(
+        "Quality attributes the choice BUYS, named as the standard does — "
+        "'Consistency', 'Availability'."
+    ))
+    sacrifices: List[str] = Field(default_factory=list, description=(
+        "Quality attributes the choice COSTS, named the same way."
+    ))
+    rationale: str = Field(default="", description=(
+        "Why this cost is acceptable in this design."
+    ))
+
+
 class ArchitectureStyleRecord(BaseModel):
     name: str = Field(..., description="The style as the source states it, e.g. 'Stateless Modular Microservices'.")
     style: Literal[
@@ -496,6 +520,9 @@ class ArchitectureStyleRecord(BaseModel):
         "HEXAGONAL", "MICROKERNEL", "PIPELINE", "SPACE_BASED",
     ] = Field(default="", description="Normalised style.")
     adopted_by: List[str] = Field(default_factory=list)
+    trade_offs: List[TradeOffRecord] = Field(default_factory=list, description=(
+        "Structured costs accepted with the style — what it buys versus what it costs."
+    ))
 
 
 class DesignTechniqueRecord(BaseModel):
@@ -574,7 +601,9 @@ class DesignTechniqueRecord(BaseModel):
         "session state is externalised to Valkey, so losing a pod loses no "
         "session'. Not 'the services are stateless'."
     ))
-    trade_offs: List[str] = Field(default_factory=list)
+    trade_offs: List[TradeOffRecord] = Field(default_factory=list, description=(
+        "Structured costs accepted with the technique — what it buys versus what it costs."
+    ))
 
 
 class EngineeringConventionRecord(BaseModel):

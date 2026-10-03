@@ -66,7 +66,7 @@ def test_the_base_chain_is_still_exactly_five_layers(ontology):
         "architecture",
     ]
     assert ontology.stats()["layers"] == 5
-    assert ontology.stats()["classes"] == 70
+    assert ontology.stats()["classes"] == 71
 
 
 def test_no_base_layer_declares_a_domain_class(ontology, pack):

@@ -97,12 +97,12 @@ def test_overview_counts_instances_per_layer_when_a_graph_is_given(ontology, req
 
 def test_class_rows_cover_the_base_schema(ontology):
     """Base-layer classes only. Domain packs are reported separately, not counted here."""
-    assert len(class_rows(ontology)) == 70
+    assert len(class_rows(ontology)) == 71
 
 
 def test_class_rows_filter_by_layer(ontology):
     architecture = class_rows(ontology, layer="architecture")
-    assert len(architecture) == 21
+    assert len(architecture) == 22
     assert {r["layer"] for r in architecture} == {"architecture"}
 
 
@@ -341,7 +341,7 @@ def test_payload_is_complete_and_serialisable(ontology, req_extraction):
     # `ArchitectureDocumentStatus`, which gave an architecture description its own
     # lifecycle instead of borrowing `RequirementStatus` (ISS-review nit 1), and 51
     # adds `SharingScope` (YB-044) — again an enum with no new class.
-    assert len(payload["classes"]) == 70
+    assert len(payload["classes"]) == 71
     assert len(payload["enums"]) == 51
     assert len(payload["subsets"]) == 15
     json.dumps(payload)  # must not contain anything a JSON encoder refuses
@@ -370,7 +370,7 @@ def test_the_pack_is_reported_separately_from_the_base_layers(ontology, ontology
     assert view["pack"]["spec"] == "payment_processing"
     assert view["pack"]["version"]
     # The base class list is untouched by the pack being present.
-    assert view["stats"]["classes"] == 70
+    assert view["stats"]["classes"] == 71
 
 
 def test_no_pack_reports_none_rather_than_an_empty_layer(ontology):

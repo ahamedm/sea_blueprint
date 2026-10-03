@@ -1,7 +1,7 @@
 """
 Design Assistant passes.
 
-Six focused passes over ONE chunk — the REQ-G + baseline digest — because a design
+Seven focused passes over ONE chunk — the REQ-G + baseline digest — because a design
 is a global act: splitting it across chunks would let one call choose a monolith
 and the next a microservice. The budget (see `core.knowledge.digest`) is what keeps
 one chunk viable, and its cuts are reported rather than taken silently.
@@ -28,6 +28,7 @@ from ..architecture_extraction.passes import (
     DesignTechniqueRecord,
     StructurePassResult,
     TraceabilityPassResult,
+    TradeOffRecord,
 )
 from ..extraction.passes import PassSpec
 from ..knowledge_extraction.agent import ExtractedTriple
@@ -215,9 +216,10 @@ class ArchitecturePatternRecord(BaseModel):
         "HOW it delivers its quality attribute, in one clause, concretely enough to "
         "check against a quality scenario's response measure."
     ))
-    trade_offs: List[str] = Field(default_factory=list, description=(
-        "The costs accepted by adopting it. State them honestly — a pattern proposed "
-        "with no cost is a pattern that has not been thought about."
+    trade_offs: List[TradeOffRecord] = Field(default_factory=list, description=(
+        "The costs accepted by adopting it — what it buys versus what it costs, one "
+        "TradeOff per attribute gained or sacrificed. State them honestly — a pattern "
+        "proposed with no cost is a pattern that has not been thought about."
     ))
     applies_to: List[str] = Field(default_factory=list, description="Elements it governs.")
     realizes_quality_attributes: List[str] = Field(default_factory=list, description=(
@@ -373,6 +375,80 @@ Rules:
    auditor cannot report a gap that was never recorded.""")
 
 
+# ============================================================================
+# 7. DECISIONS — the why, recorded so impact reasoning has something to read
+# ============================================================================
+
+
+class ArchitectureDecisionRecord(BaseModel):
+    """A decision the design makes, mirroring the ontology's `ArchitectureDecision`.
+
+    A decision is the *why* the design is this way: the forces (`context`), the
+    choice (`decision`), what follows (`consequences`), what was not chosen
+    (`alternatives_considered`), and two links that make impact reasoning
+    answerable — `affects_elements` (the elements it governs) and `supersedes`
+    (the existing decision it replaces).
+    """
+
+    title: str = Field(..., description=(
+        "Short name for the decision, e.g. 'Synchronous gateway calls for "
+        "authorizations'."
+    ))
+    context: str = Field(default="", description=(
+        "The forces at play when the decision was made — the requirements, "
+        "quality attributes or constraints that shaped it."
+    ))
+    decision: str = Field(default="", description="What was decided.")
+    consequences: List[str] = Field(default_factory=list, description=(
+        "What follows from the decision, good and bad."
+    ))
+    alternatives_considered: List[str] = Field(default_factory=list, description=(
+        "The options that were rejected, with the reason where you have it."
+    ))
+    decided_date: str = Field(default="", description="When it was decided, if known.")
+    status: str = Field(default="proposed", description=(
+        "proposed / accepted / superseded — a design proposal is 'proposed'."
+    ))
+    affects_elements: List[str] = Field(default_factory=list, description=(
+        "The elements (proposed or reused) this decision governs, by exact name."
+    ))
+    supersedes: List[str] = Field(default_factory=list, description=(
+        "An existing decision shown in Input 2 that this one replaces, by title."
+    ))
+
+
+class DecisionPassResult(BaseModel):
+    architecture_decisions: List[ArchitectureDecisionRecord] = Field(default_factory=list)
+    triples: List[ExtractedTriple] = Field(default_factory=list)
+
+
+DESIGN_DECISION_PASS = PassSpec(
+    name="decisions",
+    schema=DecisionPassResult,
+    output_keys={"architecture_decisions": "architecture_decisions", "triples": "triples"},
+    instructions="""# Task: record the decisions this design makes
+
+A decision is the WHY — the choice and its trade-off, not an element. Record the
+handful of decisions that actually shape this design; do not narrate every default.
+
+Rules:
+1. `title` names the decision, not an element. Good: "Synchronous gateway calls
+   for authorizations". Bad: "Gateway".
+2. `context` states the forces that shaped it — the requirements, quality
+   attributes or constraints from Input 1 and Input 2 that made one option win.
+3. `decision` is what was chosen, in one sentence.
+4. `consequences` are what follows, good and bad. `alternatives_considered` are
+   the options that lost, with the reason. Both matter — a decision with no
+   rejected alternative and no consequence has not actually been made.
+5. `affects_elements` names the elements this decision governs, by the exact name
+   of an element you proposed or reused from Input 2. Leave it empty rather than
+   inventing an element.
+6. `supersedes` names an EXISTING decision shown in Input 2 that this one
+   replaces, by its exact title. Empty when the decision is new.
+7. `status` is "proposed" for every decision here — this is a proposal, and the
+   review gate is what decides whether it stands.""")
+
+
 def design_passes(
     catalogue_context: str = "", quality_attributes: Sequence[str] = ()
 ) -> List[PassSpec]:
@@ -389,4 +465,5 @@ def design_passes(
         design_pattern_pass(catalogue_context),
         DESIGN_SCENARIO_PASS,
         DESIGN_TRACEABILITY_PASS,
+        DESIGN_DECISION_PASS,
     ]

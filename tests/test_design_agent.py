@@ -28,6 +28,7 @@ from agents.architecture_extraction.passes import (
 from agents.base_agent import AgentConfig
 from agents.design_assistant import DesignAssistantAgent
 from agents.design_assistant.passes import (
+    DecisionPassResult,
     PatternPassResult,
     ScenarioPassResult,
     TechniquePassResult,
@@ -129,7 +130,7 @@ def good_handler(prompts: list | None = None):
                 {"name": "Circuit Breaker", "category": "RESILIENCE",
                  "rationale": "A failing scheme switch must not cascade.",
                  "mechanism": "Fail fast past an error threshold.",
-                 "trade_offs": ["Thresholds need tuning"],
+                 "trade_offs": [{"name": "Thresholds need tuning"}],
                  "applies_to": ["Payment Orchestrator"],
                  "realizes_quality_attributes": ["NFR-PS-001"]},
             ])
@@ -156,6 +157,16 @@ def good_handler(prompts: list | None = None):
                                 relationship="supports_capability",
                                 reference="Payment Processing"),
             ])
+        if schema is DecisionPassResult:
+            return DecisionPassResult(architecture_decisions=[
+                {"title": "Synchronous gateway calls",
+                 "context": "Authorizations must be fast and consistent.",
+                 "decision": "Call the scheme switch synchronously.",
+                 "consequences": ["Higher latency coupling"],
+                 "alternatives_considered": ["Async with outbox"],
+                 "affects_elements": ["Payment Orchestrator"],
+                 "supersedes": []},
+            ])
         return None
 
     return handler
@@ -177,6 +188,7 @@ def test_a_run_proposes_every_collection_the_plan_promised():
     assert output["design_techniques"]
     assert output["architecture_patterns"]
     assert output["quality_scenarios"]
+    assert output["architecture_decisions"]
     assert output["references"]
     assert output["statistics"]["total_elements"] == 3
 
@@ -189,8 +201,8 @@ def test_the_digest_is_the_prompt_and_it_is_one_chunk():
 
     assert result.success
     assert result.output["statistics"]["chunks"] == 1
-    # Six passes, six calls, each carrying the same digest.
-    assert len(prompts) == 6
+    # Seven passes, seven calls, each carrying the same digest.
+    assert len(prompts) == 7
     for _schema, prompt in prompts:
         assert "FR-PM-001" in prompt, "the requirement identifiers must travel"
         assert "REQ-G" in prompt
@@ -217,6 +229,7 @@ def test_pass_records_are_real_and_completeness_is_not_a_guess():
     passes = result.metadata["passes"]
     assert [p["pass_name"] for p in passes] == [
         "structure", "connections", "techniques", "patterns", "scenarios", "traceability",
+        "decisions",
     ]
     assert all(p["outcome"] == "ok" for p in passes)
     assert result.metadata["failed_calls"] == 0
@@ -337,7 +350,7 @@ def test_an_unresolved_pattern_is_reported_not_renamed():
         if schema is PatternPassResult:
             return PatternPassResult(architecture_patterns=[
                 {"name": "Quantum Flux Balancer", "category": "RESILIENCE",
-                 "mechanism": "balances flux", "trade_offs": ["none known"]},
+                 "mechanism": "balances flux", "trade_offs": [{"name": "none known"}]},
             ])
         return good_handler()(prompt, schema)
 
@@ -572,7 +585,8 @@ def test_a_proposal_ingests_with_the_right_kinds_and_provenance():
     )
 
     kinds = {n.kind for n in graph.nodes.values()}
-    assert {"ArchitecturePattern", "QualityScenario", "DesignTechnique"} <= kinds
+    assert {"ArchitecturePattern", "QualityScenario", "DesignTechnique",
+            "ArchitectureDecision"} <= kinds
     assert run.completeness == "COMPLETE", [p.outcome for p in run.passes]
     assert all(a.provenance.source_type == SOURCE_DESIGN_ASSISTANT for a in graph.active())
     assert not any(a.is_human for a in graph.active())

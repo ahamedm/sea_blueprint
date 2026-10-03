@@ -99,8 +99,14 @@ def test_a_pattern_becomes_its_own_node_kind():
     }
     assert ("pattern_category", "RESILIENCE") in facts
     assert any(p == "mechanism" for p, _ in facts)
-    assert ("trade_off", "A state machine per dependency") in facts
-    assert ("trade_off", "Thresholds need tuning") in facts
+    # `trade_offs` are structured TradeOff nodes linked via `has_trade_off`, not
+    # literal `trade_off` assertions on the pattern.
+    trade_offs = {
+        graph.nodes[a.object].label
+        for a in graph.active()
+        if a.subject == node.id and a.predicate == "has_trade_off"
+    }
+    assert trade_offs == {"A state machine per dependency", "Thresholds need tuning"}
 
 
 def test_a_pattern_links_to_the_element_it_governs():
