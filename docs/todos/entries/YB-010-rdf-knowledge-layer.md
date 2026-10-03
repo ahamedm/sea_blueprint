@@ -63,3 +63,50 @@ the interface is safe, not only the reason the audit is. Design:
 [natural-language-enquiry.md](../../design/natural-language-enquiry.md). §C of
 [graph-interaction.md](../../design/graph-interaction.md) reached the same conclusion from
 the UX side, independently.
+
+## SHACL: state today, and the trap this item must not walk into (2026-10-03)
+
+**SHACL is not in use anywhere.** `pyshacl` is neither installed nor declared; no ontology
+YAML declares `shapes:`, `rules:` or any `sh:` term; there is no generated shapes file; and
+nothing validates the graph against shapes. SHACL appears only in prose — this entry, the
+legacy TODO, the two engine evaluations, and YB-066.
+
+**It is reachable, and generation still works** (re-verified against the current ontology,
+which is now five layers and 70 classes — the design document's 242,561-char figure predates
+that):
+
+| Entry schema | Generated SHACL | NodeShapes | `sh:closed` |
+|---|---|---|---|
+| `architecture_base.yaml` | 295,405 chars | 63 | 63 |
+| `requirements_base.yaml` | 178,447 chars | 42 | 42 |
+| `governance_base.yaml` | 202,856 chars | 49 | 49 |
+
+Every generated `NodeShape` is closed. `SchemaView(...).merge_imports()` is required first —
+the same workaround, for the same reason, that `tests/test_ontology.py::test_resolution_matches_linkml`
+already applies.
+
+**What runs instead: 15 hand-rolled validators reading the same ontology.** `check_enum_membership`,
+`check_element_types`, `check_object_contract`, `check_reference_kinds`, and eleven more, making
+**25** calls into the ontology reader (`ontology_enum`, `ontology_classes`,
+`ontology_slot_range`, `ontology_subclasses`). So the closed-world check already exists; it is
+implemented directly rather than expressed in SHACL.
+
+**The distinction is the surface, not the capability.** Those validators run on a **run's
+output** — they are called inside the architecture-extraction and design agents, against that
+run's `triples` and `elements` — and there is no graph-level validation entry point at all (no
+validate module under `core/knowledge/`). So today's checks are an **ingest gate**; SHACL would
+be a **graph audit** over the RDF projection, cross-graph joins included.
+
+**The trap:** adopting SHACL as a *second* implementation of the same closed-world check
+creates two mechanisms for one fact — the defect this repo repeatedly finds
+(`shared_across_enterprise`'s two mechanisms; "four layers" in prose beside five cards). So
+SHACL must either **replace** the subset of validators whose semantics it captures, or be
+**asserted equivalent** to them. The house pattern for that second option is already here:
+`test_resolution_matches_linkml`, whose docstring says it plainly — *"Asserting against my own
+expectations would only prove I am consistently wrong."* The same test shape would hold the
+validators and the generated shapes together.
+
+The gains SHACL actually offers are therefore **(a) the surface** — the accumulated graph rather
+than one run's output; **(b) the standard** — an external tool (Jena, later) can execute the same
+shapes; and **(c) one source** — the ontology, already the source both would read. Not "validation",
+which is present and tested.
