@@ -719,9 +719,85 @@ IDENTITY_BY_CITATION_PREDICATES = frozenset(
     }
 )
 
+# The names of the identity reasons. Defined once, next to the rule that produces
+# them, because they are a VOCABULARY two modules share: `match_score` reports one
+# as the reason it scored a candidate definitively, and this module's
+# `reference_targets_a_node` uses it to decide a reference is already a link. Two
+# copies of the strings would eventually be two names for one decision.
+IDENTITY_REASON_EXTERNAL_REF = "external_ref"
+IDENTITY_REASON_CITING_KEY = "citing_document_key"
+
+
+def reference_identity_reason(
+    ref: ExternalReference,
+    predicate: str,
+    citing_document: str = "",
+) -> str:
+    """Why a MATCHING identifier IDENTIFIES its referent, or "" when it is evidence.
+
+    THE ONE DEFINITION OF THE IDENTITY RULE. The caller has already established
+    that `ref.identifier` equals the name it is being compared against; this
+    answers the separate question of whether that agreement is *identity* or
+    *resemblance*. Deterministic, and three ways it can be identity — each
+    independently justified, and none of them wording:
+
+    1. **It is a join key** (`is_join_key`) — held in a system of record, so it is
+       unique beyond the document that stated it. The strongest join available,
+       and the reason references are typed at all.
+    2. **The citing document stated it** — the reference's own `system` names the
+       document the citing assertion came from, so one source stated both.
+    3. **It is a cited requirement key** — under an `implements_*` predicate
+       (`IDENTITY_BY_CITATION_PREDICATES`), where citing the document's own key
+       IS the claim the predicate makes. Every other predicate joins on meaning,
+       where a shared label like "Payment Processing" in two documents is a
+       coincidence to assess rather than a fact.
+
+    WHAT THIS DOES *NOT* DECIDE. `match_score` treats all three as definitive,
+    because proposing a candidate is not asserting it. `reference_targets_a_node`
+    additionally requires the identifier be of a type the other side actually
+    published — see `READ_BOUND_REFERENCE_TYPES`. That narrowing is a deliberate
+    write-side policy, not an oversight: the matcher may propose on a document's
+    wording, but binding may not rest on it.
+    """
+    if ref.is_join_key:
+        return IDENTITY_REASON_EXTERNAL_REF
+    if citing_document and (ref.system or "").strip() == citing_document.strip():
+        return IDENTITY_REASON_EXTERNAL_REF
+    if predicate in IDENTITY_BY_CITATION_PREDICATES:
+        return IDENTITY_REASON_CITING_KEY
+    return ""
+
+
+# What a citation reference needs IN ADDITION to a reason before this module will
+# report it as an already-bound link rather than an open proposal.
+#
+# A reason says the identifier AGREES with a name. It does not say the other side
+# published that identifier as a key — and binding on an identifier nobody published
+# as one is the confident wrong join this module was typed to prevent: it makes the
+# audit wrong rather than incomplete. An identifier the architecture profile
+# recorded as a plain document label (`OTHER`) is a string two documents may
+# legitimately share, so it stays evidence a human accepts — which is why
+# `match_score` still reports it as a 1.0 proposal, for exactly that act.
+#
+# DELIBERATELY NOT `is_join_key`. A join key (`scope=ENTERPRISE`, e.g. a `PPM_ID`
+# or `EA_REPOSITORY_ID` held by a requirements tool) is arguably a STRONGER claim
+# than a document-local requirement key, and today it does NOT bind here: it is
+# offered as a 1.0 `external_ref` proposal and `bulk_resolve` binds it one pass
+# later. Widening this to `is_join_key` would bind it on read instead. That is a
+# real decision about how much authority to grant an enterprise register, not an
+# oversight, so it is left to a human and named here so it can be made in one
+# place. Measured: on the stored corpus no reference is ENTERPRISE-scoped at all,
+# so the choice changes nothing until a graph carries a typed join key.
+READ_BOUND_REFERENCE_TYPES = frozenset({"REQUIREMENT_KEY"})
+
 
 def reference_targets_a_node(graph: "KnowledgeGraph", a: Assertion) -> Optional[Node]:
     """The node a cross-graph reference ALREADY names, or None.
+
+    THE ONE ANSWER TO "is this bound?". Used by
+    `KnowledgeGraph.unresolved_references`, `realization_edges`/`realization_state`
+    and (for the input set it scores) `reference_candidates`, so those three cannot
+    hold different opinions about whether a claim is a link.
 
     Three ways a reference can name a node, and all three count:
 
@@ -732,18 +808,25 @@ def reference_targets_a_node(graph: "KnowledgeGraph", a: Assertion) -> Optional[
        there is nothing to reconcile. Refusing to see that reported working links
        as unresolved — and it is why the label check has always been here.
     3. **Its text equals a node's external identifier, under an `implements_*`
-       predicate** (`IDENTITY_BY_CITATION_PREDICATES`). This is the citation case:
-       `implements_requirement -> FR-PM-001` names the requirement carrying
-       `FR-PM-001` as its key. Without it, a verbatim-preserved requirement id
-       could still not join across documents, which was the defect this item
-       existed to fix.
+       predicate** (`IDENTITY_BY_CITATION_PREDICATES`), and that identifier is of a
+       type the other side published as a key (`READ_BOUND_REFERENCE_TYPES`). This
+       is the citation case: `implements_requirement -> FR-PM-001` names the
+       requirement carrying `FR-PM-001` as its key. Without it, a
+       verbatim-preserved requirement id could still not join across documents,
+       which was the defect this item existed to fix.
+
+    NOT THE MATCHER'S RULE. `match_score` scores a candidate 1.0 on the same
+    identity reasons but does NOT narrow to type-backed identifiers, and it also
+    recognises a same-document label. So the matcher's 1.0 set is a SUPERSET of
+    what binds here, and `bulk_resolve` is what closes the gap: a reference this
+    function calls unbound is offered as a proposal, and accepting it writes the
+    object-valued link. That is the intended propose-then-decide split, not a
+    disagreement — the one question with one answer is whether a claim is bound,
+    and this function is it.
 
     When more than one node carries the identifier, the strongest claim wins: a
     key held in a system of record outranks one numbered by a document. Only then
     does document order decide, and a wrong pick stays reviewable and reversible.
-
-    Shared by `KnowledgeGraph.unresolved_references`, the matcher and the
-    realization report so they cannot disagree about whether a claim is bound.
     """
     if a.object:
         return graph.nodes.get(a.object)
@@ -759,13 +842,18 @@ def reference_targets_a_node(graph: "KnowledgeGraph", a: Assertion) -> Optional[
     if a.predicate not in IDENTITY_BY_CITATION_PREDICATES:
         return None
 
-    # Requirement kinds only, and only a REQUIREMENT_KEY: the predicate's range
-    # says the referent IS a requirement, and the reference type decides whether
-    # the identifier is one. An identifier the architecture profile recorded as a
-    # plain document label (`OTHER`) is a string two documents may legitimately
-    # share, so it stays evidence. Without this the citation rule would bind on
-    # any shared identifier — the confident wrong join this module was typed to
-    # prevent — and would reach across kinds as well.
+    # Requirement kinds only. The predicate's range says the referent IS a
+    # requirement, so a node of another kind carrying the same string is a
+    # different thing that happens to share a name — and without this the citation
+    # rule would reach across kinds as well as across documents.
+    #
+    # The predicate guard above is branch 3 of `reference_identity_reason`: under a
+    # citation predicate a matching identifier IS an identity reason, which is why
+    # nothing here calls that function — the only gate that narrows further is the
+    # TYPE. The other side must have PUBLISHED this identifier as a key
+    # (`READ_BOUND_REFERENCE_TYPES`); a plain document label (`OTHER`) is a string
+    # two documents may legitimately share, so it stays evidence a human accepts
+    # rather than a link this function reports as already made.
     #
     # A key held in a system of record wins over a document-local one, because two
     # nodes really can carry `FR-PM-001` (one in Jira, one numbered by a brief)
@@ -777,7 +865,7 @@ def reference_targets_a_node(graph: "KnowledgeGraph", a: Assertion) -> Optional[
         if node.kind in REQUIREMENT_KINDS
         and any(
             ref.identifier.strip().lower() == text
-            and ref.reference_type.strip().upper() == "REQUIREMENT_KEY"
+            and ref.reference_type.strip().upper() in READ_BOUND_REFERENCE_TYPES
             for ref in node.external_references
         )
     ]

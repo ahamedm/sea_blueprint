@@ -3,7 +3,7 @@
 
 Open work only. Each item is one file under `docs/todos/entries/` — that file is the source of truth and this index is generated from it.
 
-**43 active · 1 parked · 2 superseded · 38 closed records**
+**44 active · 1 parked · 2 superseded · 38 closed records**
 
 Where each thing lives, and which files are hand-edited: [docs/todos/README.md](docs/todos/README.md).
 
@@ -61,6 +61,7 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [YB-068](docs/todos/entries/YB-068-governed-by-rules-is-literal-on-a-node-ranged-slot.md) | Rules and regulations reach the graph as text, on a slot that declares a node range | open | `agents/knowledge_extraction/` (the `triples` pass and the predicate list), `agents/extraction/validators.py` (range checks cover object edges only), `ontology/requirements_base.yaml` (`Requirement.governed_by_rules`) |
 | [YB-069](docs/todos/entries/YB-069-the-four-catalogues-and-how-each-is-consumed.md) | Catalogues — Principles, Policies, Technology Radar, Strategies — injected into the pass that needs each | open | `core/patterns.py` (the shape to generalise into `core/catalogues.py`), `ontology/catalogues/` (the instance files), `agents/*/passes.py` (the injection seam), `core/knowledge/` (the curated-load path YB-047 specifies) |
 | [YB-070](docs/todos/entries/YB-070-decisions-in-a-requirements-document-land-in-concept.md) | A decision named in a requirements document lands in Concept, because that profile cannot see the class | open | `ontology/requirements_base.yaml` (its `imports:`), `agents/knowledge_extraction/` (the `triples` pass), `agents/extraction/validators.py` (a finding for the fallback) |
+| [YB-071](docs/todos/entries/YB-071-an-enterprise-join-key-proposes-at-1-00-but-does-not-bind.md) | An enterprise join key scores 1.00 but does not bind, so /reconcile and /realization disagree about one reference | open | `core/knowledge/model.py` (`READ_BOUND_REFERENCE_TYPES`, `reference_identity_reason`, `reference_targets_a_node`), `core/knowledge/reconcile.py` (`match_score`, `bulk_resolve`) |
 
 ## Low
 

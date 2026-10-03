@@ -101,3 +101,4 @@
 | None | Rules and regulations reach the graph as text, on a slot that declares a node range | [YB-068](entries/YB-068-governed-by-rules-is-literal-on-a-node-ranged-slot.md) | entry (open) |
 | None | Catalogues — Principles, Policies, Technology Radar, Strategies — injected into the pass that needs each | [YB-069](entries/YB-069-the-four-catalogues-and-how-each-is-consumed.md) | entry (open) |
 | None | A decision named in a requirements document lands in Concept, because that profile cannot see the class | [YB-070](entries/YB-070-decisions-in-a-requirements-document-land-in-concept.md) | entry (open) |
+| None | An enterprise join key scores 1.00 but does not bind, so /reconcile and /realization disagree about one reference | [YB-071](entries/YB-071-an-enterprise-join-key-proposes-at-1-00-but-does-not-bind.md) | entry (open) |

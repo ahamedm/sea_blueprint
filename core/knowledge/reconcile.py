@@ -45,7 +45,8 @@ from typing import Any, Dict, FrozenSet, Iterable, List, Optional, Sequence, Tup
 
 from .model import (
     CROSS_GRAPH_PREDICATES,
-    IDENTITY_BY_CITATION_PREDICATES,
+    IDENTITY_REASON_CITING_KEY,
+    IDENTITY_REASON_EXTERNAL_REF,
     REQUIREMENT_KINDS as _REQUIREMENT_KINDS,
     IDENTITY_SCOPE_DOCUMENT,
     SOURCE_HUMAN_ARCHITECT,
@@ -54,6 +55,7 @@ from .model import (
     ExternalReference,
     KnowledgeGraph,
     Provenance,
+    reference_identity_reason,
     utc_now,
 )
 from .review import ACTION_RESOLVE, Decision, ReviewLog
@@ -159,6 +161,24 @@ def normalise(text: str) -> str:
     return _NON_ALNUM.sub(" ", (text or "").lower()).strip()
 
 
+# The verdict for a matching identifier that is NOT identity: reportable evidence,
+# deliberately below the resolve threshold. Not an `IDENTITY_REASON_*` because it is
+# the absence of one — the matcher's word for "worth showing, not worth trusting".
+_REASON_UNSCOPED = "unscoped_ref"
+
+# Precedence among the reasons a matching identifier can carry. Needed so WHICH
+# reason a candidate reports does not depend on the order references happen to be
+# stored in: a document label and a system-of-record key can carry the same
+# identifier (both `FR-PM-001`), so first-match-wins would let storage order decide
+# whether the strongest signal was visible at all. An enterprise identifier outranks
+# a citation (it is unique beyond any document); both outrank the evidence verdict.
+_IDENTITY_REASON_RANK = {
+    IDENTITY_REASON_EXTERNAL_REF: 2,
+    IDENTITY_REASON_CITING_KEY: 1,
+    _REASON_UNSCOPED: 0,
+}
+
+
 def significant_tokens(text: str) -> FrozenSet[str]:
     return frozenset(t for t in normalise(text).split() if len(t) > 1 and t not in _STOPWORDS)
 
@@ -220,36 +240,39 @@ def match_score(
     if t_norm == l_norm:
         return 1.0, "exact"
 
-    # Scan every reference before deciding, and prefer an enterprise key. A
-    # document label and a system-of-record key can carry the same identifier
-    # (both `FR-PM-001`), so returning on the first match would let list order
-    # decide the outcome — the strongest signal would be invisible depending on
-    # which reference happened to be recorded first.
-    cites_requirement = predicate in IDENTITY_BY_CITATION_PREDICATES
-    local_hit = False
-    local_same_document = False
+    # Scan every reference, then let the STRONGEST reason decide — never the first
+    # one. A document label and a system-of-record key can carry the same identifier
+    # (both `FR-PM-001`), so first-match-wins would let storage order decide whether
+    # the strongest available signal was visible at all.
+    #
+    # The rule itself lives in `model.reference_identity_reason`, beside the
+    # predicate set it is about, because `reference_targets_a_node` must apply the
+    # same rule when it decides a reference is already a link. Two copies of "is
+    # this identifier identity or resemblance?" would eventually be two answers.
+    # What differs is the POLICY on the answer, not the answer: every reason below
+    # is definitive to a PROPOSAL, while binding narrows further (see
+    # `READ_BOUND_REFERENCE_TYPES`).
+    best_reason = ""
     for ref in _as_references(external_refs):
         if normalise(ref.identifier) != t_norm:
             continue
-        if ref.is_join_key:
-            # Held in a system of record: an exact identifier match, the most
-            # reliable join available and the reason references exist at all.
-            return 1.0, "external_ref"
-        local_hit = True
-        if source_document and (ref.system or "").strip() == source_document.strip():
-            local_same_document = True
+        reason = reference_identity_reason(ref, predicate, source_document) or _REASON_UNSCOPED
+        if _IDENTITY_REASON_RANK[reason] > _IDENTITY_REASON_RANK.get(best_reason, -1):
+            best_reason = reason
 
-    if local_hit and local_same_document:
-        return 1.0, "external_ref"
+    if best_reason == IDENTITY_REASON_EXTERNAL_REF:
+        # Held in a system of record, or stated by the citing document itself: an
+        # exact identifier match, the most reliable join available.
+        return 1.0, IDENTITY_REASON_EXTERNAL_REF
 
-    if local_hit and cites_requirement:
-        return 1.0, "citing_document_key"
+    if best_reason == IDENTITY_REASON_CITING_KEY:
+        return 1.0, IDENTITY_REASON_CITING_KEY
 
-    if local_hit:
+    if best_reason:
         # The label matches, but it is local to a different document, so `FR-001`
         # may well mean something else there. Reported as evidence, and
         # deliberately below the resolve threshold.
-        return 0.6, "unscoped_ref"
+        return 0.6, _REASON_UNSCOPED
 
     if t_norm in l_norm or l_norm in t_norm:
         shorter, longer = sorted((t_norm, l_norm), key=len)
@@ -613,8 +636,12 @@ def _require_reference(graph: KnowledgeGraph, assertion_id: str):
 
 # Reasons that ARE identity rather than resemblance. A document's own stable key,
 # or wording that matches verbatim, leaves no room for the link to be wrong about
-# *which* thing it points at.
-_IDENTITY_REASONS = frozenset({"exact", "external_ref", "citing_document_key"})
+# *which* thing it points at. The two identifier reasons come from
+# `model.reference_identity_reason`, so this set cannot drift into a second name
+# for one of them.
+_IDENTITY_REASONS = frozenset(
+    {"exact", IDENTITY_REASON_EXTERNAL_REF, IDENTITY_REASON_CITING_KEY}
+)
 
 
 def _link_confidence(
@@ -687,7 +714,18 @@ def resolve_reference(
         # citation rule makes it identity, and a bare re-score does not know that).
         score, reason = proposed_score, (match_reason or reason)
     else:
-        score, reason = match_score(a.target, node.label, node.external_references, "", a.predicate)
+        # A target typed into the form by hand, with no proposal behind it. Score
+        # it under the same predicate AND the same citing document the proposer
+        # would have used — `reference_candidates` resolves the document from the
+        # run, so passing "" here would silently drop the same-document branch and
+        # score a hand-typed target weaker than the identical proposal.
+        score, reason = match_score(
+            a.target,
+            node.label,
+            node.external_references,
+            _document_of_run(graph, a.provenance.run_id),
+            a.predicate,
+        )
     before = {"target": a.target, "object": None, "status": a.status, "scope": a.scope}
 
     trace = (

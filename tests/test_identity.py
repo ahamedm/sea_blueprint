@@ -24,13 +24,18 @@ import pytest
 from core.knowledge.ingest import graph_from_extraction, merge_graphs
 from core.knowledge.model import (
     MANAGED_REFERENCE_TYPES,
+    IDENTITY_REASON_CITING_KEY,
+    IDENTITY_REASON_EXTERNAL_REF,
     IDENTITY_SCOPE_DOCUMENT,
     IDENTITY_SCOPE_ENTERPRISE,
+    READ_BOUND_REFERENCE_TYPES,
     ExternalReference,
     KnowledgeGraph,
     document_reference,
+    reference_identity_reason,
+    reference_targets_a_node,
 )
-from core.knowledge.realization import realization_edges
+from core.knowledge.realization import realization_edges, realization_state
 from core.knowledge.reconcile import match_score, reference_candidates
 from core.knowledge.serialise import node_from_dict, node_to_dict
 
@@ -356,3 +361,114 @@ def test_a_document_local_identifier_is_not_a_join_key():
     assert proposal.best is None
     assert proposal.best_near_miss is not None
     assert proposal.best_near_miss.score < 1.0
+
+
+# ============================================================================
+# One identity rule, two policies on it
+# ============================================================================
+
+
+def test_the_identity_reason_is_one_rule_with_one_vocabulary():
+    """`match_score` and `reference_targets_a_node` judge a match by the SAME rule.
+
+    The rule used to exist twice — once inside `match_score`, once as a
+    `reference_type == "REQUIREMENT_KEY"` comparison in `reference_targets_a_node` —
+    so "is this identifier identity or resemblance?" had two implementations free to
+    drift, and the two verdict names were bare string literals in two modules. The
+    function is now the single answer and the constants are its vocabulary.
+    """
+    join_key = ExternalReference(identifier="CI0004872", system="ServiceNow CMDB",
+                                reference_type="CMDB_CI", scope=IDENTITY_SCOPE_ENTERPRISE)
+    requirement_key = document_reference("FR-PM-001", "req.md")
+    requirement_key.reference_type = "REQUIREMENT_KEY"
+    plain_label = document_reference("Availability", "req.md")
+
+    # A join key is identity under ANY predicate — it is unique beyond its document.
+    assert reference_identity_reason(join_key, "traces_to_goal") == IDENTITY_REASON_EXTERNAL_REF
+
+    # A requirement key is identity only where citing the key IS the claim.
+    assert reference_identity_reason(requirement_key, "implements_requirement") == (
+        IDENTITY_REASON_CITING_KEY
+    )
+    assert reference_identity_reason(requirement_key, "traces_to_goal") == ""
+
+    # One document stating both the label and the thing it labels is identity...
+    assert reference_identity_reason(plain_label, "traces_to_goal", "req.md") == (
+        IDENTITY_REASON_EXTERNAL_REF
+    )
+    # ...but a different document's label is evidence, and says so by returning nothing.
+    assert reference_identity_reason(plain_label, "traces_to_goal", "other.md") == ""
+
+
+def _citing_requirement(rtype: str, scope: str, system: str):
+    """A container citing `PA-77`, and the requirement that publishes it."""
+    graph = KnowledgeGraph()
+    graph.add_node("SoftwareSystem", "Payment Gateway Platform")
+    container = graph.add_node("Container", "Payment Orchestrator")
+    requirement = graph.add_node(
+        "FunctionalRequirement", "Payment Acceptance",
+        external_references=[
+            ExternalReference(identifier="PA-77", system=system,
+                              reference_type=rtype, scope=scope)
+        ],
+    )
+    claim = graph.add_assertion(container, "implements_requirement", value="PA-77",
+                                confidence=0.8)
+    return graph, claim, requirement
+
+
+def test_a_published_join_key_is_proposed_definitively_but_not_yet_bound():
+    """The boundary between PROPOSING identity and BINDING on it, pinned.
+
+    An enterprise key is the most reliable join available, so the matcher scores it
+    1.0 `external_ref` and reports the reference as resolvable. It still does not
+    bind on read: `reference_targets_a_node` requires the identifier be of a type
+    the other side PUBLISHED (`READ_BOUND_REFERENCE_TYPES`), and `EA_REPOSITORY_ID`
+    is not one of those today.
+
+    The consequence is visible and deliberate: `/realization` calls the requirement
+    unanswered while `/reconcile` calls it certain at 1.00, and one `bulk_resolve`
+    pass closes the gap. Widening `READ_BOUND_REFERENCE_TYPES` to `is_join_key`
+    would bind it on read instead — a real decision about how much authority to
+    grant an enterprise register, which this test exists to make explicit rather
+    than accidental.
+    """
+    graph, claim, requirement = _citing_requirement(
+        "EA_REPOSITORY_ID", IDENTITY_SCOPE_ENTERPRISE, "EA-Repo"
+    )
+
+    # Proposed: definitive, and offered for binding.
+    score, reason = match_score(claim.target, requirement,
+                                graph.nodes[requirement].external_references, "",
+                                claim.predicate)
+    assert (score, reason) == (1.0, IDENTITY_REASON_EXTERNAL_REF)
+    assert len(reference_candidates(graph)) == 1
+
+    # Bound: not yet, and the coverage verdict says so honestly.
+    assert reference_targets_a_node(graph, claim) is None
+    assert graph.unresolved_references() == [claim]
+    coverage = {r.node_id: r.coverage for r in realization_state(graph)}
+    assert coverage[requirement] == "none"
+
+
+def test_a_published_requirement_key_is_identity_for_both_readers():
+    """The case that must agree: a key the requirements side really published.
+
+    `implements_requirement -> FR-PM-001` where the requirement carries
+    `FR-PM-001` as its `REQUIREMENT_KEY`. The matcher calls it identity and the read
+    layer binds it, so the requirement reads as answered with no human step — which
+    is the join `IDENTITY_BY_CITATION_PREDICATES` exists for. A graph where the two
+    readers disagreed HERE would be the defect, and both now call one rule.
+    """
+    graph, claim, requirement = _citing_requirement(
+        "REQUIREMENT_KEY", IDENTITY_SCOPE_DOCUMENT, "req.md"
+    )
+
+    assert reference_identity_reason(
+        graph.nodes[requirement].external_references[0], claim.predicate, ""
+    ) == IDENTITY_REASON_CITING_KEY
+    assert reference_targets_a_node(graph, claim) is not None
+    assert graph.unresolved_references() == []
+    assert "REQUIREMENT_KEY" in READ_BOUND_REFERENCE_TYPES
+    coverage = {r.node_id: r.coverage for r in realization_state(graph)}
+    assert coverage[requirement] == "full"
