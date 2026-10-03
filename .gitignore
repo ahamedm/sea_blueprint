@@ -43,6 +43,11 @@ env/
 # file). data/ remains the default OUTPUT_DIR at runtime; it is simply not a
 # place we keep anything worth reviewing.
 data/
+
+# The /ask CAN'T ANSWER log lives beside the store it describes (`<store_root>/.qna/`).
+# With the repo root as the store it would land here, and a local record of what users
+# asked is not something to publish by accident.
+.qna/
 *.log
 
 # Testing
