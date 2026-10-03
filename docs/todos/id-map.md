@@ -95,3 +95,4 @@
 | None | The two platform lenses — and the joint decision with YB-044 on what a technology platform IS | [YB-062](entries/YB-062-the-two-platform-lenses.md) | entry (open) |
 | None | A multi-tenancy requirement targets the commercial Platform, and there is no instance to check it against | [YB-063](entries/YB-063-the-multi-tenancy-requirement-has-no-instance-to-target.md) | entry (open) |
 | None | Context ingestion — route the vocabulary by subset instead of shipping every visible name | [YB-064](entries/YB-064-route-the-vocabulary-by-subset.md) | entry (open) |
+| None | A whole-schema view for the ontology page — the 179 range edges, not the 26 is_a ones | [YB-065](entries/YB-065-whole-schema-view-for-the-ontology-page.md) | entry (open) |

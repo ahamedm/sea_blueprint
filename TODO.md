@@ -3,7 +3,7 @@
 
 Open work only. Each item is one file under `docs/todos/entries/` — that file is the source of truth and this index is generated from it.
 
-**37 active · 1 parked · 2 superseded · 38 closed records**
+**38 active · 1 parked · 2 superseded · 38 closed records**
 
 | Where | What |
 |---|---|
@@ -71,6 +71,7 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [YB-039](docs/todos/entries/YB-039-ontology-class-on-intra-graph-slots.md) | `ontology_class` on intra-graph slots is undefined — so the coverage invariant counts edges it cannot classify | open | `core/knowledge/ingest.py`, `core/knowledge/model.py`, `scripts/run_extraction_tests.py` |
 | [YB-060](docs/todos/entries/YB-060-system-architectural-pattern-shadows-the-pattern-model.md) | `System.architectural_pattern` is a free string shadowing the ArchitecturePattern model | open | `ontology/enterprise_structure.yaml` (`System.architectural_pattern`), `ontology/architecture_base.yaml` (`ArchitecturePattern`, `ArchitectureStyle`) |
 | [YB-061](docs/todos/entries/YB-061-provenanced-is-a-node-mixin-while-provenance-is-per-assertion.md) | `Provenanced` is a node mixin while provenance actually lives on assertions | open | `ontology/sea_common.yaml` (`Provenanced`, `ExternallyReferenced`), their two consumers, and `core/knowledge/model.py` (`Node` vs `Assertion.provenance`) |
+| [YB-065](docs/todos/entries/YB-065-whole-schema-view-for-the-ontology-page.md) | A whole-schema view for the ontology page — the 179 range edges, not the 26 is_a ones | open | `app/ontology_reference.py` (a whole-model projection beside `class_neighbourhood`), `app/templates/ontology.html` (the canvas that today needs `?focus=`), `app/viewpoints/merged.py` (`map_tree` — the reusable core), `core/ontology.py` (`ClassSpec.is_a` / `.mixins` / `.subsets`, already there) |
 
 ## Parked
 
