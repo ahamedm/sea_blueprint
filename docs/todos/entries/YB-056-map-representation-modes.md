@@ -235,6 +235,37 @@ a 26,000-unit canvas, technically tidy and unreadable at any zoom.
 **Not done: the filtering half (Option B).** The mode is the representation; those five
 candidates remain open, and this entry stays open for them.
 
+### Legibility: staggered rows, and a label that fits its column (2026-10-03)
+
+Reported from using it: in tree mode the labels stepped on each other. Measured cause, and
+it is two collisions rather than one:
+
+- **Label-to-label.** Labels are drawn to the RIGHT of a node (`x: 13`) and ran to ~200
+  units at 30 characters, while `_TREE_X_STEP` is 132 — so two neighbours printed on one
+  line.
+- **Label-to-shape.** Even with the labels parted, a 30-character label still reaches into
+  the *next node's circle*, and that collision is horizontal. Staggering cannot fix it.
+
+So both fixes are applied, and they differ by what position MEANS — which is why this is
+computed server-side and tested rather than nudged in the browser:
+
+| Region | What moves | Why |
+|---|---|---|
+| Family block | the NODES alternate by column (`_TREE_STAGGER`) | position there carries nothing; it is a shelf |
+| Hierarchy | only the LABEL alternates (`label_dy`) | vertical position IS the depth channel, and moving a node would corrupt the one thing a tree promises |
+| Everywhere | the label is truncated to `label_max_chars`, derived from `_TREE_X_STEP` | the remaining collision is horizontal, so the label has to fit the column |
+
+The alternation is assigned in a pass over the **finished rows**, not inside the layout
+recursion: "adjacent" is a property of a row, and a leaf's slot parity stops meaning
+"next to" once internal nodes — whose x is the mean of their children — share that row.
+Measured on both live scopes: **0 adjacent same-offset pairs across every row**, and the
+non-overlap invariant is unchanged. The limit is derived (18 characters at step 132) so a
+font change does not silently reintroduce the overlap.
+
+Four checks pin it: adjacent labels must alternate height, a label cannot reach the next
+column, a family block's nodes must stagger, and the hierarchy must keep every child
+strictly below its parent while only labels move.
+
 ### What is explicitly not proposed
 
 - **Replacing the force view.** It shows clusters and the overall shape, which the

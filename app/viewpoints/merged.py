@@ -51,7 +51,7 @@ assertions — see `app/viewpoints/__init__.py` for why the layers are split.
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Any, Dict, FrozenSet, Iterable, List, Optional, Tuple
+from typing import Any, Dict, FrozenSet, List, Optional, Tuple
 
 from app.projections import (
     HIERARCHY_DIRECTIONS,
@@ -654,6 +654,33 @@ _TREE_MARGIN = 60
 _TREE_GROUP_COLS = 6
 _TREE_GROUP_WRAP = 8 * _TREE_X_STEP
 
+#: Labels are drawn to the RIGHT of a node and run to ~200 units at 30 characters,
+#: while `_TREE_X_STEP` is 132 — so two nodes one column apart put their text on the
+#: same line and it collides. Measured on `payments_v3`, where the family blocks are
+#: 183 nodes in six columns and read as one smear.
+#:
+#: The fix differs by what position MEANS, which is the whole reason this is computed
+#: here and tested rather than nudged in the browser:
+#:
+#:   in a family block   position carries nothing — it is a shelf — so the NODES
+#:                       alternate up and down and adjacent labels part company
+#:   in the hierarchy    vertical position IS the depth channel, so moving a node
+#:                       would corrupt the one thing the tree promises; the LABEL
+#:                       alternates instead, which separates the text and changes
+#:                       nothing about the drawing's meaning
+_TREE_STAGGER = _TREE_Y_STEP // 2
+_TREE_LABEL_DY = 4      # centred-ish below the node: what every node drew before
+_TREE_LABEL_DY_ALT = -12  # above it, so alternate siblings do not share a line
+
+#: How many characters of a label fit the gap between two columns. The stagger above
+#: separates a label from the NEXT LABEL, but not from the next node's SHAPE: a
+#: 30-character label runs ~200 units while `_TREE_X_STEP` is 132, so it reaches into
+#: the following node whatever its height. The label therefore has to fit the column,
+#: and since the step is a layout constant this is derived rather than guessed at a
+#: font size in the browser. ~6.2 units per character at the label's 11.5px, plus the
+#: 13-unit x offset it is drawn at and a 6-unit gap.
+_TREE_LABEL_CHARS = max(8, int((_TREE_X_STEP - 13 - 6) / 6.2))
+
 #: The id prefix for a placeholder that exists only to group unparented nodes. It is
 #: a GROUP, not a parent the graph claims: `parent_of` never assigns a real node under
 #: one as if an edge existed, and the group is drawn as a placeholder.
@@ -760,6 +787,10 @@ def map_tree(
     # its children, which cannot overlap because every leaf owns a distinct slot. It
     # is a layered drawing, not a beauty contest: deterministic and readable first.
     place: Dict[str, Tuple[float, int]] = {}
+    #: Per-node vertical offset for the LABEL, in the same shape as `place`. Leaves
+    #: alternate so that a row of siblings does not print one continuous line of text;
+    #: internal nodes keep the default because their children's labels are below them.
+    label_dy: Dict[str, int] = {}
     next_slot = [0]
 
     def layout(node: str, depth: int) -> float:
@@ -806,13 +837,29 @@ def map_tree(
         children[gid] = members
         place[gid] = (cursor_x + block_w / 2, cursor_y)
         for i, member in enumerate(members):
-            place[member] = (cursor_x + (i % cols) * _TREE_X_STEP,
-                             cursor_y + _TREE_Y_STEP * (1 + i // cols))
+            col = i % cols
+            # Alternate columns up and down: a shelf's position carries no meaning, so
+            # the offset costs nothing and buys the row its legibility.
+            stagger = _TREE_STAGGER if col % 2 else 0
+            place[member] = (cursor_x + col * _TREE_X_STEP,
+                             cursor_y + _TREE_Y_STEP * (1 + i // cols) + stagger)
             # The placeholder is the member's parent in the DRAWING, so the edge is
             # recorded. It is not a graph edge and is not counted as one below.
             parent_of[member] = gid
         cursor_x += block_w + _TREE_X_STEP * 2
-        row_bottom = max(row_bottom, cursor_y + _TREE_Y_STEP * rows)
+        row_bottom = max(row_bottom, cursor_y + _TREE_Y_STEP * rows + _TREE_STAGGER)
+
+    # Alternate the label height along every row of the finished drawing, so adjacent
+    # labels do not print on one line. Done as a pass over the positions rather than
+    # inside the recursion, because "adjacent" is a property of the ROW: a leaf's slot
+    # parity is not the same thing once internal nodes — whose x is the mean of their
+    # children — share that row and would otherwise all default to the same offset.
+    rows: Dict[float, List[str]] = {}
+    for node, (_x, y) in place.items():
+        rows.setdefault(y, []).append(node)
+    for members_of_row in rows.values():
+        for index, node in enumerate(sorted(members_of_row, key=lambda n: place[n][0])):
+            label_dy[node] = _TREE_LABEL_DY if index % 2 == 0 else _TREE_LABEL_DY_ALT
 
     tree_nodes: List[Dict[str, Any]] = []
     for node in drawn:
@@ -820,6 +867,7 @@ def map_tree(
         tree_nodes.append({
             "id": node, "parent": parent_of.get(node, ""),
             "x": round(x, 1), "y": round(y, 1),
+            "label_dy": label_dy.get(node, _TREE_LABEL_DY),
             "group": False,
         })
     for gid in group_ids:
@@ -827,13 +875,12 @@ def map_tree(
         x, y = place[gid]
         tree_nodes.append({
             "id": gid, "parent": "", "x": round(x, 1), "y": round(y, 1),
+            "label_dy": label_dy.get(gid, _TREE_LABEL_DY),
             "group": True,
             "label": FAMILY_LABELS.get(family, family),
             "kind": "group",
         })
 
-    max_depth = max((p[1] for p in place.values()), default=0)
-    max_slot = max((p[0] for p in place.values()), default=0)
     # Only edges the tree DID NOT use are "cross links". Counting every link here
     # would report the tree's own edges as its omissions.
     grouped_total = sum(len(v) for v in grouped.values())
@@ -865,6 +912,9 @@ def map_tree(
         # The canvas the caller must fit. Reported rather than recomputed by the
         # renderer, so the picture and the viewBox cannot disagree about how big the
         # drawing is.
+        # The renderer truncates labels in tree mode by this, so a label cannot reach
+        # the next column — the number belongs to the layout, not to a font guess.
+        "label_max_chars": _TREE_LABEL_CHARS,
         "width": round(max((x for x, _ in place.values()), default=0.0) + _TREE_MARGIN, 1),
         "height": round(max((y for _, y in place.values()), default=0.0) + _TREE_MARGIN, 1),
     }

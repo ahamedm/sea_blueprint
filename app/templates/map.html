@@ -541,9 +541,21 @@
       });
 
       node.append('text')
-        .attr('x', 13).attr('y', 4)
+        // `label_dy` is computed with the layout, not chosen here: labels run to the
+        // right and two nodes a column apart would otherwise print on one line. In a
+        // family block the NODES alternate (position there means nothing); in the
+        // hierarchy only the LABEL does, because vertical position is the depth
+        // channel and moving a node would corrupt it (YB-056).
+        .attr('x', 13).attr('y', function (d) { return d.label_dy === undefined ? 4 : d.label_dy; })
         .attr('fill', function (d) { return d.placeholder ? '#94a3b8' : '#0f172a'; })
-        .text(function (d) { return d.label.length > 30 ? d.label.slice(0, 29) + '…' : d.label; });
+        .text(function (d) {
+          // In tree mode the limit comes from the LAYOUT, not from a font guess here:
+          // a label longer than the column step runs into the next node's shape, which
+          // staggering cannot fix because the collision is horizontal (YB-056).
+          var max = (MODE === 'tree' && data.tree && data.tree.label_max_chars)
+                  ? data.tree.label_max_chars : 30;
+          return d.label.length > max ? d.label.slice(0, max - 1) + '…' : d.label;
+        });
 
       function position(sel) {
         sel.attr('x1', function (d) { return d.source.x; })

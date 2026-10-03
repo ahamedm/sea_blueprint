@@ -161,7 +161,6 @@ def test_the_layout_is_deterministic_and_does_not_overlap():
     ] + [("QualityAttribute", f"Q{i}", "supports_capability", "BusinessCapability", "Cap")
          for i in range(7)]
     graph = _graph(claims)
-    ids = [n.id for n in graph.nodes.values()]
 
     first = _tree(graph)
     second = _tree(graph)
@@ -235,3 +234,93 @@ def test_tree_mode_gives_every_drawn_node_a_position(seeded_client):
     assert real == drawn, "every drawn node is placed exactly once"
     assert all("x" in n and "y" in n for n in tree["nodes"])
     assert tree["width"] > 0 and tree["height"] > 0
+
+
+# ---------------------------------------------------------------------------
+# Legibility: labels must not step on each other or on the next node
+# ---------------------------------------------------------------------------
+
+def _rows(tree):
+    """The drawing grouped by the y a node sits at, left to right."""
+    rows = {}
+    for node in tree["nodes"]:
+        rows.setdefault(node["y"], []).append(node)
+    return [sorted(group, key=lambda n: n["x"]) for group in rows.values()]
+
+
+def _forest_graph():
+    """A forest wide enough to have siblings sharing a row, plus a grouped family."""
+    claims = [("Container", f"C{i}", "part_of", "SoftwareSystem", "Platform")
+              for i in range(8)]
+    claims += [("QualityAttribute", f"Q{i}", "supports_capability", "BusinessCapability", "Cap")
+               for i in range(8)]
+    return _graph(claims)
+
+
+def test_adjacent_labels_alternate_height():
+    """A row of nodes draws its labels to the RIGHT, so two neighbours put their text
+    on one line: at `_TREE_X_STEP` a 30-character label is ~200 units wide. Alternating
+    the offset is what parts them, and it has to hold for every adjacent pair — an
+    internal node taking the mean of its children shares the row too."""
+    tree = _tree(_forest_graph())
+
+    bad = []
+    for row in _rows(tree):
+        for left, right in zip(row, row[1:]):
+            if left["label_dy"] == right["label_dy"]:
+                bad.append((left["id"], right["id"], left["label_dy"]))
+
+    assert not bad, f"adjacent labels share a line: {bad[:3]}"
+
+
+def test_a_label_cannot_reach_the_next_column():
+    """The stagger separates label from label; it cannot separate label from the next
+    node's SHAPE, because that collision is horizontal. So the label has to fit the
+    column, and the limit is derived from the layout step rather than guessed at a font
+    in the browser."""
+    tree = _tree(_forest_graph())
+    max_chars = tree["label_max_chars"]
+
+    # ~6.2 units/char at the label's font, drawn at x+13, with a 6-unit gap.
+    assert 13 + max_chars * 6.2 + 6 <= 132, (
+        f"{max_chars} characters would run past the next column at step 132"
+    )
+    assert 8 <= max_chars <= 30, "the limit must be useful, not a stub"
+
+
+def test_grouped_families_stagger_the_nodes_themselves():
+    """In a family block position carries no meaning — it is a shelf — so the NODES
+    alternate and adjacent columns part company. In the hierarchy only the LABEL does,
+    because vertical position is the depth channel and moving a node would corrupt the
+    one thing the tree promises."""
+    tree = _tree(_forest_graph())
+    grouped = [n for n in tree["nodes"]
+               if (n.get("parent") or "").startswith("group:")]
+    assert grouped, "this fixture must have a grouped family"
+
+    # Within one block, consecutive columns must not share a y.
+    by_y = {}
+    for node in grouped:
+        by_y.setdefault(node["y"], []).append(node["x"])
+    columns = {}
+    for node in grouped:
+        columns.setdefault(round(node["y"]), set()).add(round(node["x"]))
+    shared = [y for y, xs in by_y.items() if len(xs) > 1]
+    assert shared, "the block's nodes are all on one row — the stagger is not applied"
+
+
+def test_the_forest_keeps_depth_as_height_while_labels_alternate():
+    """The reason the fix differs by region: a staggered node in the hierarchy would
+    break 'deeper means lower', so only the label moves."""
+    tree = _tree(_forest_graph())
+    forest = [n for n in tree["nodes"]
+              if not (n.get("parent") or "").startswith("group:")]
+    depths = {}
+    for node in forest:
+        depths.setdefault(node["y"], []).append(node)
+    # every child is strictly below its parent, and the label offset never moves a node
+    by_id = {n["id"]: n for n in tree["nodes"]}
+    for node in forest:
+        parent = node.get("parent")
+        if parent and parent in by_id:
+            assert by_id[parent]["y"] < node["y"]
