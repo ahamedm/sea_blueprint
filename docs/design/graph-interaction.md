@@ -150,6 +150,13 @@ Three shapes, in rising cost:
 
 What none of these is: a chat box that answers architecture questions in prose.
 
+> **Fleshed out 2026-10-03:** the estimate this section calls a hypothesis is now a routed
+> design with measurements — [natural-language-enquiry.md](natural-language-enquiry.md),
+> work tracked as [YB-066](../todos/entries/YB-066-natural-language-enquiry.md). It keeps
+> the constraint above, adds **impact of a change** as a third enquiry class this section
+> does not cover, and settles the networkx question by measurement (indexed traversal wins;
+> networkx is for algorithms). The three shapes below stand as the rising-cost ordering.
+
 ## 3. What is already available to build on **[M]**
 
 Worth listing, because most of §A and §B needs no new machinery:

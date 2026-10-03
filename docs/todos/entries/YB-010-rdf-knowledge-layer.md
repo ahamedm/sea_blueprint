@@ -51,3 +51,15 @@ fallback. Two caveats: `--validate-only` re-checks saved artifacts rather than a
 and the harness still has one unrelated gate failing (`inv_no_tech_leak`, `Quartz` as an
 element). The precondition is satisfiable; declaring extraction reliability *proven* is a
 judgement for the owner, not a number this entry can close on.
+
+**A second caller, and a better argument for this item (2026-10-03).** The query surface
+this entry specifies is written, tested and **unreachable**: `run_query` and the four named
+queries in `core/knowledge/rdf.py` are called only from
+`scripts/test_knowledge_layer.py`, and the sole product path to RDF is `/export/graph.ttl`.
+[YB-066](YB-066-natural-language-enquiry.md) proposes to make asking the graph a
+first-class interaction by translating natural language into *named* deterministic queries
+— which gives those four queries a caller and makes the closed query language the reason
+the interface is safe, not only the reason the audit is. Design:
+[natural-language-enquiry.md](../../design/natural-language-enquiry.md). §C of
+[graph-interaction.md](../../design/graph-interaction.md) reached the same conclusion from
+the UX side, independently.

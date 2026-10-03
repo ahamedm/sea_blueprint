@@ -139,13 +139,13 @@ def render_todo(entries: list[dict], records: list[dict]) -> str:
         f"**{len(active)} active · {len(parked)} parked · {len(superseded)} superseded "
         f"· {len(records)} closed records**",
         "",
-        "| Where | What |",
-        "|---|---|",
-        "| `docs/todos/entries/` | open work, one file per item |",
-        "| `docs/decisions/` | closed work — what was decided, with the evidence |",
-        "| `docs/design/` | long analysis moved out of the entries |",
-        "| `docs/todos/legacy-todo-v1.md` | the original single-file TODO, frozen |",
-        "| `docs/todos/id-map.md` | legacy item number → current id |",
+        # The directory table this used to carry is in `docs/todos/README.md`, in a
+        # richer form (it has an "edited by hand?" column). Restating it here was a
+        # duplicate statement of the same layout, and it cost the index seven lines
+        # against a guard that says this file stays scannable — so the index points at
+        # the document instead of competing with it.
+        "Where each thing lives, and which files are hand-edited: "
+        "[docs/todos/README.md](docs/todos/README.md).",
         "",
         "Regenerate with `uv run scripts/todo.py render`; validate with "
         "`uv run scripts/todo.py check`.",
