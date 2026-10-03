@@ -3,7 +3,7 @@
 
 Open work only. Each item is one file under `docs/todos/entries/` — that file is the source of truth and this index is generated from it.
 
-**31 active · 1 parked · 2 superseded · 38 closed records**
+**34 active · 1 parked · 2 superseded · 38 closed records**
 
 | Where | What |
 |---|---|
@@ -58,6 +58,7 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [YB-054](docs/todos/entries/YB-054-unrouted-requirements-output-keys.md) | The requirements profile computes contract violations and low-confidence items that no consumer reads | open | `agents/knowledge_extraction/agent.py` (emits them), `core/knowledge/ingest.py` or the run pipeline (must read them), `app/templates/` (where a reviewer would see them) |
 | [YB-056](docs/todos/entries/YB-056-map-representation-modes.md) | A second representation for the knowledge map — hierarchy over force, and real filtering | open | `app/templates/map.html`, `app/viewpoints/merged.py` (the projection a layout reads), `app/static/js/` (a layout module), `app/__init__.py` (a `/?mode=` route parameter), `app/static/css/sea.css` |
 | [YB-058](docs/todos/entries/YB-058-decision-models-for-review-and-reconcile.md) | Decision models (Jev, Clef) as assistance in Review and Reconcile — ranking without authority | open | `core/knowledge/review.py` (the decision log and what a recommendation would be), `core/knowledge/reconcile.py` (candidate scoring and `bulk_resolve`), `app/projections.py` (the queue and the candidate list), `agents/base_agent.py` (a provider path for a decision endpoint) |
+| [YB-059](docs/todos/entries/YB-059-measurable-required-on-platform-requirements.md) | `measurable` is required on every NFR, so the three Platform* requirements inherit a shape they do not have | open | `ontology/requirements_base.yaml` (`NonFunctionalRequirement.measurable`, and the three `Platform*Requirement` subclasses) |
 
 ## Low
 
@@ -65,6 +66,8 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 |---|---|---|---|
 | [YB-004](docs/todos/entries/YB-004-model-output-not-structurally-stable.md) | Model output is not structurally stable across runs | open | `agents/base_agent.py`, `agents/knowledge_extraction/agent.py` |
 | [YB-039](docs/todos/entries/YB-039-ontology-class-on-intra-graph-slots.md) | `ontology_class` on intra-graph slots is undefined — so the coverage invariant counts edges it cannot classify | open | `core/knowledge/ingest.py`, `core/knowledge/model.py`, `scripts/run_extraction_tests.py` |
+| [YB-060](docs/todos/entries/YB-060-system-architectural-pattern-shadows-the-pattern-model.md) | `System.architectural_pattern` is a free string shadowing the ArchitecturePattern model | open | `ontology/enterprise_structure.yaml` (`System.architectural_pattern`), `ontology/architecture_base.yaml` (`ArchitecturePattern`, `ArchitectureStyle`) |
+| [YB-061](docs/todos/entries/YB-061-provenanced-is-a-node-mixin-while-provenance-is-per-assertion.md) | `Provenanced` is a node mixin while provenance actually lives on assertions | open | `ontology/sea_common.yaml` (`Provenanced`, `ExternallyReferenced`), their two consumers, and `core/knowledge/model.py` (`Node` vs `Assertion.provenance`) |
 
 ## Parked
 

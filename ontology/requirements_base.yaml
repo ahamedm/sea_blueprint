@@ -826,7 +826,15 @@ classes:
       - BusinessContext
 
   ProcessActivity:
-    description: A single step or task within a business process.
+    description: >-
+      A single step or task within a business process.
+
+      Nested-only until now: `BusinessProcess.activities` is an inlined list, so
+      the class could be described and not populated, which is the shape YB-055
+      named for `ConceptAttribute` and fixed there by adding a FLAT back-reference.
+      `process` below is that same fix, and the same caveat applies — no extraction
+      pass emits an activity record yet, so the flat shape is declared for an
+      implementation to land in rather than because one exists.
     attributes:
       id:
         identifier: true
@@ -837,6 +845,13 @@ classes:
         required: true
       description:
         range: string
+      process:
+        description: >-
+          The BusinessProcess this activity belongs to, when it arrives as its own
+          record rather than nested inside `BusinessProcess.activities`. An
+          activity belongs to exactly one process — the same identity rule that
+          makes a flat `ConceptAttribute` qualify its label with its owner.
+        range: BusinessProcess
       sequence_order:
         description: Position of this activity within the process.
         range: integer
@@ -1339,9 +1354,47 @@ classes:
         required: true
       regulation_or_standard:
         description: >-
-          The specific regulation, law, or standard being referenced
-          (e.g., "GDPR Article 17", "PCI-DSS v4.0 Req 3.4").
+          The specific regulation, law, or standard being referenced, VERBATIM as
+          the source cites it (e.g., "GDPR Article 17", "PCI-DSS v4.0 Req 3.4").
+
+          This is the extraction-time linkage, in the same shape as
+          `ArchitectureElement.requirement_refs`: it survives a document that
+          cites an instrument without naming it as an entity. The resolved edges
+          below are what make compliance a query rather than a reading exercise.
         range: string
+      regulation_refs:
+        description: >-
+          Identifiers of the named regulations this constraint answers, as cited
+          in the source ("GDPR", "PSD2"). Matched against `Regulation` during
+          reconciliation, in the same two-step shape `requirement_refs` and
+          `implements_requirements` use.
+        range: string
+        multivalued: true
+      standard_refs:
+        description: >-
+          Identifiers of the named standards this constraint conforms to, as
+          cited in the source ("ISO/IEC 27001", "PCI-DSS v4.0").
+        range: string
+        multivalued: true
+      regulations:
+        description: >-
+          Resolved `Regulation` objects this constraint answers. Populated during
+          reconciliation, when `regulation_refs` have been matched against the
+          governance layer. Prefer `regulation_refs` at extraction time, since
+          the instruments may not be resolvable yet.
+
+          Without this edge `Regulation` was ranged over by NOTHING in any layer
+          while being defined here, so the "traceable to a named regulation"
+          compliance walk had no join to make — a class declared and never
+          pointed at, which is indistinguishable from one that does not exist.
+        range: Regulation
+        multivalued: true
+      standards:
+        description: >-
+          Resolved `Standard` objects this constraint conforms to. Populated
+          during reconciliation, when `standard_refs` have been matched.
+        range: Standard
+        multivalued: true
       jurisdiction:
         description: Legal or geographic jurisdiction (if applicable).
         range: string
@@ -1363,6 +1416,13 @@ classes:
     description: >-
       A description of an interaction between an actor and the system
       that yields a measurable business outcome.
+
+      NOTE: declared but never populated. The requirements extraction vocabulary
+      (`knowledge_extraction/agent.py`) does not name it, so no run emits one and
+      every slot below is empty on every graph. The coverage census reports it as
+      a zero-instance class, which is correct rather than a defect — recorded here
+      for the same reason `QualityScenario` is: the shape is what an
+      implementation would have to produce.
     attributes:
       id:
         identifier: true
@@ -1410,6 +1470,9 @@ classes:
   Actor:
     description: >-
       An external entity (human or system) that interacts with the system.
+
+      NOTE: declared but never populated — see `UseCase`. Stakeholders ARE
+      extracted; actors, who are the use-case layer's other half, are not.
     attributes:
       id:
         identifier: true
@@ -1433,7 +1496,13 @@ classes:
       - BusinessContext
 
   UseCaseStep:
-    description: A single step in a use case's main flow.
+    description: >-
+      A single step in a use case's main flow.
+
+      Nested-only, like `ProcessActivity`: `UseCase.main_flow` is an inlined list.
+      `use_case` below is the flat back-reference (YB-055's fix, applied here),
+      declared so an implementation has somewhere to land — nothing emits a step
+      record today.
     attributes:
       step_number:
         range: integer
@@ -1444,12 +1513,22 @@ classes:
       system_response:
         description: How the system responds.
         range: string
+      use_case:
+        description: >-
+          The UseCase this step belongs to, when it arrives flat rather than
+          nested inside `main_flow`.
+        range: UseCase
     class_uri: sea-req:UseCaseStep
     in_subset:
       - BusinessContext
 
   AlternativeFlow:
-    description: A branching path from the main use case flow.
+    description: >-
+      A branching path from the main use case flow.
+
+      Nested-only, and reached two ways: `UseCase.alternative_flows` and
+      `AlternativeFlow.steps` (which ranges back over `UseCaseStep`). `use_case`
+      below is the flat back-reference, the YB-055 shape applied here.
     attributes:
       id:
         identifier: true
@@ -1458,6 +1537,11 @@ classes:
       name:
         range: string
         required: true
+      use_case:
+        description: >-
+          The UseCase this flow branches from, when it arrives flat rather than
+          nested inside `alternative_flows`.
+        range: UseCase
       trigger_condition:
         description: What causes the branch to execute.
         range: string
@@ -1659,6 +1743,9 @@ classes:
     description: >-
       A factor believed to be true for the purposes of this specification,
       but not yet verified. Risks if proven false.
+
+      NOTE: declared but never populated. Nothing in the extraction vocabulary
+      names it, so the census reports it zero-instance.
     attributes:
       id:
         identifier: true
@@ -1682,7 +1769,13 @@ classes:
       - Specification
 
   GlossaryTerm:
-    description: A domain-specific term with a precise definition.
+    description: >-
+      A domain-specific term with a precise definition.
+
+      NOTE: declared but never populated. Nothing in the extraction vocabulary
+      names it, so the census reports it zero-instance. Distinct from
+      `DomainConcept`, which IS extracted: a glossary term is a definition, a
+      domain concept is a thing the business reasons about.
     attributes:
       term:
         identifier: true
@@ -1836,6 +1929,9 @@ classes:
       Defines which requirements a SubProduct includes or excludes.
       Sub-products are feature-scoped slices of a parent Product —
       this binding class records that scope explicitly.
+
+      NOTE: declared but never populated. Nothing in the extraction vocabulary
+      names it, so the census reports it zero-instance.
     attributes:
       sub_product:
         description: The sub-product whose scope is being defined.
@@ -1863,6 +1959,10 @@ classes:
       delivering. Complements the requirement-side slot
       `Requirement.traces_to_capabilities` by making the system's
       capability ownership explicit (useful for coverage/gap auditing).
+
+      NOTE: declared but never populated. Nothing in the extraction vocabulary
+      names it, so the census reports it zero-instance — which is why the
+      capability-coverage audit currently reads the requirement side only.
     attributes:
       system:
         description: The system that delivers the capability.

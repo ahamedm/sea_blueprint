@@ -66,7 +66,10 @@ def test_totals(ontology):
     """
     stats = ontology.stats()
     assert stats["classes"] == 70
-    assert stats["enums"] == 49
+    # 50 since `ArchitectureDocumentStatus` joined: an architecture description is
+    # not DEFERRED or REJECTED the way a requirement is, so it stopped borrowing
+    # `RequirementStatus`.
+    assert stats["enums"] == 50
     assert stats["subsets"] == 15
     assert stats["layers"] == 5
     assert stats["abstract"] == 4

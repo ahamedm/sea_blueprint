@@ -79,6 +79,25 @@ enums:
           Level 4 — classes, modules, functions. Usually optional; generated
           or deliberately skipped.
 
+  ArchitectureDocumentStatus:
+    description: >-
+      Lifecycle state of an architecture description. Deliberately NOT
+      `RequirementStatus`: a document is not DEFERRED or REJECTED the way a
+      requirement is — it is superseded by a later architecture — and reusing
+      that enum made two different lifecycles look like one, so an
+      `ArchitectureSpecification` marked REJECTED had no defined meaning.
+    permissible_values:
+      DRAFT:
+        description: Initial capture, not yet reviewed.
+      IN_REVIEW:
+        description: Under active review by stakeholders.
+      APPROVED:
+        description: Formally accepted; the architecture the enterprise builds to.
+      SUPERSEDED:
+        description: Replaced by a later architecture, kept for lineage.
+      OBSOLETE:
+        description: No longer applicable, with nothing put in its place.
+
   ContainerType:
     description: >-
       C4 container kinds. A container is anything that must be running for
@@ -546,7 +565,7 @@ classes:
       created_date:
         range: date
       status:
-        range: RequirementStatus
+        range: ArchitectureDocumentStatus
       # Anchors into the lower layers
       architecture_of_system:
         description: The enterprise System this architecture describes.
@@ -1416,7 +1435,27 @@ classes:
           required" plus "the platform is replicated" into a stated mechanism
           the auditor can check ("Redundancy realizes High Availability") instead
           of two facts with no edge between them.
+
+          Distinct from `satisfies_attributes` below, and both are kept for the
+          reason `ArchitectureElement` gives: this answers "which stated NFR does
+          this pattern answer?" and is only as complete as the requirements
+          document, while that answers "what quality property does it deliver?"
+          and survives an attribute nobody wrote down.
         range: NonFunctionalRequirement
+        multivalued: true
+      satisfies_attributes:
+        description: >-
+          The quality ATTRIBUTES this pattern delivers, as opposed to the NFRs
+          that state them.
+
+          Declared here because the pipeline already writes it and the schema did
+          not: `ingest.py` turns a pattern's `satisfies_attributes` into a
+          `satisfies_attribute` edge to a QualityAttribute node, and
+          `core/knowledge/quality.py` reads that predicate as the DELIVERED side
+          of the coverage census. Without the slot the schema contradicted both
+          the code and `ontology/README.md`, so the edge every coverage question
+          depends on was undeclared.
+        range: QualityAttribute
         multivalued: true
       mechanism:
         description: >-
@@ -1492,7 +1531,24 @@ classes:
           The NFRs this technique is the mechanism for. This is the slot that
           makes NFR realization checkable: it supplies the missing edge between
           a required quality attribute and the design that claims to deliver it.
+
+          Distinct from `satisfies_attributes` below, and both are kept for the
+          reason `ArchitectureElement` gives: this names the NFRs, that names the
+          attributes, and the second survives an attribute no requirement stated.
         range: NonFunctionalRequirement
+        multivalued: true
+      satisfies_attributes:
+        description: >-
+          The quality ATTRIBUTES this technique delivers, named as the standard
+          does — "Availability", "Scalability", "Time Behaviour".
+
+          Declared here because the pipeline already writes it and the schema did
+          not: `ingest.py` turns a technique's `satisfies_attributes` into a
+          `satisfies_attribute` edge to a QualityAttribute node, and
+          `core/knowledge/quality.py` reads that predicate as the DELIVERED side
+          of the coverage census — "what does this technique provide?" is
+          answerable from it even when no NFR states the attribute at all.
+        range: QualityAttribute
         multivalued: true
       quality_category:
         description: >-
