@@ -3,7 +3,7 @@
 
 Open work only. Each item is one file under `docs/todos/entries/` — that file is the source of truth and this index is generated from it.
 
-**34 active · 1 parked · 2 superseded · 38 closed records**
+**35 active · 1 parked · 2 superseded · 38 closed records**
 
 | Where | What |
 |---|---|
@@ -40,6 +40,7 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [YB-053](docs/todos/entries/YB-053-category-elements-and-duplicate-system.md) | Category elements, one system named twice, and a hub that is really a document gap | open | `agents/architecture_extraction/passes.py` (structure rules), `agents/extraction/validators.py` (a name validator), `core/knowledge/ingest.py` (`_resolve` identity) |
 | [YB-055](docs/todos/entries/YB-055-data-element-design.md) | Domain data elements and their exchanges — the architecture aspect with no model | in-progress | `ontology/architecture_base.yaml` (a `DataElement`/`DataExchange` class), `agents/*/passes.py` (a pass or rules), `agents/extraction/validators.py` (guards), `core/knowledge/ingest.py` (the seam) |
 | [YB-057](docs/todos/entries/YB-057-machine-checked-is-not-human-verified.md) | Machine-checked is not human-verified — the review queue asks 486 questions to get 175 answers | open | `core/knowledge/review.py` (the states and `review_progress`), `core/knowledge/model.py` (assertion status/provenance), `agents/extraction/validators.py` (the check list), `app/projections.py` + `app/templates/review.html` (what the queue shows and how it is ranked) |
+| [YB-062](docs/todos/entries/YB-062-the-two-platform-lenses.md) | The two platform lenses — and the joint decision with YB-044 on what a technology platform IS | open | `ontology/enterprise_structure.yaml` (`Platform`), `ontology/architecture_base.yaml` (`SoftwareSystem.system_class`, `DeploymentNode`, `shared_across_enterprise`), `app/` (the capability-coverage audit) |
 
 ## Medium
 

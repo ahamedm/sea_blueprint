@@ -6,11 +6,11 @@ status: open
 priority: high
 area: "`ontology/architecture_base.yaml` (DeploymentNode, sharing scope), `agents/architecture_extraction/passes.py`, `core/knowledge/ingest.py`"
 created: 2026-09-26
-updated: 2026-09-26
+updated: 2026-10-03
 design: docs/design/platform-instances.md
 record: null
 superseded_by: []
-related: ["YB-042", "YB-043", "YB-011", "YB-010", "YB-009"]
+related: ["YB-042", "YB-043", "YB-011", "YB-010", "YB-009", "YB-062"]
 blocks: []
 blocked_by: []
 ---
@@ -20,6 +20,29 @@ blocked_by: []
 > **Open work.** This file is the source of truth for this item; `TODO.md` is generated from it.
 
 **Full analysis:** [`docs/design/platform-instances.md`](../../design/platform-instances.md)
+
+> ## Split, 2026-10-03 — this item is now TWO decisions, and only one of them is unblocked
+>
+> **[YB-062](YB-062-the-two-platform-lenses.md) is the other half of this decision.** It
+> was promoted from ISS-12 on the same day, because the two were cross-referencing
+> nothing while sharing one question: *what IS a technology platform, and where does its
+> type live in the vocabulary?*
+>
+> - **Unblocked — the instance and its sharing scope.** Additive schema: the instance
+>   gains a link to the platform type it instantiates, plus a topology enum
+>   (`ENTERPRISE` / `BUSINESS_UNIT` / `DEDICATED`). Nothing existing changes meaning, and
+>   it answers ISS-12 Gap 1's "a technology platform carries no lens at all".
+> - **Blocked on YB-062 — the type.** The proposal below says the type is *"a
+>   `TechnologyStack` and not an element"* (`platform-instances.md:65-66`). That is a
+>   vocabulary decision YB-062 has not made, and taking it here would mint a **third**
+>   name for one axis beside `Platform.platform_type` and `SoftwareSystemClass` (its Gap
+>   2), and collide with its option (d) — a `TechnologyPlatform` entity carrying owner,
+>   criticality and consumers, which a `TechnologyStack` has nowhere to put.
+> - **The seam — `shared_across_enterprise`.** This item's acceptance already says it must
+>   be *derived from the instance scope, not asserted alongside it*, and the slot's own
+>   description currently says it is *"usually implied by `system_class`"*. Two mechanisms
+>   for one fact is the single point the two items must agree on, and it is cheap to
+>   settle — which is why these are worth doing early together rather than late apart.
 
 ### The distinction the graph cannot make
 
