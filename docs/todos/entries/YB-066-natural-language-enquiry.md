@@ -212,6 +212,58 @@ and the four named queries *minus* `missing_active` — not at a new SPARQL quer
 is only ever reached through the allowlist, and `run_named_query`'s allowlist is what keeps a
 model from emitting raw SPARQL.
 
+## Reviewed against `e2bd3eb`, 2026-10-03 — what the RDF fixes changed for this plan
+
+The RDF layer landed (`to_rdf` emits `rdfs:subClassOf`; `missing_active` fixed but
+unregistered; every registered query has a fixture — ISS-16, ISS-17). Four consequences, and
+one of them is a risk the fix *introduced*.
+
+**1. "Register `missing_active`" is DELETED from the plan.** It is fixed and deliberately
+unregistered, with the three measured reasons in its own comment. The decisions-needed class
+therefore routes to `realization_report`, `project_gap_report` and the **three** registered
+queries — `unverified` (the queue), `human_overrides` (the audit trail) and `partial_runs`
+(run metadata, not a decision at all). Of the original four, only `unverified` is really a
+"what needs a decision" question.
+
+**2. Subclass-aware SPARQL now works, but only through a property path.**
+`?x a sea:Requirement` still matches nothing, because `Requirement` is abstract and nodes
+carry concrete classes; `?x a ?k . ?k rdfs:subClassOf* sea:Requirement` now works. Only four
+classes are abstract (`ArchitectureElement`, `EnterpriseConstruct`, `GovernanceInstrument`,
+`Requirement`), and none of the three registered queries touches one — so the hierarchy
+benefits future entries, not the current ones. **A lint should hold the line**: no registered
+query may mention an abstract class without a property path, since the failure is a silent
+empty result.
+
+**3. NEW RISK THE FIX INTRODUCED: an absent hierarchy is a silent-empty path.** `to_rdf`
+degrades to no hierarchy when the ontology cannot be read, and a property-path query then
+returns **0 rows** — measured, against **1** with the ontology present. That is
+indistinguishable from "nothing is missing", which is the ISS-16 failure class one layer down
+and now reachable through a supported path. So each entry needs `needs_hierarchy`, and
+`run_named_query` must **refuse to answer** rather than answer "none" when the hierarchy is
+absent. An empty result is only trustworthy when the substrate that could have produced a row
+was present.
+
+**4. `include_superseded` is part of a query's meaning, so the ENTRY declares it.**
+`run_named_query` must take the graph form from the registry, not default it: an "active"
+answer needs `include_superseded=False` (a retired implementer is not an implementer), a
+lineage answer needs `True`. It cannot be decided inside the query.
+
+Two guards the fixes argue for, each generalising a defect found while verifying:
+
+- **Every registered query returns ROWS on a fixture.** ISS-16 was a query nothing ran and
+  nothing tested; a name in an allowlist with no positive test is a landmine. Test
+  non-emptiness, not merely the absence of an error.
+- **Every registry entry's `pointer` resolves.** Six broken relative links survived in this
+  repo because the check validated anchors and never paths. A declarative catalogue of deep
+  links is exactly where that recurs, so the registry needs a test that each pointer's route
+  exists and accepts its params — which also forces the `/quality` and `/gaps` gap below to be
+  faced rather than assumed.
+
+**Unchanged by the RDF work**: the decisions index (Correction 1, blocked on
+[YB-067](YB-067-adr-frontmatter-declares-the-elements-it-governs.md)), the missing deep-link
+params on `/quality` and `/gaps` (Correction 2), and the CAN'T ANSWER log's location
+(Correction 3).
+
 ## What closes it
 
 A registry with tests, a router that reports `no_named_question` rather than guessing, at
