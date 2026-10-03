@@ -3,7 +3,7 @@
 
 Open work only. Each item is one file under `docs/todos/entries/` — that file is the source of truth and this index is generated from it.
 
-**36 active · 1 parked · 2 superseded · 38 closed records**
+**37 active · 1 parked · 2 superseded · 38 closed records**
 
 | Where | What |
 |---|---|
@@ -41,6 +41,7 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [YB-055](docs/todos/entries/YB-055-data-element-design.md) | Domain data elements and their exchanges — the architecture aspect with no model | in-progress | `ontology/architecture_base.yaml` (a `DataElement`/`DataExchange` class), `agents/*/passes.py` (a pass or rules), `agents/extraction/validators.py` (guards), `core/knowledge/ingest.py` (the seam) |
 | [YB-057](docs/todos/entries/YB-057-machine-checked-is-not-human-verified.md) | Machine-checked is not human-verified — the review queue asks 486 questions to get 175 answers | open | `core/knowledge/review.py` (the states and `review_progress`), `core/knowledge/model.py` (assertion status/provenance), `agents/extraction/validators.py` (the check list), `app/projections.py` + `app/templates/review.html` (what the queue shows and how it is ranked) |
 | [YB-062](docs/todos/entries/YB-062-the-two-platform-lenses.md) | The two platform lenses — and the joint decision with YB-044 on what a technology platform IS | open | `ontology/enterprise_structure.yaml` (`Platform`), `ontology/architecture_base.yaml` (`SoftwareSystem.system_class`, `DeploymentNode`, `shared_across_enterprise`), `app/` (the capability-coverage audit) |
+| [YB-064](docs/todos/entries/YB-064-route-the-vocabulary-by-subset.md) | Context ingestion — route the vocabulary by subset instead of shipping every visible name | open | `agents/base_agent.py` (`_collect_ontology_names`, `_format_ontology_context`), `core/ontology.py` (`OntologyModel.subsets`, `visible_layer_keys`), the per-profile entry schemas |
 
 ## Medium
 
