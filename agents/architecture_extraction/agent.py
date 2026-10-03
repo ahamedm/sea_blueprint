@@ -70,6 +70,16 @@ def _reference_key(record: Dict[str, Any]) -> tuple:
     )
 
 
+def _decision_key(record: Dict[str, Any]) -> str:
+    """Identity of a decision, for merging across passes: its title.
+
+    `ArchitectureDecisionRecord` is keyed by `title`, not `name`, so the generic
+    `named_key` returns "" for every decision — and a merge key that is empty for
+    every record collapses them all into one.
+    """
+    return str(record.get("title") or "").strip().lower()
+
+
 class ArchitectureExtractionAgent(KnowledgeExtractionAgent):
     """Extracts architecture knowledge against the C4-aligned ARC-G ontology."""
 
@@ -191,6 +201,7 @@ class ArchitectureExtractionAgent(KnowledgeExtractionAgent):
             techniques: List[Any] = []
             conventions: List[Any] = []
             references: List[Any] = []
+            decisions: List[Any] = []
             stage_flags: List[Any] = []
             post_errors: List[str] = []
 
@@ -217,12 +228,16 @@ class ArchitectureExtractionAgent(KnowledgeExtractionAgent):
                     collect(outcomes, "technology", "engineering_conventions"), named_key, completeness)
                 references = merge_records(
                     collect(outcomes, "traceability", "references"), _reference_key, completeness)
+                decisions = merge_records(
+                    collect(outcomes, "decisions", "architecture_decisions"),
+                    _decision_key, completeness)
 
                 self.log(
                     f"Merged: {len(triples)} triples, {len(elements)} elements, "
                     f"{len(connections)} connections, {len(technology)} technologies, "
                     f"{len(styles)} styles, {len(techniques)} techniques, "
-                    f"{len(conventions)} conventions, {len(references)} references"
+                    f"{len(conventions)} conventions, {len(references)} references, "
+                    f"{len(decisions)} decisions"
                 )
             except Exception as exc:                                 # noqa: BLE001
                 post_errors.append(f"merge: {exc}")
@@ -347,6 +362,7 @@ class ArchitectureExtractionAgent(KnowledgeExtractionAgent):
                 "design_techniques": [self._as_output_dict(d) for d in techniques],
                 "engineering_conventions": [self._as_output_dict(c) for c in conventions],
                 "references": [self._as_output_dict(r) for r in references],
+                "architecture_decisions": [self._as_output_dict(d) for d in decisions],
                 "findings": flag_dicts,
                 "statistics": {
                     "total_triples": len(triples),
@@ -357,6 +373,7 @@ class ArchitectureExtractionAgent(KnowledgeExtractionAgent):
                     "total_design_techniques": len(techniques),
                     "total_engineering_conventions": len(conventions),
                     "total_references": len(references),
+                    "total_architecture_decisions": len(decisions),
                     "findings": len(flag_dicts),
                     "chunks": len(chunks),
                     "passes": len(ARCHITECTURE_PASSES),

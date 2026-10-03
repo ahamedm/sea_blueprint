@@ -308,6 +308,23 @@ has a test that fails if it comes back.
 - **Guarded now by three assertions**: the extraction profile runs a `decisions` pass, that
   pass's output key is one ingest consumes, and the record's `status` cannot express a review
   state.
+- **The fix above was INCOMPLETE, and a second field report caught it.** With the pass added,
+  the run recorded `decisions outcome=ok triples=155` — and still produced **0
+  ArchitectureDecision nodes**. The pass ran and its output was dropped: the architecture
+  agent's merge block collected `structure`, `connections`, `technology` and `traceability`,
+  and had **no line for `decisions`**. The design profile has one; the extraction profile did
+  not, so the records never reached `graph_from_extraction`.
+- **Why nothing failed, again.** `test_output_consumption` proves INGEST reads a pass's key. It
+  says nothing about whether the AGENT collects it, and nothing did. The new assertion closes
+  that half — every non-triple output key of every architecture pass must appear in a
+  `collect(outcomes, "<pass>", "<key>")` call — and it was verified by reverting the fix, which
+  produces `these pass outputs are never collected by the agent: ['decisions.architecture_decisions']`.
+- **Still open, and a different question.** A decision named in a *requirements* document still
+  becomes a `Concept`: `requirements_base` imports `linkml:types`, `enterprise_structure` and
+  `sea_common` — not `architecture_base` — so the requirements profile cannot see
+  `ArchitectureDecision` at all. Two live examples sit in `payments_v3` as `Concept` nodes
+  ("Java Microservices Technology Decision", "On-Premises Deployment Decision"), asserted by the
+  `triples` pass. That is a layering decision, not a bug in this fix: it is filed as YB-070.
 
 ### ISS-17 — The ontology count pins drifted apart again, one commit after the note about it (fixed 2026-10-03)
 

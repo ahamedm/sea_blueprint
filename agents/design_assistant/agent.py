@@ -37,7 +37,7 @@ from core.patterns import (
     validate_pattern_catalogue,
 )
 
-from ..architecture_extraction.agent import ArchitectureExtractionAgent
+from ..architecture_extraction.agent import ArchitectureExtractionAgent, _decision_key
 from ..base_agent import AgentResult
 from ..extraction import (
     check_connection_endpoints,
@@ -83,15 +83,6 @@ def _reference_key(record: Dict[str, Any]) -> tuple:
         str(record.get("relationship") or "").strip().lower(),
         str(record.get("reference") or "").strip().lower(),
     )
-
-
-def _decision_key(record: Dict[str, Any]) -> str:
-    """Identity of a decision, for merging across passes: its title.
-
-    `ArchitectureDecisionRecord` is keyed by `title`, not `name`, so the generic
-    `named_key` would return "" for every decision and drop them all.
-    """
-    return str(record.get("title") or "").strip().lower()
 
 
 class DesignAssistantAgent(ArchitectureExtractionAgent):

@@ -153,3 +153,29 @@ def test_the_accounting_survives_a_save_and_a_load():
     assert restored.output_counts == run.output_counts
     assert restored.unconsumed_keys == run.unconsumed_keys
     assert restored.stored_facts == run.stored_facts
+
+
+def test_the_architecture_agent_collects_every_pass_output_key():
+    """The other half of "declared but not consumed", and the one nothing checked.
+
+    `test_output_consumption` proves INGEST reads each pass's key. It says nothing about
+    whether the AGENT collects it — and that is where this failed: `decisions` ran, the
+    model returned records, the agent's merge never asked for them, and the graph got zero
+    decisions while every test passed. A pass whose output the agent does not collect is
+    a prompt sent for nothing.
+    """
+    from pathlib import Path
+
+    import agents.architecture_extraction.agent as arch_agent
+
+    source = Path(arch_agent.__file__).read_text()
+    missing = []
+    for spec in ARCHITECTURE_PASSES:
+        for key in sorted(set(spec.output_keys.values()) - {"triples"}):
+            if f'collect(outcomes, "{spec.name}", "{key}")' not in source:
+                missing.append(f"{spec.name}.{key}")
+
+    assert not missing, (
+        f"these pass outputs are never collected by the agent, so they cannot reach "
+        f"the graph: {missing}"
+    )

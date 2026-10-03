@@ -3,7 +3,7 @@
 
 Open work only. Each item is one file under `docs/todos/entries/` — that file is the source of truth and this index is generated from it.
 
-**42 active · 1 parked · 2 superseded · 38 closed records**
+**43 active · 1 parked · 2 superseded · 38 closed records**
 
 Where each thing lives, and which files are hand-edited: [docs/todos/README.md](docs/todos/README.md).
 
@@ -60,6 +60,7 @@ Regenerate with `uv run scripts/todo.py render`; validate with `uv run scripts/t
 | [YB-066](docs/todos/entries/YB-066-natural-language-enquiry.md) | Ask the graph: a named-question registry, then a router, then SPARQL — never a model narrating the graph | open | `core/questions.py` + `ontology/catalogues/questions.yaml` (the registry), `core/qna/` (router, log), `agents/qna/` (classifier, agent), `app/` (the `/ask` route), `core/knowledge/rdf.py` (the query surface YB-010 wrote — allowlist, no raw SPARQL), `app/projections.py` (the answer-shaped functions the registry wraps), `scripts/bench_traversal.py` (the networkx measurements) |
 | [YB-068](docs/todos/entries/YB-068-governed-by-rules-is-literal-on-a-node-ranged-slot.md) | Rules and regulations reach the graph as text, on a slot that declares a node range | open | `agents/knowledge_extraction/` (the `triples` pass and the predicate list), `agents/extraction/validators.py` (range checks cover object edges only), `ontology/requirements_base.yaml` (`Requirement.governed_by_rules`) |
 | [YB-069](docs/todos/entries/YB-069-the-four-catalogues-and-how-each-is-consumed.md) | Catalogues — Principles, Policies, Technology Radar, Strategies — injected into the pass that needs each | open | `core/patterns.py` (the shape to generalise into `core/catalogues.py`), `ontology/catalogues/` (the instance files), `agents/*/passes.py` (the injection seam), `core/knowledge/` (the curated-load path YB-047 specifies) |
+| [YB-070](docs/todos/entries/YB-070-decisions-in-a-requirements-document-land-in-concept.md) | A decision named in a requirements document lands in Concept, because that profile cannot see the class | open | `ontology/requirements_base.yaml` (its `imports:`), `agents/knowledge_extraction/` (the `triples` pass), `agents/extraction/validators.py` (a finding for the fallback) |
 
 ## Low
 
