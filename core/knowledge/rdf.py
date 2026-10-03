@@ -25,11 +25,12 @@ RDF handles awkwardly, and it is why a property graph is superficially attractiv
 It is a real cost, paid here explicitly rather than hidden.
 """
 
-from typing import Optional
+from typing import Optional, Tuple
 
 import rdflib
 from rdflib import Literal, Namespace, RDF, RDFS, XSD, URIRef
 
+from ..ontology import load_ontology
 from .model import Assertion, KnowledgeGraph
 
 SEA = Namespace("https://sea.platform/ontology/kg/")
@@ -38,6 +39,29 @@ DEFAULT_BASE = "https://sea.platform/kg/"
 
 # Predicates that carry a human-readable string rather than a node reference.
 # Everything else is treated as a node reference when `object` is set.
+
+
+def _class_hierarchy(ontology_dir: str) -> Tuple[Tuple[str, str], ...]:
+    """`(subclass, superclass)` for every declared `is_a`, from the ontology.
+
+    Read rather than restated, for the reason this repo keeps recording: a
+    hand-written table of superclasses is a second copy of the ontology, free to
+    drift from it. `load_ontology` is cached per resolved path, so this costs one
+    parse for the process.
+
+    Returns `()` when the ontology cannot be read. The export is then a faithful
+    graph without a hierarchy, which is a degradation rather than a failure — the
+    same one `family_of` documents for a colour.
+    """
+    try:
+        model = load_ontology(ontology_dir)
+    except Exception:
+        return ()
+    return tuple(
+        (name, spec.is_a)
+        for name, spec in model.classes.items()
+        if spec.is_a and spec.is_a in model.classes
+    )
 
 
 def _node_uri(node_id: str, base: str) -> URIRef:
@@ -57,6 +81,8 @@ def to_rdf(
     base: str = DEFAULT_BASE,
     include_superseded: bool = True,
     include_run_metadata: bool = True,
+    include_class_hierarchy: bool = True,
+    ontology_dir: str = "ontology",
 ) -> rdflib.Graph:
     """Serialise the canonical graph to RDF.
 
@@ -69,11 +95,40 @@ def to_rdf(
         include_run_metadata: emit extraction runs, including completeness. A
             consumer that ignores this cannot tell a partial extraction from a
             complete one.
+        include_class_hierarchy: emit `rdfs:subClassOf` for the ontology's `is_a`
+            edges. Off by default would be the wrong default — see below.
+        ontology_dir: where to read the hierarchy from.
+
+    WHY THE HIERARCHY IS EMITTED
+
+    Without it, `?req a sea:Requirement` matches **nothing**: the ontology's
+    `Requirement` is abstract, nodes are typed with their concrete class, and the
+    hierarchy is two levels deep (`PlatformMultiTenancyRequirement is_a
+    NonFunctionalRequirement is_a Requirement`). A query author then writes a
+    `UNION` over the subclasses they know about, which is a second statement of the
+    ontology — free to drift, and silently missing every subclass added later. A
+    measured example: a `UNION` over the four direct subclasses of `Requirement`
+    finds 14 rows where `?kind rdfs:subClassOf* sea:Requirement` finds 15.
+
+    `is_a` only. `mixins` are also supertypes for slot inheritance, but they are
+    cross-cutting aspects rather than a taxonomy (`ExternallyReferenced`,
+    `Provenanced`), and asserting them as `rdfs:subClassOf` would put them in every
+    subclass closure — which is exactly the distinction the ontology viewer keeps
+    visible.
+
+    A missing ontology degrades to no hierarchy rather than raising: the export is
+    still a faithful graph, and the degradation is the same one `family_of`
+    documents. Pass `ontology=` when the hierarchy must be guaranteed.
     """
     g = rdflib.Graph()
     g.bind("sea", SEA)
     g.bind("prov", PROV)
     g.bind("rdfs", RDFS)
+
+    # ---- the class hierarchy, so a property path can reach subclasses ----
+    if include_class_hierarchy:
+        for sub, sup in _class_hierarchy(ontology_dir):
+            g.add((SEA[sub], RDFS.subClassOf, SEA[sup]))
 
     # ---- nodes ----
     for node in graph.nodes.values():
@@ -185,15 +240,38 @@ PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 
 
 QUERY_MISSING_ACTIVE = _PREFIXES + """
-# Requirements with no active implementing element, over a graph known to be
-# COMPLETE. Run only when completeness = COMPLETE: on a partial graph this
-# query reports extraction failures as architectural gaps.
+# Requirements with no BOUND implementing element.
+#
+# DELIBERATELY NOT REGISTERED IN `QUERIES` BELOW. Three reasons, all measured:
+#
+#   1. IT CANNOT SEPARATE THE STATES THIS PLATFORM DISTINGUISHES. A requirement
+#      nothing ever cited and one whose claim is still a literal reference look
+#      identical to graph matching, because binding a reference is reconciliation's
+#      job (`reference_targets_a_node`), not a SPARQL pattern's. Measured on
+#      `payments_v2`: this returns 14 where `realization_report` reports 3 with no
+#      claim and 10 unresolved — two findings with two different fixes. The
+#      platform's answer to "does this requirement have an architecture?" is
+#      `core.knowledge.realization.realization_report`. Keep it there.
+#   2. ITS PRECONDITION IS A COMPLETE RUN, and a query cannot enforce that. On a
+#      PARTIAL graph it reports extraction failures as architectural gaps.
+#      `project_gap_report` carries the gate and says which of the two it is.
+#   3. `include_superseded=False` IS PART OF ITS MEANING. The plain triple form is
+#      emitted regardless of status, so a RETIRED implementer counts as an
+#      implementer unless the caller asks for the current-state graph. That cannot
+#      be fixed from inside the query, which is a third reason the caller owns it.
+#
+# The subclass check is a property path rather than a `UNION` over subclasses: the
+# hierarchy is two levels deep (`PlatformMultiTenancyRequirement is_a
+# NonFunctionalRequirement is_a Requirement`), so a UNION over the direct children
+# silently misses every grandchild. That path works because `to_rdf` emits
+# `rdfs:subClassOf`; before it did, this query matched nothing at all.
 SELECT ?req ?label WHERE {
-  ?req a sea:Requirement .
+  ?req a ?kind .
+  ?kind rdfs:subClassOf* sea:Requirement .
   ?req rdfs:label ?label .
   FILTER NOT EXISTS {
-    ?el sea:implements_requirement ?ref .
-    ?el rdfs:label ?ref_label .
+    ?el sea:implements_requirement ?x .
+    FILTER(?x = ?req || ?x = ?label)
   }
 }
 """

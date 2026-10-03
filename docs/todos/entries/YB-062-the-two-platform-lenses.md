@@ -17,7 +17,7 @@ blocked_by: []
 
 # YB-062 — The two platform lenses
 
-> **Open. Promoted from [ISS-12](../../ISSUES.md#iss-12--the-two-platform-lenses-are-named-in-two-namespaces-and-neither-is-complete)
+> **Open. Promoted from [ISS-12](../../../ISSUES.md#iss-12--the-two-platform-lenses-are-named-in-two-namespaces-and-neither-is-complete)
 > on 2026-10-03, deliberately at the same time as YB-044.**
 > This is **one** decision, not two items that cite each other: YB-044 chose a platform
 > *type* without the lens question being answered, and the lens question cannot be
@@ -69,7 +69,7 @@ enum's own auditor note is implemented.
   enterprise side and all have **0 instances** in the live scope; nothing on the
   architecture side points at a `Platform`. So the commercial platform and the
   architecture element implementing it are two nodes joined only by label — the YB-053
-  defect 2 mechanism, which is also why `Payment Gateway Platform` exists twice ([ISS-10](../../ISSUES.md#iss-10--one-system-three-names-the-notation-draws-the-same-architecture-twice)).
+  defect 2 mechanism, which is also why `Payment Gateway Platform` exists twice ([ISS-10](../../../ISSUES.md#iss-10--one-system-three-names-the-notation-draws-the-same-architecture-twice)).
 - **Gap 4 — the commercial half is declared but unreachable, exactly like
   `ConceptAttribute` was.** `Platform.contracts -> PlatformContract` is `inlined_as_list`,
   the nested shape no pass can emit (YB-055's defect), so a platform's contracts,
@@ -96,7 +96,7 @@ does not state what it supports: `payment_method` is declared on the pack's root
   `SoftwareSystemClass`.
 - **(c)** Declare the architecture→enterprise binding
   (`SoftwareSystem.realizes_platform -> Platform`, a binding class in the higher layer per
-  the import rule) — which would also give [ISS-10](../../ISSUES.md#iss-10--one-system-three-names-the-notation-draws-the-same-architecture-twice) a mechanical answer: two nodes realizing
+  the import rule) — which would also give [ISS-10](../../../ISSUES.md#iss-10--one-system-three-names-the-notation-draws-the-same-architecture-twice) a mechanical answer: two nodes realizing
   one platform ARE one thing.
 - **(d)** A `TechnologyPlatform` entity in `enterprise_structure` (owner, criticality,
   consumers) realized by architecture elements, Pattern B — the shape `Container ->

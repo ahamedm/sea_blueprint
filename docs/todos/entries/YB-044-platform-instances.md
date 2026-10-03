@@ -69,7 +69,7 @@ blocked_by: []
 >   invited exactly what the schema has not decided, so it now says SoftwareSystems and
 >   names the range. And because nothing checked a reference slot's range (only
 >   containment goes through `allowed_parent_kinds`), `check_reference_kinds`
->   ([validators.py](../../agents/extraction/validators.py)) now reads the declared range
+>   ([validators.py](../../../agents/extraction/validators.py)) now reads the declared range
 >   from the ontology and flags both an out-of-range target and one no run declared —
 >   the second being the `Concept` placeholder `_resolve` mints instead of refusing.
 > - **Deduplication (OpenShift vs OpenShift Platform).** Only the SAFE half landed: rule 8
@@ -87,7 +87,7 @@ blocked_by: []
 >   this item nor YB-062 decides what a tenancy requirement attaches to.
 > - **The prompt-budget consequence.** The `SharingScope` enum name tipped the design
 >   profile's scaffolding 10 bytes over its document budget — measured, and recorded as
->   [ISS-15](../../ISSUES.md#iss-15--the-design-profiles-prompt-scaffolding-sits-at-its-ceiling-so-any-vocabulary-growth-breaks-the-budget-guard)
+>   [ISS-15](../../../ISSUES.md#iss-15--the-design-profiles-prompt-scaffolding-sits-at-its-ceiling-so-any-vocabulary-growth-breaks-the-budget-guard)
 >   rather than absorbed by adjusting that guard.
 
 ### The distinction the graph cannot make

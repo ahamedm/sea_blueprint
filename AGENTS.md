@@ -59,7 +59,7 @@ This is a platform shrinked to a tool/app to prove the core idea of leveraging O
 # References
 - [PRD](docs/yeah_blueprint_PRD_v0_1.md)
 - [Strands Agent SDK Integration](docs/strands-integration.md)
-- [Earlier Architecture Review](docs/archtiecture-review.md) **Done before User Journey, might have deviation**
+- [Earlier Architecture Review](docs/architecture-review.md) **Done before User Journey, might have deviation**
 - [Intended User Journey](docs/user-journey.md)
 - [Notes on Architecture as Living System](docs/living-system-architecture.md)
 - [Review Gate: projection, review and change management](docs/ui-review-workflow.md) **MVP UI — implemented, current state**

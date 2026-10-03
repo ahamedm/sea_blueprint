@@ -96,7 +96,7 @@ Hook point for all three: `_collect_ontology_names` / `_format_ontology_context`
 
 ## Relationship to ISS-15 and YB-007
 
-[ISS-15](../../ISSUES.md#iss-15--the-design-profiles-prompt-scaffolding-sits-at-its-ceiling-so-any-vocabulary-growth-breaks-the-budget-guard)
+[ISS-15](../../../ISSUES.md#iss-15--the-design-profiles-prompt-scaffolding-sits-at-its-ceiling-so-any-vocabulary-growth-breaks-the-budget-guard)
 measures the design profile's scaffolding at 100% of its document, dominated by the shared
 vocabulary block (5,174 of 7,276 chars). Its option (a) — measure the profile's own
 scaffolding and route the shared vocabulary separately — is *enabled by* this item rather

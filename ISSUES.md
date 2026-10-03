@@ -273,6 +273,47 @@ a smaller set that no matcher can ever bind.
 Kept rather than deleted, because each was reported from using the tool and each now
 has a test that fails if it comes back.
 
+### ISS-17 — The ontology count pins drifted apart again, one commit after the note about it (fixed 2026-10-03)
+
+- **Evidence.** `d831adf` added `TradeOff` and took the class count 70 → 71. It updated the
+  pins in `test_ontology.py`, `test_ontology_reference.py`, `test_domain_pack.py` and
+  `test_layering.py` — and missed `tests/test_app.py`, which was then the only red suite.
+  `test_ontology.py`'s own note from the previous occurrence reads: *"they must be updated
+  TOGETHER, and the 15-minute suite is the one that gets forgotten."* It was.
+- **Why it recurs.** The same number is pinned in **five** files, deliberately: a schema
+  change should be acknowledged where the schema is read, not flow silently into whatever
+  consumes the payload. That intent is sound and the drift is the cost of it.
+- **Fix.** The pin is corrected to 71/51, and the comment now names the recurrence and the
+  one-line audit that catches it before the suite does —
+  `grep -rn 'classes"\] == \|stats()\["classes"\]' tests/`. A `TradeOff` class is the kind of
+  addition that looks local and is not: it moves a count that four other files also assert.
+- **Not fixed by one pin.** Collapsing the five into one derived count would remove the
+  acknowledgement the design asks for. The cheap mitigation is the grep in the commit
+  checklist, which is now written where the next person will hit it.
+
+### ISS-16 — A named SPARQL query was silently always-empty, and nothing tested it (fixed 2026-10-03)
+
+- **Evidence.** `QUERY_MISSING_ACTIVE` (`core/knowledge/rdf.py`) asked:
+  `FILTER NOT EXISTS { ?el sea:implements_requirement ?ref . ?el rdfs:label ?ref_label . }`.
+  The block shares **no variable** with `?req`, so it did not ask "does *this* requirement
+  have an implementer" — it asked "does any element implement anything and have a label".
+  On a fixture with one implemented and one unimplemented requirement it returned **zero
+  rows**: it could not return the unimplemented requirement, which is its only job. It also
+  matched abstract `sea:Requirement`, which no node is ever typed as, so it could not match
+  even in principle.
+- **Why it survived.** It was never registered in `QUERIES`, and
+  `scripts/test_knowledge_layer.py` exercised only `unverified`. A named query that nothing
+  runs and nothing tests is a landmine rather than dead code: the next person to add it to
+  the allowlist would have shipped it.
+- **Fix.** The body is correlated, subclass-aware (a property path, which needed `to_rdf` to
+  emit `rdfs:subClassOf` — it did not), and matches a bound edge **or** a literal reference,
+  because 9 of 10 real `implements_requirement` links are literals. Four checks now pin it in
+  the harness, including the fixture above and the grandchild subclass it used to miss.
+- **Not registered, deliberately.** It cannot separate "nothing cited this" from "cited and
+  not yet bound" — `realization_report` reports those as `none` and `unresolved`, and on
+  `payments_v2` the corrected query returns 15 against the projection's 3. It also has a COMPLETE-run
+  precondition a query cannot enforce. Its own comment now carries all three reasons.
+
 ### ISS-1 — Category nouns enter the graph as `Concept` nodes through attribution endpoints (fixed 2026-10-03)
 
 - **Reported as.** The largest single node kind in the live scope was the graph's own

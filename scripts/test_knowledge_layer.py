@@ -30,7 +30,8 @@ from core.knowledge.model import (
     SCOPE_BASELINE,
     SCOPE_INITIATIVE,
 )
-from core.knowledge.rdf import SEA, PROV
+from core.knowledge.rdf import SEA, PROV, RDFS
+from core.knowledge.realization import realization_report
 
 RESULTS = []
 
@@ -197,6 +198,64 @@ def test_rdf_emits_both_forms():
     check("provenance queryable via SPARQL", len(unverified) > 0, f"{len(unverified)}")
 
 
+def test_requirement_subclasses_are_reachable_and_implementers_are_found():
+    """The gap query, pinned — it was silently always-empty and nothing tested it.
+
+    Four cases, because each is a way the old body was wrong:
+
+      bound-object   an element implements the requirement as a NODE
+      bound-literal  an element implements it as TEXT (9 of 10 real links are this)
+      orphan         nothing cites it — the only row that should come back
+      grandchild     `PlatformMultiTenancyRequirement`, two levels under Requirement
+
+    The old body's `FILTER NOT EXISTS` shared no variable with `?req`, so it asked
+    "does any element implement anything" and returned nothing whenever one did. It
+    also matched `?req a sea:Requirement`, and `Requirement` is abstract, so it
+    could never match at all.
+    """
+    from core.knowledge.rdf import QUERY_MISSING_ACTIVE
+
+    g = KnowledgeGraph()
+    bound = g.add_node("FunctionalRequirement", "Bound Req")
+    bytext = g.add_node("FunctionalRequirement", "By-Text Req")
+    g.add_node("FunctionalRequirement", "Orphan Req")
+    g.add_node("PlatformMultiTenancyRequirement", "Grandchild Orphan")
+    el = g.add_node("Container", "Container A")
+    g.add_assertion(el, "implements_requirement", bound, confidence=0.9, source_text="t")
+    g.add_assertion(el, "implements_requirement", value="By-Text Req",
+                    confidence=0.9, source_text="t")
+
+    # The hierarchy must be emitted, or a property path over subclasses finds nothing.
+    rdf = to_rdf(g, include_superseded=False)
+    subs = list(rdf.triples((None, RDFS.subClassOf, None)))
+    check("rdfs:subClassOf emitted for the hierarchy", len(subs) > 20, f"{len(subs)}")
+
+    got = sorted(str(r["label"]) for r in rdf.query(QUERY_MISSING_ACTIVE))
+    check("gap query finds the two uncited requirements",
+          got == ["Grandchild Orphan", "Orphan Req"], ", ".join(got) or "(none)")
+
+    # A retired implementer is not an implementer, but only the current-state graph
+    # says so: the plain triple form is emitted regardless of status.
+    a = next(x for x in g.assertions.values() if x.predicate == "implements_requirement"
+             and x.object == bound)
+    replacement = g.add_assertion(el, "implements_requirement", bound,
+                                  confidence=0.9, source_text="t")
+    a.superseded_by = replacement.id
+    current_missing = {str(r["label"]) for r in
+                       to_rdf(g, include_superseded=False).query(QUERY_MISSING_ACTIVE)}
+    lineage_missing = {str(r["label"]) for r in
+                       to_rdf(g, include_superseded=True).query(QUERY_MISSING_ACTIVE)}
+    check("a superseded implementer stops counting in the current-state graph",
+          "Bound Req" in current_missing and "Bound Req" not in lineage_missing,
+          f"reported missing: current-state={'Bound Req' in current_missing}, "
+          f"with-lineage={'Bound Req' in lineage_missing}")
+
+    # And the query that owns the platform's answer reports MORE states than this one.
+    states = realization_report(g)["summary"]["coverage"]
+    check("realization_report distinguishes unresolved from none",
+          set(states) == {"none", "unresolved", "partial", "full"}, str(states))
+
+
 # ---------------------------------------------------------------------------
 # Real fixtures
 # ---------------------------------------------------------------------------
@@ -324,6 +383,7 @@ def main():
     test_completeness_distinguishes_unknown_from_complete()
     test_cross_graph_references_held_not_invented()
     test_rdf_emits_both_forms()
+    test_requirement_subclasses_are_reachable_and_implementers_are_found()
     test_initiative_scoping()
     test_versioning_and_diff()
     test_real_extraction_output()

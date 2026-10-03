@@ -959,9 +959,14 @@ def test_api_ontology_returns_the_schema(client):
     # on nothing and only this suite was red. The three are pinned in three files by
     # design — a schema change must be acknowledged where it is read — but they must
     # be updated TOGETHER, and the 15-minute suite is the one that gets forgotten.
-    assert len(payload["classes"]) == 70
+    #
+    # It happened AGAIN, one commit after that note was written: `TradeOff` landed
+    # (d831adf) and took classes 70 -> 71, five files' pins were updated and this one
+    # was not. `grep -rn 'classes"\] == \|stats()\["classes"\]' tests/` finds every pin;
+    # run it before believing a schema change is acknowledged (ISS-17).
+    assert len(payload["classes"]) == 71
     assert len(payload["enums"]) == 51
-    assert payload["overview"]["stats"]["classes"] == 70
+    assert payload["overview"]["stats"]["classes"] == 71
     assert payload["overview"]["diagnostics"]["is_clean"] is True
 
 

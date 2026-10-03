@@ -190,6 +190,28 @@ and it is a decision about ADR frontmatter rather than a coding task.
 5. **Impact, last and explicitly** — the class with no precedent and the highest cost of a
    confident wrong answer, and the one whose substrate turned out to be half-wired.
 
+## Which engine owns "does this requirement have an architecture?", 2026-10-03
+
+Settled by measurement while preparing the SPARQL class, and it changes the registry seed:
+
+- **`realization_report` owns it.** It reports four coverage states — `none` 3, `unresolved`
+  10, `partial` 0, `full` 3 on `payments_v2` — plus the counts, the caveats and the
+  completeness gate. A SPARQL query for the same question cannot reproduce them, because
+  binding a reference is `reference_targets_a_node`'s job and not a graph pattern's.
+- **A gap query is the EDGE form only.** The corrected `QUERY_MISSING_ACTIVE` returns **15**
+  on that scope against the projection's **3** with no claim, because it merges "nothing
+  cited this" with "something cited it and reconciliation has not bound it". Two findings,
+  two fixes. If such a query is ever registered it must be named for what it answers
+  (`has_bound_implementer`) and carry that limitation as a caveat.
+- **`missing_active` stays unregistered**, and its body is now correct rather than silently
+  empty — see [YB-010](YB-010-rdf-knowledge-layer.md) and [ISS-16](../../../ISSUES.md#iss-16--a-named-sparql-query-was-silently-always-empty-and-nothing-tested-it-fixed-2026-10-03). Registering it would have
+  made an always-empty result the authoritative answer to the platform's headline question.
+
+So the registry's seed for this class points at `realization_report`, `project_gap_report`
+and the four named queries *minus* `missing_active` — not at a new SPARQL query. Query text
+is only ever reached through the allowlist, and `run_named_query`'s allowlist is what keeps a
+model from emitting raw SPARQL.
+
 ## What closes it
 
 A registry with tests, a router that reports `no_named_question` rather than guessing, at

@@ -110,3 +110,53 @@ The gains SHACL actually offers are therefore **(a) the surface** — the accumu
 than one run's output; **(b) the standard** — an external tool (Jena, later) can execute the same
 shapes; and **(c) one source** — the ontology, already the source both would read. Not "validation",
 which is present and tested.
+
+## The query surface gained the class hierarchy, 2026-10-03
+
+`to_rdf` now emits `rdfs:subClassOf` for every declared `is_a` (26 pairs), read from
+`OntologyModel` rather than restated. **This was a precondition, not a nicety**: the
+ontology's `Requirement` is abstract, nodes are typed with their concrete class, and the
+hierarchy is two levels deep (`PlatformMultiTenancyRequirement` → `NonFunctionalRequirement`
+→ `Requirement`). So before this, `?req a sea:Requirement` matched nothing, and the
+workaround — a `UNION` over the subclasses an author knows about — is a second copy of the
+ontology that silently misses every subclass added later. Measured: a `UNION` over the four
+direct subclasses of `Requirement` finds **14** rows where `?kind rdfs:subClassOf*
+sea:Requirement` finds **15**.
+
+`is_a` only. `mixins` are supertypes for slot inheritance but cross-cutting aspects rather
+than a taxonomy, and asserting them would put `ExternallyReferenced` and `Provenanced` in
+every subclass closure — the distinction the ontology viewer keeps visible.
+
+## `missing_active` was silently always-empty, and is not registered
+
+Its `FILTER NOT EXISTS` shared **no variable** with `?req`:
+
+```sparql
+FILTER NOT EXISTS { ?el sea:implements_requirement ?ref . ?el rdfs:label ?ref_label . }
+```
+
+so it asked "does *any* element implement *anything*" and returned **zero rows whenever one
+did** — on a fixture with one implemented and one unimplemented requirement, `[]`. It also
+matched abstract `sea:Requirement`, and nothing tested it: `scripts/test_knowledge_layer.py`
+exercised only `unverified`.
+
+The body is now correct — correlated, subclass-aware, and matching a bound edge **or** a
+literal reference (`?x = ?req || ?x = ?label`, because 9 of 10 real `implements_requirement`
+links are literals) — and it remains **out of `QUERIES`**, for three measured reasons
+recorded in its own comment:
+
+1. **It cannot separate the states the platform distinguishes.** On `payments_v2` the
+   corrected body returns **15** where `realization_report` reports **3** with no claim and
+   **10** unresolved —
+   because binding a reference is `reference_targets_a_node`'s job, not a SPARQL pattern's.
+   The platform's answer stays in `core.knowledge.realization`.
+2. **Its precondition is a COMPLETE run**, which a query cannot enforce; on a PARTIAL graph
+   it reports extraction failures as architectural gaps.
+3. **`include_superseded=False` is part of its meaning** — the plain triple form is emitted
+   regardless of status, so a retired implementer counts unless the caller asks for the
+   current-state graph. That cannot be fixed from inside the query.
+
+In its place the harness gained four checks that would have caught all of it: the hierarchy
+is emitted, the query finds exactly the uncited requirements (including a grandchild
+subclass), a superseded implementer stops counting only in the current-state graph, and
+`realization_report` reports more states than the query can.
