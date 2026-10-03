@@ -121,6 +121,16 @@ Next: the curated-load path above; the enterprise brief as a context input; the
 shared-scope placement for those instances; then the deferred conformance slots and a
 governance linking profile.
 
+**A demand signal, and a reason to state the absence (2026-10-03).** "Which principles does this
+design satisfy or contradict?" is currently unanswerable *and unstated*: 0 governance nodes exist
+in either live scope, nothing imports `governance_base`, and no registry can route the question.
+[YB-066](YB-066-natural-language-enquiry.md) plans to seed it as a DECLARED entry returning
+`substrate_absent` and pointing here, and to log the asks — so if that question is common, the
+import and the curated load above get promoted on evidence rather than on a guess. It also gives
+this item's premise a test: a `substrate_absent` answer that names this item is the honest state,
+and an empty result presented as "no violations" would be the vacuous-answer failure the platform
+is built to avoid.
+
 ### The three ontologies, kept apart
 
 | | What it is | Where it lives |

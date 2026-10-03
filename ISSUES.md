@@ -265,6 +265,14 @@ a smaller set that no matcher can ever bind.
 - **Not fixed here.** The guard was left failing rather than adjusted, because redefining
   another area's budget test to accommodate a schema change is the wrong order — and the
   measurement is the point, not the green tick.
+- **Update 2026-10-03: the guard passes again, and the cause has NOT changed.** Measured:
+  the document it compares against grew from 7,266 to **11,221** chars, because the design
+  digest now carries recorded decisions and their trade-offs (`d831adf`), while the largest
+  scaffolding is 7,374 (`patterns`, 0.66:1). So the symptom is gone and the structure is
+  identical: the shared ontology context is still **5,272 of that 7,374**, still the dominant
+  term. The guard is a ratio against a fixture that a different feature happened to enlarge,
+  which is the same conclusion as option (a) below arrived at from the other direction —
+  the number moves when the document moves, not when the scaffolding does.
 
 ---
 

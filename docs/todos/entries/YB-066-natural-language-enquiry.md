@@ -10,7 +10,7 @@ updated: 2026-10-03
 design: docs/design/natural-language-enquiry.md
 record: null
 superseded_by: []
-related: [YB-010, YB-056, YB-057, YB-005]
+related: [YB-010, YB-056, YB-057, YB-005, YB-047]
 blocks: []
 blocked_by: []
 ---
@@ -197,8 +197,10 @@ everything above is only their argument. Deltas forced by the RDF fixes are mark
 
 **2. The engine layer — one uniform, read-only tool contract**
 
-- `AnswerShaped(result, caveats, pointer, assumptions)`; engine signature
-  `(graph, scope_id, ref, params) -> AnswerShaped`.
+- `AnswerShaped(state, result, caveats, pointer, assumptions)`; engine signature
+  `(graph, scope_id, ref, params) -> AnswerShaped`. **[principles]** `state` is
+  `answered` | `substrate_absent` | `no_named_question` | `out_of_scope`, and
+  `substrate_absent` names what is missing and the item that owns it.
 - Adapters over the existing projections so `gap` / `quality` / `realization` / `delta` speak
   one return shape.
 - ~~The decisions index (`decisions_for(element)` over `affects_element` + `has_trade_off` +
@@ -347,6 +349,58 @@ Two guards the fixes argue for, each generalising a defect found while verifying
 [YB-067](YB-067-adr-frontmatter-declares-the-elements-it-governs.md)), the missing deep-link
 params on `/quality` and `/gaps` (Correction 2), and the CAN'T ANSWER log's location
 (Correction 3).
+
+## The principles question — plan the BOUNDARY prior, not the wiring (2026-10-03)
+
+The finding is correct, and verified: `Principle --informs--> Policy --enforced_by--> Control
+--satisfies--> StandardClause` (plus `Control --mitigates--> Risk`) exists in
+`governance_base.yaml`; the ArchitectureRationale quartet is `ArchitectureStyle`,
+`ArchitecturePattern`, `DesignTechnique` and `EngineeringConvention`; and **no slot links an
+architecture element to any governance class** — every governance range is inside the layer.
+The nearest existing thing is `EngineeringConvention.conformance`, a STRING on the rationale
+side (`"conformant"` / `"non_conformant"`), which cannot join to a governance node.
+
+So *"which principles does this design satisfy or contradict?"* is unanswerable today. But the
+measured reason is deeper than the missing slot, and it decides the sequencing:
+
+| | |
+|---|---|
+| governance nodes in either live scope | **0** (`Principle`, `Policy`, `Control`, `Risk`, `Strategy`, `StandardClause`) |
+| profiles importing `governance_base` | **none** — deliberately, see below |
+| why | the import is what put the architecture scaffolding over its document (1.02:1, YB-007) |
+| governance corpus in `test_data/` | **none** (only `arch/`, `prd/`, `test_cases/`) |
+
+[YB-047](YB-047-enterprise-governance-layer.md) has already decided **both** conformance
+targets — `conforms_to → StandardClause` and `realizes → Control`, kept separate because they
+find different gaps — and deferred the wiring precisely because it requires
+`architecture_base` to import `governance_base`. It also plans an ingestion path this codebase
+does not have: a direct curated load with no model in the loop, because policies are
+authoritative structured artefacts and recovering them by sampling would import the
+non-determinism the platform exists to remove.
+
+**Building this PRIOR would therefore be wrong.** It sequences this item behind a
+prompt-budget-sensitive import, a new ingestion path, and two slots — and the import is the
+one thing YB-047 says must be settled with a budget plan, not taken free.
+
+**What the finding does add, and it is worth doing prior because it is cheap:** this plan has
+no vocabulary for *"the platform is silent"* versus *"the graph is silent"*. Principles are the
+clearest case — the domain can pose the question, the ontology anticipates it, and the graph
+cannot answer because nothing was ever ingested — but they are not the only one. The same
+`0 nodes` shape was measured this session for the hierarchy on `payments_v3` (0 containment
+edges), its open references (0), and the decisions index. Reported as an answer, each reads as
+"none", which is the vacuous-answer failure this whole design exists to prevent.
+
+So, prior and cheap:
+
+1. **`AnswerShaped` gains `state`** (see stage 2 in the preserved plan): `answered` |
+   `substrate_absent` | `no_named_question` | `out_of_scope`, where `substrate_absent` names
+   what is missing and the item that owns it.
+2. **The registry seeds the principles question as a DECLARED entry returning
+   `substrate_absent`**, pointing at YB-047 — not omitted. The answer becomes informative ("no
+   governance instruments are in this scope yet — YB-047") instead of silence.
+3. **The CAN'T ANSWER log records it**, so demand for the governance wiring is measured rather
+   than guessed. That is design §4.3's own argument ("list the questions users ask that no
+   report answers") applied to the one class where the answer is known to be absent.
 
 ## What closes it
 
