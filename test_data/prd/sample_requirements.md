@@ -15,6 +15,8 @@ The system shall utilize a configurable, rule-based engine to determine the opti
 
 The platform shall implement a defined fallback strategy. If the primary PGSP fails or does not meet routing criteria, the system must automatically attempt routing to a secondary/alternative PGSP.
 
+For initial release only Elavon, Ayden will be the PGSPs to integrate with.
+
 ### Security Requirements
 
 All Cardholder Data (CHD) must be encrypted both in transit (TLS 1.2+) and at rest (AES-256). The PGP shall be the sole component that stores, processes, and transmits CHD, acting as a PCI-DSS shield for storefronts.
@@ -23,7 +25,7 @@ Role-Based Access Control (RBAC) must be enforced across all administrative and 
 
 ### Performance Requirements
 
-95% of all payment authorization requests must complete within 500 milliseconds under normal load conditions. The platform must be capable of processing a minimum of 1000 transactions per second (TPS) with horizontal scaling capabilities.
+95% of all payment authorization requests must complete within 500 milliseconds under normal load conditions. The platform must be capable of processing a minimum of 10-20 payments per second (PPS) with horizontal scaling capabilities. This roughly translateds to 120 TPS to the Payment platform.
 
 ### Settlement and Reconciliation
 

@@ -393,7 +393,7 @@ def test_the_architecture_metadata_carries_the_model_and_its_real_passes():
     # The defect: this key did not exist, so no consumer could read a real pass.
     assert meta["model_calls"] == len(meta["passes"])
     assert {p["pass_name"] for p in meta["passes"]} == {
-        "structure", "connections", "technology", "traceability"
+        "structure", "connections", "technology", "traceability", "decisions"
     }
     assert all(p["chunk_label"] for p in meta["passes"])
     assert any(p["triples_produced"] >= 1 for p in meta["passes"])
@@ -410,6 +410,6 @@ def test_the_architecture_run_no_longer_ingests_as_unspecified():
     assert records
     assert all(r.pass_name != "(unspecified)" for r in records)
     assert {r.pass_name for r in records} == {
-        "structure", "connections", "technology", "traceability"
+        "structure", "connections", "technology", "traceability", "decisions"
     }
     assert sum(r.triples_produced for r in records) == 1

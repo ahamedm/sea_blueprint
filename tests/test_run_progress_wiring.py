@@ -85,10 +85,12 @@ def test_the_agent_forwards_an_attached_sink_and_the_run_id_correlates():
         "progress": sink,          # the whole point: does it reach run_passes?
     })
 
-    # 1. The sink received a started/finished pair per pass (four passes, one chunk).
+    # 1. The sink received a started/finished pair per pass (five passes, one chunk).
+    #    The count tracks `ARCHITECTURE_PASSES`, so adding a pass moves it — which is
+    #    the point of asserting it rather than trusting the sink.
     kinds = [event.kind for event in journal.rows]
-    assert kinds.count(PASS_STARTED) == 4, kinds
-    assert kinds.count(PASS_FINISHED) == 4, kinds
+    assert kinds.count(PASS_STARTED) == 5, kinds
+    assert kinds.count(PASS_FINISHED) == 5, kinds
     # Ordered, monotonic, and stamped with the journal's identity rather than the
     # pipeline's — the pipeline names a transition, it does not own the envelope.
     assert [event.seq for event in journal.rows] == list(range(1, len(journal.rows) + 1))
