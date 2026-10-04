@@ -2,6 +2,28 @@
 This is a platform shrinked to a tool/app to prove the core idea of leveraging Ontology for System Architecture reasoning, validation and evolution in an Enterprise ecosystem.
 
 # Convention
+- **Changes land on `development`; `main` is reached only by a squashed pull request.**
+  Commit straight onto `development` — it is the integration branch, and per-change feature
+  branches are not used. When a chunk of work is ready, open a PR into `main` and
+  **squash-merge** it: one commit per change on `main`, with the branch's working history left
+  behind. `main` requires both a pull request and verified signatures, so the PR is the
+  supported path rather than a bypass.
+  - **Never use "Rebase and merge" on a PR.** GitHub's documentation is explicit that those
+    commits are added "without commit signature verification": GitHub rewrites them into
+    commits it cannot sign, so a branch requiring signatures refuses the result. Rebase
+    locally and push if that history shape is wanted. "Squash and merge" and "Create a merge
+    commit" are both safe — GitHub signs commits it creates through the web interface, so the
+    signature requirement is satisfied by the merge itself, not by the branch's commits.
+- **Commits are GPG-signed, and the signing key must carry the no-reply address.** Signing is
+  configured per clone (`user.signingkey` and `commit.gpgsign` in `.git/config`), so a fresh
+  checkout must set it up or its commits are unsigned and `main` refuses them. The key's
+  identity must be the `ID+username@users.noreply.github.com` address: GitHub verifies a
+  signature only when the committer email matches an identity on the key *and* is a verified
+  email on the account. A key carrying any other address yields `bad_email` — unverified —
+  even though the signature is cryptographically valid, and that is what the "email in this
+  signature doesn't match the committer email" error means. Adding a second UID with the
+  no-reply address is the documented fix; note a UID can never be removed from a key, only
+  revoked, and a revoked UID's address stays inside the exported key.
 - TODOs/Deferred Items tracked as one file per item under `docs/todos/entries/`; `TODO.md` is a generated index — never edit it by hand, run `uv run scripts/todo.py render` (validate with `check`). Closed work becomes a record in `docs/decisions/`, long analysis lives in `docs/design/`. See [TODO system](docs/todos/README.md)
 - **A full regression generates the reports.** Any run of the whole suite ends with
   `.venv/bin/python scripts/test_report.py -n 4` (no `--catalog`) so `reports/test-report.md`
