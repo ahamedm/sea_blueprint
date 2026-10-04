@@ -7,13 +7,25 @@ This is a platform shrinked to a tool/app to prove the core idea of leveraging O
   branches are not used. When a chunk of work is ready, open a PR into `main` and
   **squash-merge** it: one commit per change on `main`, with the branch's working history left
   behind. `main` requires both a pull request and verified signatures, so the PR is the
-  supported path rather than a bypass.
+  supported path rather than a bypass. One caveat while this repository has no second
+  reviewer: GitHub refuses self-approval, so a *required approvals* rule is unsatisfiable in a
+  one-person repo and the merge has to be bypassed. Setting required approvals to 0 keeps the
+  pull-request and signature rules and removes the bypass.
+  - **Re-sync `development` from `main` after every squash merge.** A squash writes a NEW
+    commit, so the branch it came from never learns its work landed: the two trees end up
+    identical while the histories diverge, and the next PR lists the already-merged commit as
+    "ahead" while showing an empty diff. `git checkout development && git reset --hard
+    origin/main` (then `push --force-with-lease`) keeps the branch a straight line. Merging
+    `main` in works too and needs no force-push, at the cost of a merge commit the next squash
+    discards anyway.
   - **Never use "Rebase and merge" on a PR.** GitHub's documentation is explicit that those
     commits are added "without commit signature verification": GitHub rewrites them into
     commits it cannot sign, so a branch requiring signatures refuses the result. Rebase
     locally and push if that history shape is wanted. "Squash and merge" and "Create a merge
     commit" are both safe — GitHub signs commits it creates through the web interface, so the
     signature requirement is satisfied by the merge itself, not by the branch's commits.
+    Verified on PR #1: its squash commit `ad970db` reports `verified: true, reason: valid`
+    with committer `GitHub <noreply@github.com>`.
 - **Commits are GPG-signed, and the signing key must carry the no-reply address.** Signing is
   configured per clone (`user.signingkey` and `commit.gpgsign` in `.git/config`), so a fresh
   checkout must set it up or its commits are unsigned and `main` refuses them. The key's
